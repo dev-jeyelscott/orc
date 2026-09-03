@@ -1,3 +1,4 @@
+import * as React from "react"
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 
@@ -40,15 +41,40 @@ const buttonVariants = cva(
   }
 )
 
+/**
+ * Determines whether Base UI should apply native button behavior to the rendered element.
+ */
+function resolveNativeButton(
+  render: ButtonPrimitive.Props["render"],
+  nativeButton: ButtonPrimitive.Props["nativeButton"],
+): boolean {
+  if (nativeButton !== undefined) {
+    return nativeButton
+  }
+
+  if (!render) {
+    return true
+  }
+
+  return React.isValidElement(render) && render.type === "button"
+}
+
+/**
+ * Renders the shared Button while preserving correct Base UI semantics for custom render targets.
+ */
 function Button({
   className,
   variant = "default",
   size = "default",
+  render,
+  nativeButton,
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
   return (
     <ButtonPrimitive
       data-slot="button"
+      nativeButton={resolveNativeButton(render, nativeButton)}
+      render={render}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     />
