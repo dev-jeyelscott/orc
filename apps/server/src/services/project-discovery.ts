@@ -33,6 +33,11 @@ interface PackageManifest {
   packageManager?: string;
 }
 
+interface ComposerManifest {
+  require?: Record<string, unknown>;
+  requireDev?: Record<string, unknown>;
+}
+
 /**
  * Checks whether a filesystem path exists without propagating filesystem errors.
  */
@@ -105,7 +110,7 @@ async function detectMarkerFiles(dirPath: string): Promise<string[]> {
 }
 
 /**
- * Normalizes an unknown manifest dependency section into a safe string-keyed record.
+ * Normalizes an unknown dependency section into a safe string-keyed record.
  */
 function normalizeDependencyMap(
   value: unknown,
@@ -147,6 +152,31 @@ async function readPackageManifest(
 }
 
 /**
+ * Reads only Composer dependency metadata needed to identify obvious PHP frameworks.
+ */
+async function readComposerManifest(
+  dirPath: string,
+): Promise<ComposerManifest | null> {
+  try {
+    const raw = await fs.readFile(path.join(dirPath, "composer.json"), "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+
+    const manifest = parsed as Record<string, unknown>;
+
+    return {
+      require: normalizeDependencyMap(manifest.require),
+      requireDev: normalizeDependencyMap(manifest["require-dev"]),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Checks whether package.json declares a dependency in dependencies or devDependencies.
  */
 function hasPackageDependency(
@@ -163,18 +193,42 @@ function hasPackageDependency(
 }
 
 /**
+ * Checks whether composer.json declares a dependency in require or require-dev.
+ */
+function hasComposerDependency(
+  manifest: ComposerManifest | null,
+  dependency: string,
+): boolean {
+  const sections = [manifest?.require, manifest?.requireDev];
+
+  return sections.some(
+    (section) =>
+      section !== undefined &&
+      Object.prototype.hasOwnProperty.call(section, dependency),
+  );
+}
+
+/**
  * Derives the package manager only from explicit evidence such as lockfiles or manifest metadata.
  */
 function derivePackageManager(
   files: string[],
-  manifest: PackageManifest | null,
+  packageManifest: PackageManifest | null,
+  composerManifest: ComposerManifest | null,
 ): PackageManager {
+  if (
+    files.includes("composer.json") &&
+    hasComposerDependency(composerManifest, "laravel/framework")
+  ) {
+    return "composer";
+  }
+
   if (files.includes("pnpm-lock.yaml")) return "pnpm";
   if (files.includes("yarn.lock")) return "yarn";
   if (files.includes("package-lock.json")) return "npm";
 
-  if (manifest?.packageManager) {
-    const [manager] = manifest.packageManager.split("@", 1);
+  if (packageManifest?.packageManager) {
+    const [manager] = packageManifest.packageManager.split("@", 1);
 
     if (manager === "pnpm" || manager === "yarn" || manager === "npm") {
       return manager;
@@ -194,11 +248,19 @@ function derivePackageManager(
  */
 function deriveStack(
   files: string[],
-  manifest: PackageManifest | null,
+  packageManifest: PackageManifest | null,
+  composerManifest: ComposerManifest | null,
 ): string | null {
+  if (
+    files.includes("composer.json") &&
+    hasComposerDependency(composerManifest, "laravel/framework")
+  ) {
+    return "laravel";
+  }
+
   if (files.includes("package.json")) {
-    if (hasPackageDependency(manifest, "next")) return "nextjs";
-    if (hasPackageDependency(manifest, "react")) return "react";
+    if (hasPackageDependency(packageManifest, "next")) return "nextjs";
+    if (hasPackageDependency(packageManifest, "react")) return "react";
     return "node";
   }
 
@@ -226,9 +288,14 @@ async function buildProjectMetadata(dirPath: string): Promise<Project> {
     detectMarkerFiles(dirPath),
   ]);
 
-  const manifest = primaryFiles.includes("package.json")
-    ? await readPackageManifest(dirPath)
-    : null;
+  const [packageManifest, composerManifest] = await Promise.all([
+    primaryFiles.includes("package.json")
+      ? readPackageManifest(dirPath)
+      : Promise.resolve(null),
+    primaryFiles.includes("composer.json")
+      ? readComposerManifest(dirPath)
+      : Promise.resolve(null),
+  ]);
 
   return {
     id: deriveProjectId(dirPath),
@@ -237,8 +304,16 @@ async function buildProjectMetadata(dirPath: string): Promise<Project> {
     branch,
     gitState,
     primaryFiles,
-    packageManager: derivePackageManager(primaryFiles, manifest),
-    stack: deriveStack(primaryFiles, manifest),
+    packageManager: derivePackageManager(
+      primaryFiles,
+      packageManifest,
+      composerManifest,
+    ),
+    stack: deriveStack(
+      primaryFiles,
+      packageManifest,
+      composerManifest,
+    ),
   };
 }
 

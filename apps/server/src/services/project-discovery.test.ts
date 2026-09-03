@@ -357,6 +357,87 @@ describe("project-discovery", () => {
     });
   });
 
+  it("detects Laravel from composer.json before frontend Node tooling", async () => {
+    createGitRepository(
+      path.join(workspaceRoot, "laravel-project"),
+      {
+        "composer.json": JSON.stringify(
+          {
+            require: {
+              php: "^8.3",
+              "laravel/framework": "^12.0",
+            },
+          },
+          null,
+          2,
+        ),
+        "package.json": JSON.stringify(
+          {
+            dependencies: {
+              react: "^19.0.0",
+            },
+          },
+          null,
+          2,
+        ),
+        "package-lock.json": JSON.stringify(
+          {
+            name: "laravel-project",
+            lockfileVersion: 3,
+          },
+          null,
+          2,
+        ),
+      },
+    );
+
+    const result = await listProjects(workspaceRoot);
+    const laravelProject = findProject(
+      result.projects,
+      "laravel-project",
+    );
+
+    expect(laravelProject).toMatchObject({
+      stack: "laravel",
+      packageManager: "composer",
+    });
+
+    expect(laravelProject.primaryFiles).toEqual([
+      "package.json",
+      "package-lock.json",
+      "composer.json",
+    ]);
+  });
+
+  it("keeps generic Composer repositories classified as PHP", async () => {
+    createGitRepository(
+      path.join(workspaceRoot, "php-project"),
+      {
+        "composer.json": JSON.stringify(
+          {
+            require: {
+              php: "^8.3",
+              "symfony/console": "^7.0",
+            },
+          },
+          null,
+          2,
+        ),
+      },
+    );
+
+    const result = await listProjects(workspaceRoot);
+    const phpProject = findProject(
+      result.projects,
+      "php-project",
+    );
+
+    expect(phpProject).toMatchObject({
+      stack: "php",
+      packageManager: "composer",
+    });
+  });
+
   it("does not infer pip from pyproject.toml alone", async () => {
     createGitRepository(
       path.join(workspaceRoot, "pyproject-only"),
