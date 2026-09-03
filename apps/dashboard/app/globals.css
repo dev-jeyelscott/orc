@@ -89,7 +89,7 @@
   --surface-card: #ffffff;
   --surface-interactive: #f8fafc;
   --border-default: #e2e8f0;
-  --border-strong: #cbd5e1; /* approximated: illegible in source swatch */
+  --border-strong: #cbd5e1;
   --divider: #e5e7eb;
   --text-primary: #0f172a;
   --text-secondary: #334155;
@@ -149,7 +149,7 @@
   --surface-card: #161c26;
   --surface-interactive: #1c2230;
   --border-default: #2a3342;
-  --border-strong: #3b4759; /* approximated: illegible in source swatch */
+  --border-strong: #3b4759;
   --divider: #232b38;
   --text-primary: #e6e8f1;
   --text-secondary: #c2cad6;
@@ -204,21 +204,29 @@
   html {
     color-scheme: light;
   }
+
   html.dark {
     color-scheme: dark;
   }
+
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
+    position: relative;
     @apply bg-background text-foreground;
   }
+
   html {
     @apply font-sans;
   }
-  button:not(:disabled), [role="button"]:not(:disabled) {
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
     cursor: pointer;
   }
+
   /* Native select menus are rendered by the browser outside the React tree. Set both
      color-scheme and explicit option colors so the popup follows our dark tokens. */
   select,
@@ -227,6 +235,7 @@
     background-color: var(--surface-elevated);
     color: var(--text-primary);
   }
+
   select option:checked {
     background-color: var(--brand-accent);
     color: #ffffff;
