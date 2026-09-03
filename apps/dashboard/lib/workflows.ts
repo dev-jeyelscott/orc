@@ -28,4 +28,4 @@ export function getTasks(): Promise<Task[]> { return request("/api/tasks", {}, (
 export function getRuns(): Promise<Run[]> { return request("/api/runs", {}, (value) => runListResponseSchema.parse(value).runs); }
 export function getRun(id: string): Promise<RunDetail> { return request(`/api/runs/${id}`, {}, runDetailSchema.parse); }
 export function cancelRun(id: string): Promise<Run> { return request(`/api/runs/${id}/cancel`, { method: "POST" }, (value) => runDetailSchema.shape.run.parse(value)); }
-export function retryRun(id: string): Promise<Run> { return request(`/api/runs/${id}/retry`, { method: "POST" }, (value) => runDetailSchema.shape.run.parse(value)); }
+export function retryRun(id: string, model?: string): Promise<Run> { return request(`/api/runs/${id}/retry`, { method: "POST", body: JSON.stringify({ model }) }, (value) => runDetailSchema.shape.run.parse(value)); }

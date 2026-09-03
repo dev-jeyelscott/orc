@@ -21,12 +21,15 @@ export const taskSchema = z.object({
   updatedAt: z.string().datetime(),
 });
 
+export const retryRunSchema = z.object({ model: z.string().trim().min(1).max(160).optional() });
+
 export const taskWithRunSchema = z.object({ task: taskSchema, run: runSchema });
 export const taskListResponseSchema = z.object({ tasks: z.array(taskSchema) });
 export const runListResponseSchema = z.object({ runs: z.array(runSchema) });
 export const runDetailSchema = z.object({ run: runSchema, task: taskSchema.nullable(), executions: z.array(agentExecutionSchema), events: z.array(domainEventSchema).default([]) });
 
 export type CreateTask = z.infer<typeof createTaskSchema>;
+export type RetryRun = z.infer<typeof retryRunSchema>;
 export type Task = z.infer<typeof taskSchema>;
 export type TaskWithRun = z.infer<typeof taskWithRunSchema>;
 export type TaskListResponse = z.infer<typeof taskListResponseSchema>;
