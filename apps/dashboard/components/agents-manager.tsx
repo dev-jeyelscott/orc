@@ -19,6 +19,7 @@ import {
   updateAgent,
   updateAgentRoute,
 } from "@/lib/agents";
+import { harnessOptions } from "@/lib/harness-options";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,28 +45,6 @@ const terminalActions: TerminalAction[] = [
   "block_run",
 ];
 type Harness = NonNullable<CreateAgent["harness"]>;
-
-const harnessOptions: Record<
-  Harness,
-  { models: string[]; reasoning: string[] }
-> = {
-  codex: {
-    models: ["default", "gpt-5.6", "gpt-5.6-terra", "gpt-5.6-luna"],
-    reasoning: ["none", "low", "medium", "high", "xhigh", "max"],
-  },
-
-  claude: {
-    models: [
-      "default",
-      "claude-fable-5-1",
-      "claude-fable-5",
-      "claude-opus-4-8",
-      "claude-sonnet-5",
-      "claude-haiku-4-5",
-    ],
-    reasoning: ["low", "medium", "high"],
-  },
-};
 
 const blankAgent: CreateAgent = {
   slug: "",

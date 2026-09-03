@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 
-import type { AgentExecution, AgentResultStatus, CreateTask, Run, Task, TaskWithRun } from "@orc/shared";
+import type { AgentExecution, AgentResultStatus, CreateTask, RetryRun, Run, Task, TaskWithRun } from "@orc/shared";
 
 import { db } from "../db/client.js";
 import { agentExecutions, agentRoutes, agents, runs, tasks } from "../db/schema.js";
@@ -65,7 +65,7 @@ async function updateTerminal(run: typeof runs.$inferSelect, status: "completed"
   await recordEvent({ type: `run.${status}`, projectPath: run.projectPath, taskId: run.taskId, runId: run.id, data: { reason } });
 }
 
-async function launchNext(runId: string, nextAgentId: string, handoffNote?: string, modelOverride?: string): Promise<void> {
+async function launchNext(runId: string, nextAgentId: string, handoffNote?: string, override?: RetryRun): Promise<void> {
   const [run] = await db.select().from(runs).where(eq(runs.id, runId));
   if (!run || run.status !== "running") return;
   const snapshot = snapshotOf(run);
@@ -75,7 +75,10 @@ async function launchNext(runId: string, nextAgentId: string, handoffNote?: stri
 
   // The run's workflowSnapshot stays untouched (it is the historical record of what actually ran
   // in past executions); an override only applies to the config handed to this one invocation.
-  const agent = modelOverride ? { ...snapshotAgent, model: modelOverride } : snapshotAgent;
+  const hasOverride = Boolean(override?.harness || override?.model || override?.reasoning);
+  const agent = hasOverride
+    ? { ...snapshotAgent, ...(override?.harness ? { harness: override.harness } : {}), ...(override?.model ? { model: override.model } : {}), ...(override?.reasoning ? { reasoning: override.reasoning } : {}) }
+    : snapshotAgent;
 
   const now = new Date();
   const [claimed] = await db.update(runs)
@@ -83,7 +86,7 @@ async function launchNext(runId: string, nextAgentId: string, handoffNote?: stri
     .where(and(eq(runs.id, run.id), eq(runs.status, "running"), sql`${runs.currentAgentId} is null`))
     .returning();
   if (!claimed) return;
-  await recordEvent({ type: "agent.started", projectPath: claimed.projectPath, taskId: claimed.taskId, runId: claimed.id, data: { agentId: agent.id, layer: agent.layer, executionOrder: agent.executionOrder, model: agent.model, ...(modelOverride ? { modelOverride: true } : {}) } });
+  await recordEvent({ type: "agent.started", projectPath: claimed.projectPath, taskId: claimed.taskId, runId: claimed.id, data: { agentId: agent.id, layer: agent.layer, executionOrder: agent.executionOrder, harness: agent.harness, model: agent.model, reasoning: agent.reasoning, ...(hasOverride ? { overridden: true } : {}) } });
   const baseInstruction = await getTaskInstruction(claimed);
   const instruction = handoffNote ? `${baseInstruction}\n\n${handoffNote}` : baseInstruction;
   await startSnapshotAgentExecution(claimed, agent, instruction, (finalization) => handleExecutionFinalization(claimed.id, agent.id, finalization));
@@ -177,7 +180,7 @@ export async function cancelRun(id: string): Promise<Run | null> {
   return updated ? serializeRun(updated) : null;
 }
 
-export async function retryLastExecution(id: string, modelOverride?: string): Promise<Run | null> {
+export async function retryLastExecution(id: string, override?: RetryRun): Promise<Run | null> {
   const [run] = await db.select().from(runs).where(eq(runs.id, id));
   if (!run) return null;
   if (run.status !== "failed" && run.status !== "blocked") throw new WorkflowServiceError("Only failed or blocked runs can be retried", 409);
@@ -187,8 +190,8 @@ export async function retryLastExecution(id: string, modelOverride?: string): Pr
   if (!snapshot.agents.some((agent) => agent.id === execution.agentId)) throw new WorkflowServiceError("The final execution is outside this run's workflow snapshot", 409);
   if (run.executionCount >= MAX_EXECUTIONS) throw new WorkflowServiceError(`Workflow execution limit (${MAX_EXECUTIONS}) reached.`, 409);
   await db.update(runs).set({ status: "running", currentAgentId: null, terminalReason: null, updatedAt: new Date() }).where(eq(runs.id, id));
-  await recordEvent({ type: "execution.retried", projectPath: run.projectPath, taskId: run.taskId, runId: id, agentExecutionId: execution.id, data: { agentId: execution.agentId, ...(modelOverride ? { modelOverride } : {}) } });
-  void launchNext(id, execution.agentId, undefined, modelOverride);
+  await recordEvent({ type: "execution.retried", projectPath: run.projectPath, taskId: run.taskId, runId: id, agentExecutionId: execution.id, data: { agentId: execution.agentId, ...(override ? { override } : {}) } });
+  void launchNext(id, execution.agentId, undefined, override);
   const [updated] = await db.select().from(runs).where(eq(runs.id, id));
   return updated ? serializeRun(updated) : null;
 }

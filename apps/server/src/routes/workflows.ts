@@ -39,7 +39,7 @@ export async function workflowRoutes(app: FastifyInstance) {
     const body = retryRunSchema.safeParse(request.body ?? {});
     if (!body.success) return reply.status(400).send({ error: body.error.issues.map((issue) => issue.message).join(", ") });
     try {
-      const run = await retryLastExecution(parsed.data.id, body.data.model);
+      const run = await retryLastExecution(parsed.data.id, body.data);
       return run ?? reply.status(404).send({ error: "run_not_found" });
     } catch (error) { return sendError(error, reply); }
   });

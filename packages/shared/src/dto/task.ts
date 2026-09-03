@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { taskStatusSchema } from "../enums/task-status.js";
+import { harnessSchema } from "../enums/harness.js";
 import { runSchema } from "./run.js";
 import { agentExecutionSchema } from "./agent-execution.js";
 import { domainEventSchema } from "./event.js";
@@ -21,7 +22,11 @@ export const taskSchema = z.object({
   updatedAt: z.string().datetime(),
 });
 
-export const retryRunSchema = z.object({ model: z.string().trim().min(1).max(160).optional() });
+export const retryRunSchema = z.object({
+  harness: harnessSchema.optional(),
+  model: z.string().trim().min(1).max(160).optional(),
+  reasoning: z.string().trim().min(1).max(160).optional(),
+});
 
 export const taskWithRunSchema = z.object({ task: taskSchema, run: runSchema });
 export const taskListResponseSchema = z.object({ tasks: z.array(taskSchema) });
