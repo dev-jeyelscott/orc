@@ -40,7 +40,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <AppSidebar />
             <main className="w-full">
               <SidebarTrigger />
-              {children}
+              <div className="mx-auto flex max-w-[1600px] flex-col px-6 py-8">
+                {children}
+              </div>
             </main>
           </SidebarProvider>
         </ThemeProvider>

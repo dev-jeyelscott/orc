@@ -3,6 +3,7 @@ import { AlertTriangleIcon, InboxIcon } from "lucide-react";
 import { AgentDetailPanel } from "@/components/agent-detail-panel";
 import { ContextUsage } from "@/components/context-usage";
 import { FileTable } from "@/components/file-table";
+import { HealthStatus } from "@/components/health-status";
 import { MetricCard } from "@/components/metric-card";
 import { TerminalPanel } from "@/components/terminal-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -41,7 +42,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 export default function Home() {
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-10 px-6 py-8">
+    <div className="flex flex-col gap-10">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="font-heading text-2xl font-semibold text-text-primary">
@@ -49,7 +50,10 @@ export default function Home() {
           </h1>
           <p className="text-sm text-text-muted">Design system showcase</p>
         </div>
-        <ThemeToggle />
+        <div className="flex items-center gap-3">
+          <HealthStatus />
+          <ThemeToggle />
+        </div>
       </header>
 
       <section className="flex flex-col gap-4">

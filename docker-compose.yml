@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: orc
+      POSTGRES_PASSWORD: orc
+      POSTGRES_DB: orc
+    ports:
+      - "5432:5432"
+    volumes:
+      - orc_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  orc_postgres_data:
