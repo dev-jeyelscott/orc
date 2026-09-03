@@ -24,7 +24,15 @@ export type SessionState = "starting" | "running" | "stopping" | "exited" | "fai
 export type UsageMetadata = Record<string, unknown>;
 
 export type RuntimeDiagnostic = {
-  code: "project_not_found" | "project_not_directory" | "cli_not_found" | "launch_failed" | "unsupported_configuration" | "unexpected_exit" | "usage_unavailable";
+  code:
+    | "project_not_found"
+    | "project_not_directory"
+    | "cli_not_found"
+    | "launch_failed"
+    | "unsupported_configuration"
+    | "unexpected_exit"
+    | "usage_unavailable"
+    | "instruction_failed";
   message: string;
 };
 
@@ -52,37 +60,83 @@ export type SessionMetadata = {
 
 export type RuntimeSession = {
   readonly metadata: SessionMetadata;
+
+  /** Subscribes to session events and replays events already emitted by the session. */
   subscribe(listener: (event: RuntimeEvent) => void): () => void;
+
+  /**
+   * Sends an additional instruction only when the active harness explicitly supports
+   * translating runtime instructions into PTY input.
+   */
+  sendInstruction(instruction: string): boolean;
+
+  /** Requests graceful process termination with the runtime-managed fallback behavior. */
   stop(): void;
 };
 
-export type PtyExitEvent = { exitCode: number; signal?: number };
+export type PtyExitEvent = {
+  exitCode: number;
+  signal?: number;
+};
 
 export type PtyProcess = {
   pid: number;
+
+  /** Registers a listener for raw PTY output. */
   onData(listener: (data: string) => void): { dispose(): void };
+
+  /** Registers a listener for PTY process exit. */
   onExit(listener: (event: PtyExitEvent) => void): { dispose(): void };
+
+  /** Writes raw input into the PTY when the spawned process supports stdin interaction. */
+  write(data: string): void;
+
+  /** Sends a termination signal to the PTY process. */
   kill(signal?: string): void;
 };
 
+export type PtySpawnOptions = {
+  cwd: string;
+  name: string;
+  cols: number;
+  rows: number;
+  env: NodeJS.ProcessEnv;
+};
+
 export type PtyFactory = {
-  spawn(command: string, args: string[], options: { cwd: string; name: string; cols: number; rows: number }): PtyProcess;
+  /** Spawns a PTY process using normalized runtime spawn options. */
+  spawn(command: string, args: string[], options: PtySpawnOptions): PtyProcess;
 };
 
 export type HarnessInvocation = {
   command: string;
   args: string[];
   cwd: string;
+  env: NodeJS.ProcessEnv;
 };
 
 export type HarnessAdapter = {
   readonly harness: Harness;
-  createInvocation(input: StartWorkerInput, prompt: string): HarnessInvocation;
+
+  /** Builds the provider-specific CLI invocation without leaking provider details upstream. */
+  createInvocation(
+    input: StartWorkerInput,
+    prompt: string,
+    environment: NodeJS.ProcessEnv,
+  ): HarnessInvocation;
+
+  /** Converts provider output into normalized runtime events when structured data is available. */
   translateOutput(data: string): UnsequencedRuntimeEvent[];
-  // Extracts assistant-authored message text from a single provider event (the parsed JSON
-  // object carried by a "provider" RuntimeEvent). Used by the agent execution service to
-  // reconstruct the final message text and locate the structured <orc-result> completion
-  // contract. Field names are harness-specific (see harnesses/claude.ts and harnesses/codex.ts)
-  // and must stay out of generic runtime/workflow code.
+
+  /**
+   * Converts an additional runtime instruction into provider-specific PTY input.
+   * Omit this hook when the current provider invocation is intentionally non-interactive.
+   */
+  formatInstructionInput?(instruction: string): string | null;
+
+  /**
+   * Extracts assistant-authored message text from a provider event.
+   * Provider field names remain isolated inside the adapter.
+   */
   extractMessageText?(event: Record<string, unknown>): string | undefined;
 };

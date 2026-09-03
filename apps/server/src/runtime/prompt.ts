@@ -2,9 +2,6 @@ import type { AgentResult } from "@orc/shared";
 
 import type { StartWorkerInput } from "./contracts.js";
 
-// Stable delimiter the agent-execution-service scans for when extracting the structured
-// completion contract from accumulated assistant message text. Kept as a named export so the
-// service does not need to duplicate the literal strings.
 export const RESULT_BLOCK_START = "<orc-result>";
 export const RESULT_BLOCK_END = "</orc-result>";
 
@@ -16,8 +13,27 @@ const RESULT_CONTRACT = [
   `Do not include any text, code fences, or commentary between ${RESULT_BLOCK_START} and ${RESULT_BLOCK_END} other than that single JSON object.`,
 ].join("\n");
 
-export function composeInitialInstruction(input: StartWorkerInput): string {
-  const { agent, instruction, projectPath } = input;
+const SAFE_COMMAND_GUIDANCE = [
+  "Stay inside the selected repository. Do not intentionally target unrelated files or directories outside it.",
+  "Do not use sudo, privileged commands, or commands intended to alter machine-level security or permissions.",
+  "Avoid broad or destructive deletes, filesystem formatting, disk operations, and destructive system changes.",
+  "Do not use destructive Git resets, force pushes, or other force operations that can discard unrelated work or history.",
+  "Do not delete unrelated project files or directories.",
+  "Do not modify system packages or services unless the task explicitly requires it and the user has approved it.",
+  "When command execution is permitted, prefer project-scoped dependency installation, tests, linting, type checking, builds, project scripts, and safe Git inspection.",
+  "These instructions are prompt-enforced guidance. Do not assume a runtime command sandbox or command firewall exists.",
+].join("\n");
+
+/** Composes the complete initial worker instruction from task, capabilities, safety, and result contract. */
+export function composeInitialInstruction(
+  input: StartWorkerInput,
+): string {
+  const {
+    agent,
+    instruction,
+    projectPath,
+  } = input;
+
   const capabilityGuidance = [
     agent.canWrite
       ? "You may modify files when the task requires it."
@@ -43,31 +59,50 @@ export function composeInitialInstruction(input: StartWorkerInput): string {
     "Capability guidance (prompt-enforced):",
     capabilityGuidance,
     "",
+    "Safe command guidance (prompt-enforced):",
+    SAFE_COMMAND_GUIDANCE,
+    "",
     RESULT_CONTRACT,
   ].join("\n");
 }
 
-// Appended to the next agent's task instruction when the workflow router hands off from one
-// agent to another (same-layer sequence or a configured route), so the receiving agent sees the
-// structured result the previous agent reported instead of being re-run blind against the
-// original task text alone.
-export function composeHandoffNote(source: { name: string; role: string }, result: AgentResult): string {
+/** Composes structured prior-agent context for the next configured workflow execution. */
+export function composeHandoffNote(
+  source: {
+    name: string;
+    role: string;
+  },
+  result: AgentResult,
+): string {
   const lines = [
     `Handoff from ${source.name} (${source.role}):`,
     `Previous outcome: ${result.status}`,
     `Previous summary: ${result.summary}`,
   ];
-  if (result.findings.length) lines.push("Findings:", ...result.findings.map((finding) => `- ${finding}`));
-  if (result.filesChanged.length) lines.push(`Files changed: ${result.filesChanged.join(", ")}`);
-  if (Object.keys(result.validation).length) lines.push(`Validation: ${JSON.stringify(result.validation)}`);
+
+  if (result.findings.length) {
+    lines.push(
+      "Findings:",
+      ...result.findings.map((finding) => `- ${finding}`),
+    );
+  }
+
+  if (result.filesChanged.length) {
+    lines.push(
+      `Files changed: ${result.filesChanged.join(", ")}`,
+    );
+  }
+
+  if (Object.keys(result.validation).length) {
+    lines.push(
+      `Validation: ${JSON.stringify(result.validation)}`,
+    );
+  }
+
   return lines.join("\n");
 }
 
-// Composed for the single controlled repair turn when the previous attempt's output did not
-// contain a valid structured result (missing/malformed <orc-result> block, invalid JSON, schema
-// validation failure, or a policy violation such as reporting a commit while canCommit is
-// false). Each harness invocation is a one-shot process, so the repair turn restates the
-// original task instruction and the result contract rather than relying on conversation history.
+/** Composes the single controlled structured-result repair instruction. */
 export function composeRepairInstruction(
   originalInstruction: string,
   invalidOutputExcerpt: string,
