@@ -58,7 +58,6 @@ type SortKey =
   | "branch"
   | "stack"
 type ViewMode = "list" | "details" | "grid"
-type LoadMode = "initial" | "refresh"
 
 const projectCollator = new Intl.Collator(
   undefined,
@@ -256,26 +255,18 @@ function ProjectsList() {
   const [viewMode, setViewMode] =
     useState<ViewMode>("details")
 
-  const load = useCallback(
-    async (mode: LoadMode) => {
-      if (requestInFlightRef.current) {
-        return
-      }
+  /**
+   * Starts the initial project request and commits React state only from asynchronous callbacks.
+   */
+  useEffect(() => {
+    let cancelled = false
 
-      requestInFlightRef.current = true
+    mountedRef.current = true
+    requestInFlightRef.current = true
 
-      if (mode === "initial") {
-        setStatus("loading")
-        setErrorMessage(null)
-      } else {
-        setIsRefreshing(true)
-        setRefreshError(null)
-      }
-
-      try {
-        const result = await getProjects()
-
-        if (!mountedRef.current) {
+    void getProjects()
+      .then((result) => {
+        if (cancelled) {
           return
         }
 
@@ -283,46 +274,87 @@ function ProjectsList() {
         setStatus("loaded")
         setErrorMessage(null)
         setRefreshError(null)
-      } catch (error) {
-        if (!mountedRef.current) {
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
           return
         }
 
-        const message =
-          getErrorMessage(error)
-
-        if (mode === "initial") {
-          setStatus("error")
-          setErrorMessage(message)
-        } else {
-          setRefreshError(message)
+        setStatus("error")
+        setErrorMessage(
+          getErrorMessage(error),
+        )
+      })
+      .finally(() => {
+        if (!cancelled) {
+          requestInFlightRef.current =
+            false
         }
-      } finally {
-        requestInFlightRef.current = false
-
-        if (
-          mountedRef.current &&
-          mode === "refresh"
-        ) {
-          setIsRefreshing(false)
-        }
-      }
-    },
-    [],
-  )
-
-  useEffect(() => {
-    mountedRef.current = true
-    void load("initial")
+      })
 
     return () => {
+      cancelled = true
       mountedRef.current = false
+      requestInFlightRef.current = false
     }
-  }, [load])
+  }, [])
 
-  const refresh = useCallback(() => {
-    void load(data ? "refresh" : "initial")
-  }, [data, load])
+  /**
+   * Reloads filesystem-backed project data while preserving loaded data during refresh failures.
+   */
+  const refresh = useCallback(async () => {
+    if (requestInFlightRef.current) {
+      return
+    }
+
+    const hasLoadedData = data !== null
+
+    requestInFlightRef.current = true
+    setRefreshError(null)
+
+    if (hasLoadedData) {
+      setIsRefreshing(true)
+    } else {
+      setStatus("loading")
+      setErrorMessage(null)
+    }
+
+    try {
+      const result = await getProjects()
+
+      if (!mountedRef.current) {
+        return
+      }
+
+      setData(result)
+      setStatus("loaded")
+      setErrorMessage(null)
+      setRefreshError(null)
+    } catch (error) {
+      if (!mountedRef.current) {
+        return
+      }
+
+      const message =
+        getErrorMessage(error)
+
+      if (hasLoadedData) {
+        setRefreshError(message)
+      } else {
+        setStatus("error")
+        setErrorMessage(message)
+      }
+    } finally {
+      requestInFlightRef.current = false
+
+      if (
+        mountedRef.current &&
+        hasLoadedData
+      ) {
+        setIsRefreshing(false)
+      }
+    }
+  }, [data])
 
   const normalizedQuery = query
     .trim()
