@@ -79,4 +79,10 @@ export type HarnessAdapter = {
   readonly harness: Harness;
   createInvocation(input: StartWorkerInput, prompt: string): HarnessInvocation;
   translateOutput(data: string): UnsequencedRuntimeEvent[];
+  // Extracts assistant-authored message text from a single provider event (the parsed JSON
+  // object carried by a "provider" RuntimeEvent). Used by the agent execution service to
+  // reconstruct the final message text and locate the structured <orc-result> completion
+  // contract. Field names are harness-specific (see harnesses/claude.ts and harnesses/codex.ts)
+  // and must stay out of generic runtime/workflow code.
+  extractMessageText?(event: Record<string, unknown>): string | undefined;
 };

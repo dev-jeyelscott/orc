@@ -4,7 +4,7 @@ import { nodePtyFactory } from "./pty.js";
 import { InMemoryRuntimeSession } from "./session.js";
 
 export * from "./contracts.js";
-export { composeInitialInstruction } from "./prompt.js";
+export { composeInitialInstruction, composeRepairInstruction, RESULT_BLOCK_START, RESULT_BLOCK_END } from "./prompt.js";
 export { getHarnessAdapter } from "./harnesses/registry.js";
 
 export function startWorker(input: StartWorkerInput): RuntimeSession {

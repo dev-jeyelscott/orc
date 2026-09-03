@@ -16,6 +16,16 @@ function providerEvents(data: string): UnsequencedRuntimeEvent[] {
   });
 }
 
+// Field names verified against a live `codex exec --json` invocation. Assistant-authored
+// message text is delivered as `{"type":"item.completed","item":{"id":"...","type":
+// "agent_message","text":"..."}}`. Other item types (e.g. "error") are ignored here.
+function extractMessageText(event: Record<string, unknown>): string | undefined {
+  if (event.type !== "item.completed") return undefined;
+  const item = event.item as { type?: unknown; text?: unknown } | undefined;
+  if (item?.type === "agent_message" && typeof item.text === "string" && item.text.length > 0) return item.text;
+  return undefined;
+}
+
 export const codexHarness: HarnessAdapter = {
   harness: "codex",
   createInvocation(input: StartWorkerInput, prompt: string) {
@@ -29,4 +39,5 @@ export const codexHarness: HarnessAdapter = {
     };
   },
   translateOutput: providerEvents,
+  extractMessageText,
 };

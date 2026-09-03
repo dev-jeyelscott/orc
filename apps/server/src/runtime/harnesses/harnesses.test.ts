@@ -31,9 +31,9 @@ describe("harness adapters", () => {
   it("composes capability guidance without provider permission modes", () => {
     const prompt = composeInitialInstruction(baseInput);
     expect(prompt).toContain("Selected repository: /projects/example");
-    expect(prompt).toContain("Do not modify, create, or delete files.");
+    expect(prompt).toContain("Strictly do not modify, create, or delete files.");
     expect(prompt).toContain("You may run commands needed to complete the task.");
-    expect(prompt).toContain("Do not create Git commits.");
+    expect(prompt).toContain("Strictly do not create Git commits.");
   });
 
   it("normalizes provider JSON into generic provider and usage events", () => {
