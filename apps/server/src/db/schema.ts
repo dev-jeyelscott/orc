@@ -38,9 +38,9 @@ export const agents = pgTable("agents", {
 
 export const agentRoutes = pgTable("agent_routes", {
   id: uuid("id").primaryKey().defaultRandom(),
-  sourceAgentId: uuid("source_agent_id").notNull().references(() => agents.id),
+  sourceAgentId: uuid("source_agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
   outcome: agentRouteOutcomeEnum("outcome").notNull(),
-  targetAgentId: uuid("target_agent_id").references(() => agents.id),
+  targetAgentId: uuid("target_agent_id").references(() => agents.id, { onDelete: "cascade" }),
   terminalAction: terminalActionEnum("terminal_action"),
   enabled: boolean("enabled").notNull().default(true),
   ...timestamps,
@@ -74,16 +74,14 @@ export const tasks = pgTable("tasks", {
 });
 
 // `agentId` is nullable so execution history survives agent deletion. The denormalized
-// agent/harness/model/reasoning columns stand in for a full run-snapshot system (Phase 7).
+// agent/harness/model/reasoning columns preserve the historical worker identity and settings.
 // `resultStatus`/`resultPayload`/`failureReason`/`repairAttempted` are populated by the
-// structured completion contract (Phase 6, see agent-execution-service.ts). `resultStatus`
-// stays nullable until a valid <orc-result> block is parsed; `agent_executions.status` itself
-// only ever reflects completed/blocked/failed (did the process finish with a valid result), not
-// the nuanced result outcome.
+// structured completion contract. Deleting an agent only clears this nullable live reference;
+// it never removes historical execution data or modifies a run workflow snapshot.
 export const agentExecutions = pgTable("agent_executions", {
   id: uuid("id").primaryKey().defaultRandom(),
   runId: uuid("run_id").notNull().references(() => runs.id),
-  agentId: uuid("agent_id").references(() => agents.id),
+  agentId: uuid("agent_id").references(() => agents.id, { onDelete: "set null" }),
   agentName: text("agent_name").notNull(),
   agentRole: text("agent_role").notNull(),
   layer: integer("layer").notNull(),
@@ -124,6 +122,19 @@ export const terminalChunks = pgTable("terminal_chunks", {
 export const orchestratorSettings = pgTable("orchestrator_settings", {
   id: integer("id").primaryKey().default(1), harness: harnessEnum("harness").notNull().default("codex"), model: text("model").notNull().default("default"), reasoning: text("reasoning").notNull().default("medium"), systemPrompt: text("system_prompt").notNull().default("You supervise engineering workflows. Use only supplied state and be concise."), ...timestamps,
 });
-export const conversations = pgTable("conversations", { id: uuid("id").primaryKey().defaultRandom(), projectPath: text("project_path").notNull(), taskId: uuid("task_id"), runId: uuid("run_id"), ...timestamps });
-export const conversationMessages = pgTable("conversation_messages", { id: uuid("id").primaryKey().defaultRandom(), conversationId: uuid("conversation_id").notNull().references(() => conversations.id), role: text("role").notNull(), content: text("content").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow() }, (table) => [check("conversation_messages_role_check", sql`${table.role} in ('user', 'assistant')`)]);
-export const domainEvents = pgTable("domain_events", { id: uuid("id").primaryKey().defaultRandom(), type: text("type").notNull(), projectPath: text("project_path").notNull(), taskId: uuid("task_id"), runId: uuid("run_id"), agentExecutionId: uuid("agent_execution_id"), data: jsonb("data").notNull().default({}), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow() }, (table) => [index("domain_events_run_id_created_at_idx").on(table.runId, table.createdAt)]);
+
+export const conversations = pgTable("conversations", {
+  id: uuid("id").primaryKey().defaultRandom(), projectPath: text("project_path").notNull(), taskId: uuid("task_id"), runId: uuid("run_id"), ...timestamps,
+});
+
+export const conversationMessages = pgTable("conversation_messages", {
+  id: uuid("id").primaryKey().defaultRandom(), conversationId: uuid("conversation_id").notNull().references(() => conversations.id), role: text("role").notNull(), content: text("content").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("conversation_messages_role_check", sql`${table.role} in ('user', 'assistant')`),
+]);
+
+export const domainEvents = pgTable("domain_events", {
+  id: uuid("id").primaryKey().defaultRandom(), type: text("type").notNull(), projectPath: text("project_path").notNull(), taskId: uuid("task_id"), runId: uuid("run_id"), agentExecutionId: uuid("agent_execution_id"), data: jsonb("data").notNull().default({}), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("domain_events_run_id_created_at_idx").on(table.runId, table.createdAt),
+]);

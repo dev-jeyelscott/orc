@@ -43,6 +43,13 @@
       "when": 1788441600005,
       "tag": "0005_supervisor_default_model",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788441600006,
+      "tag": "0006_safe_agent_deletion",
+      "breakpoints": true
     }
   ]
 }
