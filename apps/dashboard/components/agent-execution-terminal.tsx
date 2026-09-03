@@ -30,6 +30,7 @@ interface AgentExecutionTerminalProps {
   executionId: string;
   title: string;
   className?: string;
+  heightClassName?: string;
 }
 
 const RECONNECT_DELAYS_MS = [
@@ -47,14 +48,49 @@ const ACTIVE_EXECUTION_STATUSES =
     "running",
   ]);
 
+/** Returns the human-readable terminal connection state used by the panel header. */
+function connectionLabel(
+  status: ConnectionStatus,
+): string {
+  switch (status) {
+    case "streaming":
+      return "Live";
+    case "complete":
+      return "Complete";
+    case "error":
+      return "Disconnected";
+    case "connecting":
+    default:
+      return "Connecting";
+  }
+}
+
+/** Returns the semantic design-system class for one terminal connection state. */
+function connectionClassName(
+  status: ConnectionStatus,
+): string {
+  switch (status) {
+    case "streaming":
+      return "bg-status-success";
+    case "complete":
+      return "bg-status-neutral";
+    case "error":
+      return "bg-status-error";
+    case "connecting":
+    default:
+      return "bg-status-warning";
+  }
+}
+
 /**
  * Renders one execution-scoped xterm terminal with persisted replay,
  * bounded reconnect, raw ANSI output, and PTY resize propagation.
  */
-function AgentExecutionTerminal({
+export function AgentExecutionTerminal({
   executionId,
   title,
   className,
+  heightClassName = "h-[480px]",
 }: AgentExecutionTerminalProps) {
   const containerRef =
     useRef<HTMLDivElement | null>(
@@ -71,28 +107,78 @@ function AgentExecutionTerminal({
       return;
     }
 
-    const resolvedMonoFont =
+    const rootStyles =
       getComputedStyle(
         document.documentElement,
-      )
-        .getPropertyValue("--font-mono")
+      );
+
+    const containerStyles =
+      getComputedStyle(
+        containerRef.current,
+      );
+
+    const resolvedMonoFont =
+      rootStyles
+        .getPropertyValue(
+          "--font-mono",
+        )
         .trim() || "monospace";
 
-    const terminal = new Terminal({
-      convertEol: false,
-      fontFamily: resolvedMonoFont,
-      fontSize: 13,
-      scrollback: 10_000,
-      theme: {
-        background: "#0B0F14",
-        foreground: "#C2CAD6",
-      },
-      disableStdin: true,
-    });
+    const background =
+      rootStyles
+        .getPropertyValue(
+          "--bg-app",
+        )
+        .trim() ||
+      containerStyles.backgroundColor;
 
-    const fitAddon = new FitAddon();
+    const foreground =
+      rootStyles
+        .getPropertyValue(
+          "--text-secondary",
+        )
+        .trim() ||
+      containerStyles.color;
 
-    terminal.loadAddon(fitAddon);
+    const cursor =
+      rootStyles
+        .getPropertyValue(
+          "--text-primary",
+        )
+        .trim() ||
+      foreground;
+
+    const selectionBackground =
+      rootStyles
+        .getPropertyValue(
+          "--surface-interactive",
+        )
+        .trim() ||
+      background;
+
+    const terminal =
+      new Terminal({
+        convertEol: false,
+        fontFamily:
+          resolvedMonoFont,
+        fontSize: 13,
+        scrollback: 10_000,
+        theme: {
+          background,
+          foreground,
+          cursor,
+          selectionBackground,
+        },
+        disableStdin: true,
+      });
+
+    const fitAddon =
+      new FitAddon();
+
+    terminal.loadAddon(
+      fitAddon,
+    );
+
     terminal.open(
       containerRef.current,
     );
@@ -189,159 +275,179 @@ function AgentExecutionTerminal({
         reconnectAttempt += 1;
         setStatus("connecting");
 
-        reconnectTimer = setTimeout(
+        reconnectTimer =
+          setTimeout(
+            () => {
+              if (
+                !disposed &&
+                !finished
+              ) {
+                connect();
+              }
+            },
+            delay,
+          );
+      };
+
+    /** Opens a terminal WebSocket from the last terminal-specific sequence already rendered. */
+    const connect =
+      (): void => {
+        if (
+          disposed ||
+          finished
+        ) {
+          return;
+        }
+
+        const currentSocket =
+          new WebSocket(
+            getAgentExecutionTerminalUrl(
+              executionId,
+              lastSequence,
+            ),
+          );
+
+        socket =
+          currentSocket;
+
+        currentSocket.addEventListener(
+          "open",
+          () => {
+            if (disposed) {
+              return;
+            }
+
+            reconnectAttempt = 0;
+            setStatus(
+              "streaming",
+            );
+
+            fitAndSendResize();
+          },
+        );
+
+        currentSocket.addEventListener(
+          "message",
+          (event) => {
+            let payload: unknown;
+
+            try {
+              payload =
+                JSON.parse(
+                  event.data as string,
+                );
+            } catch {
+              return;
+            }
+
+            const parsed =
+              terminalFrameSchema.safeParse(
+                payload,
+              );
+
+            if (
+              !parsed.success
+            ) {
+              return;
+            }
+
+            const frame =
+              parsed.data;
+
+            if (
+              frame.type ===
+              "chunk"
+            ) {
+              if (
+                frame.sequence <=
+                lastSequence
+              ) {
+                return;
+              }
+
+              terminal.write(
+                frame.data,
+              );
+
+              lastSequence =
+                frame.sequence;
+
+              return;
+            }
+
+            if (
+              frame.type ===
+              "complete"
+            ) {
+              finished = true;
+
+              setStatus(
+                "complete",
+              );
+
+              if (
+                currentSocket.readyState ===
+                WebSocket.OPEN
+              ) {
+                currentSocket.close(
+                  1000,
+                  "complete",
+                );
+              }
+
+              return;
+            }
+
+            if (
+              frame.type ===
+              "error"
+            ) {
+              finished = true;
+
+              setStatus(
+                "error",
+              );
+
+              if (
+                currentSocket.readyState ===
+                  WebSocket.OPEN ||
+                currentSocket.readyState ===
+                  WebSocket.CONNECTING
+              ) {
+                currentSocket.close();
+              }
+            }
+          },
+        );
+
+        currentSocket.addEventListener(
+          "close",
+          () => {
+            if (
+              disposed ||
+              finished
+            ) {
+              return;
+            }
+
+            void scheduleReconnect();
+          },
+        );
+
+        currentSocket.addEventListener(
+          "error",
           () => {
             if (
               !disposed &&
               !finished
             ) {
-              connect();
-            }
-          },
-          delay,
-        );
-      };
-
-    /** Opens a terminal WebSocket from the last terminal-specific sequence already rendered. */
-    const connect = (): void => {
-      if (
-        disposed ||
-        finished
-      ) {
-        return;
-      }
-
-      const currentSocket =
-        new WebSocket(
-          getAgentExecutionTerminalUrl(
-            executionId,
-            lastSequence,
-          ),
-        );
-
-      socket = currentSocket;
-
-      currentSocket.addEventListener(
-        "open",
-        () => {
-          if (disposed) {
-            return;
-          }
-
-          setStatus("streaming");
-          fitAndSendResize();
-        },
-      );
-
-      currentSocket.addEventListener(
-        "message",
-        (event) => {
-          let payload: unknown;
-
-          try {
-            payload = JSON.parse(
-              event.data as string,
-            );
-          } catch {
-            return;
-          }
-
-          const parsed =
-            terminalFrameSchema.safeParse(
-              payload,
-            );
-
-          if (!parsed.success) {
-            return;
-          }
-
-          const frame =
-            parsed.data;
-
-          if (
-            frame.type === "chunk"
-          ) {
-            if (
-              frame.sequence <=
-              lastSequence
-            ) {
-              return;
-            }
-
-            terminal.write(
-              frame.data,
-            );
-
-            lastSequence =
-              frame.sequence;
-
-            return;
-          }
-
-          if (
-            frame.type ===
-            "complete"
-          ) {
-            finished = true;
-            setStatus("complete");
-
-            if (
-              currentSocket.readyState ===
-              WebSocket.OPEN
-            ) {
-              currentSocket.close(
-                1000,
-                "complete",
+              setStatus(
+                "connecting",
               );
             }
-
-            return;
-          }
-
-          if (
-            frame.type === "error"
-          ) {
-            finished = true;
-            setStatus("error");
-
-            if (
-              currentSocket.readyState ===
-                WebSocket.OPEN ||
-              currentSocket.readyState ===
-                WebSocket.CONNECTING
-            ) {
-              currentSocket.close();
-            }
-          }
-        },
-      );
-
-      currentSocket.addEventListener(
-        "close",
-        () => {
-          if (
-            disposed ||
-            finished
-          ) {
-            return;
-          }
-
-          void scheduleReconnect();
-        },
-      );
-
-      currentSocket.addEventListener(
-        "error",
-        () => {
-          if (
-            !disposed &&
-            !finished
-          ) {
-            setStatus("connecting");
-          }
-        },
-      );
-    };
+          },
+        );
+      };
 
     const resizeObserver =
       new ResizeObserver(() => {
@@ -380,43 +486,43 @@ function AgentExecutionTerminal({
     };
   }, [executionId]);
 
-  const statusColor =
-    status === "streaming"
-      ? "bg-[#22C55E]"
-      : status === "complete"
-        ? "bg-[#8B93A3]"
-        : status === "error"
-          ? "bg-[#EF4444]"
-          : "bg-[#F59E0B]";
-
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-lg border border-[#2A3342] bg-[#0B0F14]",
+        "overflow-hidden rounded-lg border border-border-default bg-bg-app",
         className,
       )}
     >
-      <div className="flex items-center gap-2 border-b border-[#2A3342] px-3 py-2">
-        <TerminalIcon className="size-3.5 text-[#8B93A3]" />
-        <span className="text-sm font-medium text-[#E6E8F1]">
+      <div className="flex items-center gap-2 border-b border-border-default px-3 py-2">
+        <TerminalIcon className="size-3.5 text-text-muted" />
+
+        <span className="truncate text-sm font-medium text-text-primary">
           {title}
         </span>
-        <span
-          className={cn(
-            "ms-auto size-2 rounded-full",
-            statusColor,
+
+        <span className="ms-auto flex items-center gap-1.5 text-[11px] text-text-muted">
+          <span
+            className={cn(
+              "size-2 rounded-full",
+              connectionClassName(
+                status,
+              ),
+            )}
+          />
+
+          {connectionLabel(
+            status,
           )}
-        />
+        </span>
       </div>
 
       <div
         ref={containerRef}
-        className="h-[480px] px-3 py-3"
+        className={cn(
+          "bg-bg-app px-3 py-3",
+          heightClassName,
+        )}
       />
     </div>
   );
 }
-
-export {
-  AgentExecutionTerminal,
-};
