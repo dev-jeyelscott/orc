@@ -1,975 +1,1445 @@
 "use client";
 
 import {
+  ActivityIcon,
+  AlertTriangleIcon,
+  BotIcon,
+  GitCommitIcon,
+  LayersIcon,
+  PencilIcon,
   PlusIcon,
   RefreshCwIcon,
-  Trash2Icon,
+  RouteIcon,
+  SearchIcon,
+  TerminalIcon,
 } from "lucide-react";
 import {
   useCallback,
   useEffect,
+  useMemo,
+  useRef,
   useState,
-  type FormEvent,
 } from "react";
+
 import type {
-  Agent,
-  AgentRoute,
-  AgentRouteOutcome,
+  AgentMonitoringOverview,
+  AgentMonitoringRange,
+  AgentObservability,
   AgentWithRoutes,
-  CreateAgent,
-  TerminalAction,
 } from "@orc/shared";
 
 import {
-  createAgent,
-  createAgentRoute,
-  deleteAgent,
-  deleteAgentRoute,
-  getAgent,
-  getAgents,
-  updateAgent,
-  updateAgentRoute,
+  getAgentExecutionMetrics,
+} from "@/lib/agent-executions";
+import {
+  getAgentMonitoringOverview,
+  getAgentObservability,
 } from "@/lib/agents";
-import { harnessOptions } from "@/lib/harness-options";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import {
+  AGENT_TIME_RANGE_OPTIONS,
+  calculateApprovalRate,
+  describeAgentMonitoringEvent,
+  filterAgents,
+  formatIdentifier,
+  groupAgentsByLayer,
+  type AgentStatusFilter,
+} from "@/lib/agent-presentation";
+import {
+  formatRelativeTime,
+} from "@/lib/run-observability";
+import {
+  cn,
+} from "@/lib/utils";
+
+import {
+  AgentConfigDrawer,
+} from "@/components/agent-config-drawer";
+import {
+  AgentInspector,
+  AgentRouteHealth,
+} from "@/components/agent-observability";
+import {
+  AgentWorkflowView,
+} from "@/components/agent-workflow-view";
+import {
+  MetricCard,
+} from "@/components/metric-card";
+import {
+  Badge,
+} from "@/components/ui/badge";
+import {
+  Button,
+} from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  Input,
+} from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-const outcomes: AgentRouteOutcome[] = [
-  "completed",
-  "approved",
-  "changes_requested",
-  "blocked",
-  "failed",
-];
+const LIVE_METRICS_INTERVAL_MS =
+  3_000;
 
-const terminalActions: TerminalAction[] = [
-  "complete_run",
-  "fail_run",
-  "block_run",
-];
+const OBSERVABILITY_INTERVAL_MS =
+  5_000;
 
-type Harness = NonNullable<CreateAgent["harness"]>;
-
-const blankAgent: CreateAgent = {
-  slug: "",
-  name: "",
-  role: "",
-  description: "",
-  layer: 1,
-  executionOrder: 1,
-  harness: "codex",
-  model: "default",
-  reasoning: "high",
-  systemPrompt: "",
-  enabled: true,
-  canWrite: false,
-  canRunCommands: true,
-  canCommit: false,
+type ProcessMetrics = {
+  cpuPercent:
+    number | null;
+  memoryBytes:
+    number | null;
 };
 
 /**
- * Converts unknown request failures into a readable dashboard message.
+ * Converts unknown request failures into a concise operator-facing message.
  */
-function getErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
+function errorMessage(
+  error: unknown,
+): string {
+  return error instanceof Error
+    ? error.message
+    : "Unable to load agent monitoring data";
 }
 
 /**
- * Manages dynamic agent configuration, safe deletion, and route editing.
+ * Determines whether a request failure was caused by intentional browser cancellation.
+ */
+function isAbortError(
+  error: unknown,
+): boolean {
+  return (
+    error instanceof
+      DOMException &&
+    error.name ===
+      "AbortError"
+  );
+}
+
+/**
+ * Renders the complete production Agents configuration and observability workspace.
  */
 export function AgentsManager() {
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [selected, setSelected] =
-    useState<AgentWithRoutes | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState<string | null>(null);
+  const [
+    overview,
+    setOverview,
+  ] =
+    useState<AgentMonitoringOverview | null>(
+      null,
+    );
+
+  const [
+    selectedAgentId,
+    setSelectedAgentId,
+  ] =
+    useState<string | null>(
+      null,
+    );
+
+  const [
+    observability,
+    setObservability,
+  ] =
+    useState<AgentObservability | null>(
+      null,
+    );
+
+  const [
+    liveMetrics,
+    setLiveMetrics,
+  ] =
+    useState<ProcessMetrics | null>(
+      null,
+    );
+
+  const [
+    range,
+    setRange,
+  ] =
+    useState<AgentMonitoringRange>(
+      "7d",
+    );
+
+  const [
+    search,
+    setSearch,
+  ] =
+    useState("");
+
+  const [
+    layerFilter,
+    setLayerFilter,
+  ] =
+    useState("all");
+
+  const [
+    statusFilter,
+    setStatusFilter,
+  ] =
+    useState<AgentStatusFilter>(
+      "all",
+    );
+
+  const [
+    loading,
+    setLoading,
+  ] =
+    useState(true);
+
+  const [
+    observabilityLoading,
+    setObservabilityLoading,
+  ] =
+    useState(false);
+
+  const [
+    error,
+    setError,
+  ] =
+    useState<string | null>(
+      null,
+    );
+
+  const [
+    observabilityError,
+    setObservabilityError,
+  ] =
+    useState<string | null>(
+      null,
+    );
+
+  const [
+    drawerOpen,
+    setDrawerOpen,
+  ] =
+    useState(false);
+
+  const [
+    drawerMode,
+    setDrawerMode,
+  ] =
+    useState<
+      "create" | "edit"
+    >("create");
+
+  const overviewAbort =
+    useRef<AbortController | null>(
+      null,
+    );
 
   /**
-   * Reloads the ordered agent list from the backend.
+   * Loads the complete Agents overview while ensuring stale requests cannot overwrite newer state.
    */
-  const loadAgents = useCallback(async () => {
-    setLoading(true);
+  const loadOverview =
+    useCallback(
+      async (
+        nextRange:
+          AgentMonitoringRange,
+        preferredAgentId?:
+          string,
+      ) => {
+        overviewAbort.current?.abort();
 
-    try {
-      setAgents(await getAgents());
-      setMessage(null);
-    } catch (error) {
-      setMessage(getErrorMessage(error, "Unable to load agents"));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+        const controller =
+          new AbortController();
 
-  /**
-   * Performs the initial agent request and applies state only after the asynchronous request settles.
-   */
-  useEffect(() => {
-    let cancelled = false;
+        overviewAbort.current =
+          controller;
 
-    getAgents()
-      .then((nextAgents) => {
-        if (cancelled) return;
+        setLoading(true);
 
-        setAgents(nextAgents);
-        setMessage(null);
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
+        try {
+          const next =
+            await getAgentMonitoringOverview(
+              nextRange,
+              controller.signal,
+            );
 
-        setMessage(
-          getErrorMessage(error, "Unable to load agents"),
-        );
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
+          if (
+            controller.signal
+              .aborted
+          ) {
+            return;
+          }
+
+          setOverview(
+            next,
+          );
+
+          setError(null);
+
+          setSelectedAgentId(
+            (current) => {
+              if (
+                preferredAgentId &&
+                next.agents.some(
+                  (agent) =>
+                    agent.id ===
+                    preferredAgentId,
+                )
+              ) {
+                return preferredAgentId;
+              }
+
+              if (
+                current &&
+                next.agents.some(
+                  (agent) =>
+                    agent.id ===
+                    current,
+                )
+              ) {
+                return current;
+              }
+
+              return (
+                next.agents[0]
+                  ?.id ?? null
+              );
+            },
+          );
+        } catch (caught) {
+          if (
+            !isAbortError(
+              caught,
+            )
+          ) {
+            setError(
+              errorMessage(
+                caught,
+              ),
+            );
+          }
+        } finally {
+          if (
+            !controller.signal
+              .aborted
+          ) {
+            setLoading(false);
+          }
         }
-      });
+      },
+      [],
+    );
+
+  useEffect(() => {
+    void loadOverview(
+      range,
+    );
 
     return () => {
-      cancelled = true;
+      overviewAbort.current?.abort();
     };
-  }, []);
+  }, [
+    range,
+    loadOverview,
+  ]);
 
-  /**
-   * Loads the selected agent together with its routes.
-   */
-  async function selectAgent(agent: Agent) {
-    setCreating(false);
-    setMessage(null);
+  useEffect(() => {
+    if (!selectedAgentId) {
+      setObservability(
+        null,
+      );
 
-    try {
-      setSelected(await getAgent(agent.id));
-    } catch (error) {
-      setMessage(getErrorMessage(error, "Unable to load agent"));
-    }
-  }
+      setObservabilityError(
+        null,
+      );
 
-  /**
-   * Refreshes both the selected agent detail and list summary.
-   */
-  async function refreshSelected(id: string) {
-    setSelected(await getAgent(id));
-    await loadAgents();
-  }
-
-  /**
-   * Creates a new agent or saves the complete selected-agent configuration.
-   */
-  async function saveAgent(input: CreateAgent) {
-    setMessage(null);
-
-    try {
-      if (creating) {
-        const agent = await createAgent(input);
-        setCreating(false);
-        await refreshSelected(agent.id);
-        return;
-      }
-
-      if (selected) {
-        const agent = await updateAgent(selected.id, input);
-        await refreshSelected(agent.id);
-      }
-    } catch (error) {
-      setMessage(getErrorMessage(error, "Unable to save agent"));
-    }
-  }
-
-  /**
-   * Disables the selected agent for future runs without changing its routes.
-   */
-  async function disableAgent() {
-    if (
-      !selected ||
-      !window.confirm(
-        `Disable ${selected.name} for future runs? Its routing configuration will remain unchanged.`,
-      )
-    ) {
       return;
     }
 
-    try {
-      await updateAgent(selected.id, { enabled: false });
-      await refreshSelected(selected.id);
-    } catch (error) {
-      setMessage(getErrorMessage(error, "Unable to disable agent"));
+    let cancelled =
+      false;
+
+    let timeout:
+      ReturnType<
+        typeof setTimeout
+      > | null = null;
+
+    let controller:
+      AbortController | null =
+      null;
+
+    /**
+     * Loads one selected-agent observability snapshot and continues polling only while it is active.
+     */
+    async function loadSelectedObservability() {
+      controller?.abort();
+
+      controller =
+        new AbortController();
+
+      setObservabilityLoading(
+        true,
+      );
+
+      try {
+        const next =
+          await getAgentObservability(
+            selectedAgentId!,
+            range,
+            controller.signal,
+          );
+
+        if (
+          cancelled ||
+          controller.signal
+            .aborted
+        ) {
+          return;
+        }
+
+        setObservability(
+          next,
+        );
+
+        setObservabilityError(
+          null,
+        );
+
+        if (
+          next.activeExecution
+        ) {
+          timeout =
+            setTimeout(
+              () =>
+                void loadSelectedObservability(),
+              OBSERVABILITY_INTERVAL_MS,
+            );
+        }
+      } catch (caught) {
+        if (
+          !cancelled &&
+          !isAbortError(
+            caught,
+          )
+        ) {
+          setObservabilityError(
+            errorMessage(
+              caught,
+            ),
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setObservabilityLoading(
+            false,
+          );
+        }
+      }
     }
-  }
 
-  /**
-   * Permanently deletes the selected agent after explicit confirmation.
-   */
-  async function deleteSelectedAgent() {
-    if (!selected) return;
-
-    const confirmed = window.confirm(
-      `Permanently delete ${selected.name}? Routes that reference this agent will be removed. Historical run snapshots and execution history will be preserved.`,
+    setObservability(
+      null,
     );
 
-    if (!confirmed) return;
+    void loadSelectedObservability();
 
-    const deletedName = selected.name;
+    return () => {
+      cancelled = true;
 
-    try {
-      await deleteAgent(selected.id);
-      setSelected(null);
-      setCreating(false);
-      await loadAgents();
-      setMessage(`${deletedName} was deleted.`);
-    } catch (error) {
-      setMessage(
-        getErrorMessage(
-          error,
-          "Unable to delete agent",
-        ),
+      controller?.abort();
+
+      if (timeout) {
+        clearTimeout(
+          timeout,
+        );
+      }
+    };
+  }, [
+    selectedAgentId,
+    range,
+  ]);
+
+  useEffect(() => {
+    const executionId =
+      observability
+        ?.activeExecution
+        ?.id;
+
+    if (!executionId) {
+      setLiveMetrics(
+        null,
       );
+
+      return;
     }
+
+    let cancelled =
+      false;
+
+    /**
+     * Reads the existing runtime process endpoint while the selected execution remains active.
+     */
+    async function loadLiveMetrics() {
+      try {
+        const next =
+          await getAgentExecutionMetrics(
+            executionId,
+          );
+
+        if (!cancelled) {
+          setLiveMetrics(
+            next,
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setLiveMetrics({
+            cpuPercent:
+              null,
+            memoryBytes:
+              null,
+          });
+        }
+      }
+    }
+
+    void loadLiveMetrics();
+
+    const interval =
+      setInterval(
+        () =>
+          void loadLiveMetrics(),
+        LIVE_METRICS_INTERVAL_MS,
+      );
+
+    return () => {
+      cancelled = true;
+
+      clearInterval(
+        interval,
+      );
+    };
+  }, [
+    observability
+      ?.activeExecution
+      ?.id,
+  ]);
+
+  const agents =
+    overview?.agents ??
+    [];
+
+  const selectedAgent =
+    agents.find(
+      (agent) =>
+        agent.id ===
+        selectedAgentId,
+    ) ?? null;
+
+  const availableLayers =
+    useMemo(
+      () =>
+        [
+          ...new Set(
+            agents.map(
+              (agent) =>
+                agent.layer,
+            ),
+          ),
+        ].sort(
+          (
+            left,
+            right,
+          ) =>
+            left - right,
+        ),
+      [agents],
+    );
+
+  const filteredAgents =
+    useMemo(
+      () =>
+        filterAgents(
+          agents,
+          search,
+          layerFilter ===
+            "all"
+            ? null
+            : Number(
+                layerFilter,
+              ),
+          statusFilter,
+        ),
+      [
+        agents,
+        search,
+        layerFilter,
+        statusFilter,
+      ],
+    );
+
+  const approvalRate =
+    overview
+      ? calculateApprovalRate(
+          overview.metrics
+            .approvedResults,
+          overview.metrics
+            .changesRequestedResults,
+        )
+      : null;
+
+  /**
+   * Selects one current agent and keeps all surrounding overview panels synchronized.
+   */
+  function selectAgent(
+    agentId: string,
+  ) {
+    setSelectedAgentId(
+      agentId,
+    );
   }
 
-  const editor = creating ? blankAgent : selected;
+  /**
+   * Opens the create-agent drawer without altering current selection.
+   */
+  function openCreateDrawer() {
+    setDrawerMode(
+      "create",
+    );
+
+    setDrawerOpen(true);
+  }
+
+  /**
+   * Opens the selected-agent edit drawer when a valid agent remains selected.
+   */
+  function openEditDrawer() {
+    if (!selectedAgent) {
+      return;
+    }
+
+    setDrawerMode(
+      "edit",
+    );
+
+    setDrawerOpen(true);
+  }
+
+  /**
+   * Refreshes current configuration after any agent or route mutation.
+   */
+  async function refreshAfterMutation(
+    preferredAgentId:
+      string | null,
+  ) {
+    await loadOverview(
+      range,
+      preferredAgentId ??
+        undefined,
+    );
+  }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[19rem_1fr]">
-      <Card className="h-fit">
-        <CardHeader className="flex-row items-center justify-between">
-          <div>
-            <CardTitle>Configured agents</CardTitle>
-            <CardDescription>Ordered for future runs.</CardDescription>
-          </div>
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            onClick={() => void loadAgents()}
-            disabled={loading}
-            aria-label="Refresh agents"
-          >
-            <RefreshCwIcon
-              className={loading ? "animate-spin" : undefined}
-            />
-          </Button>
-        </CardHeader>
+    <div className="flex min-w-0 flex-col gap-3">
+      <header className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+        <div>
+          <h1 className="font-heading text-2xl font-semibold text-text-primary">
+            Agents
+          </h1>
 
-        <CardContent className="flex flex-col gap-2">
-          <Button
-            onClick={() => {
-              setCreating(true);
-              setSelected(null);
-              setMessage(null);
-            }}
-          >
-            <PlusIcon />
-            New agent
-          </Button>
-
-          {agents.map((agent) => (
-            <button
-              key={agent.id}
-              onClick={() => void selectAgent(agent)}
-              className="flex items-center justify-between rounded-lg border p-3 text-left hover:bg-muted"
-            >
-              <span>
-                <span className="block font-medium">
-                  {agent.name}
-                </span>
-                <span className="text-xs text-text-muted">
-                  Layer {agent.layer} · Order {agent.executionOrder}
-                </span>
-              </span>
-
-              <Badge
-                variant={agent.enabled ? "success" : "disabled"}
-              >
-                {agent.enabled ? "Enabled" : "Disabled"}
-              </Badge>
-            </button>
-          ))}
-        </CardContent>
-      </Card>
-
-      <div className="flex flex-col gap-6">
-        {message && (
-          <p className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">
-            {message}
+          <p className="mt-1 text-sm text-text-muted">
+            Layered worker
+            configuration,
+            capabilities, and
+            route
+            observability.
           </p>
-        )}
+        </div>
 
-        {editor ? (
-          <AgentEditor
-            key={creating ? "new" : selected?.id}
-            agent={editor}
-            creating={creating}
-            onSubmit={saveAgent}
-            onDisable={disableAgent}
-            onDelete={deleteSelectedAgent}
-          />
-        ) : (
-          <Card>
-            <CardContent className="py-10 text-sm text-text-muted">
-              Select an agent or create one to begin.
-            </CardContent>
-          </Card>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[15rem] flex-1 xl:w-[20rem]">
+            <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-text-muted" />
 
-        {selected && !creating && (
-          <RouteEditor
-            agent={selected}
-            agents={agents}
-            refresh={() =>
-              void refreshSelected(selected.id)
+            <Input
+              value={
+                search
+              }
+              onChange={(
+                event,
+              ) =>
+                setSearch(
+                  event.target
+                    .value,
+                )
+              }
+              className="pl-8"
+              placeholder="Search agents, roles, slugs..."
+              aria-label="Search agents"
+            />
+          </div>
+
+          <Select
+            value={
+              layerFilter
             }
-            report={setMessage}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Edits the complete configuration for one worker agent.
- */
-function AgentEditor({
-  agent,
-  creating,
-  onSubmit,
-  onDisable,
-  onDelete,
-}: {
-  agent: CreateAgent | AgentWithRoutes;
-  creating: boolean;
-  onSubmit: (input: CreateAgent) => void;
-  onDisable: () => void;
-  onDelete: () => void;
-}) {
-  const [draft, setDraft] = useState<CreateAgent>({
-    slug: agent.slug,
-    name: agent.name,
-    role: agent.role,
-    description: agent.description,
-    layer: agent.layer,
-    executionOrder: agent.executionOrder,
-    harness: agent.harness,
-    model: agent.model,
-    reasoning: agent.reasoning,
-    systemPrompt: agent.systemPrompt,
-    enabled: agent.enabled,
-    canWrite: agent.canWrite,
-    canRunCommands: agent.canRunCommands,
-    canCommit: agent.canCommit,
-  });
-
-  /**
-   * Updates one field of the local agent draft.
-   */
-  const update = <K extends keyof CreateAgent>(
-    key: K,
-    value: CreateAgent[K],
-  ) => {
-    setDraft((current) => ({
-      ...current,
-      [key]: value,
-    }));
-  };
-
-  const selectedHarness =
-    (draft.harness ?? "codex") as Harness;
-  const options = harnessOptions[selectedHarness];
-
-  /**
-   * Changes harness and resets model/reasoning to valid defaults.
-   */
-  const changeHarness = (harness: Harness) => {
-    const next = harnessOptions[harness];
-
-    setDraft((current) => ({
-      ...current,
-      harness,
-      model: next.models[0],
-      reasoning: next.reasoning[0],
-    }));
-  };
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          {creating ? "New agent" : `Edit ${agent.name}`}
-        </CardTitle>
-        <CardDescription>
-          These settings affect future runs only.
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSubmit(draft);
-          }}
-          className="grid gap-4 md:grid-cols-2"
-        >
-          <Field
-            name="name"
-            label="Name"
-            value={draft.name}
-            onChange={(event) =>
-              update("name", event.target.value)
-            }
-          />
-
-          <Field
-            name="slug"
-            label="Slug"
-            value={draft.slug}
-            onChange={(event) =>
-              update("slug", event.target.value)
-            }
-          />
-
-          <Field
-            name="role"
-            label="Role"
-            value={draft.role}
-            onChange={(event) =>
-              update("role", event.target.value)
-            }
-          />
-
-          <Field
-            name="description"
-            label="Description"
-            value={draft.description}
-            onChange={(event) =>
-              update("description", event.target.value)
-            }
-          />
-
-          <Field
-            name="layer"
-            label="Layer"
-            value={String(draft.layer)}
-            onChange={(event) =>
-              update("layer", Number(event.target.value))
-            }
-            type="number"
-            min="1"
-          />
-
-          <Field
-            name="executionOrder"
-            label="Execution order"
-            value={String(draft.executionOrder)}
-            onChange={(event) =>
-              update(
-                "executionOrder",
-                Number(event.target.value),
+            onValueChange={(
+              value,
+            ) =>
+              setLayerFilter(
+                value ??
+                  "all",
               )
             }
-            type="number"
-            min="1"
-          />
-
-          <label className="grid gap-1 text-sm">
-            Harness
-            <select
-              name="harness"
-              value={selectedHarness}
-              onChange={(event) =>
-                changeHarness(event.target.value as Harness)
-              }
-              className="h-9 rounded-lg border bg-transparent px-2"
-            >
-              <option value="codex">Codex</option>
-              <option value="claude">Claude</option>
-            </select>
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            Model
-            <select
-              name="model"
-              value={draft.model ?? options.models[0]}
-              onChange={(event) =>
-                update("model", event.target.value)
-              }
-              className="h-9 rounded-lg border bg-transparent px-2"
-            >
-              {options.models.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            Reasoning
-            <select
-              name="reasoning"
-              value={
-                draft.reasoning ?? options.reasoning[0]
-              }
-              onChange={(event) =>
-                update("reasoning", event.target.value)
-              }
-              className="h-9 rounded-lg border bg-transparent px-2"
-            >
-              {options.reasoning.map((reasoning) => (
-                <option key={reasoning} value={reasoning}>
-                  {reasoning}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="grid gap-1 text-sm md:col-span-2">
-            System prompt
-            <Textarea
-              name="systemPrompt"
-              value={draft.systemPrompt}
-              onChange={(event) =>
-                update("systemPrompt", event.target.value)
-              }
-              required
-              className="min-h-36"
-            />
-          </label>
-
-          <div className="flex flex-wrap gap-4 text-sm md:col-span-2">
-            {(
-              [
-                "enabled",
-                "canWrite",
-                "canRunCommands",
-                "canCommit",
-              ] as const
-            ).map((key) => (
-              <label
-                key={key}
-                className="flex items-center gap-2"
-              >
-                <input
-                  type="checkbox"
-                  name={key}
-                  checked={draft[key]}
-                  onChange={(event) =>
-                    update(key, event.target.checked)
-                  }
-                />
-                {key
-                  .replace(/([A-Z])/g, " $1")
-                  .replace(/^./, (letter) =>
-                    letter.toUpperCase(),
-                  )}
-              </label>
-            ))}
-          </div>
-
-          <div className="flex flex-wrap gap-2 md:col-span-2">
-            <Button type="submit">
-              {creating ? "Create agent" : "Save changes"}
-            </Button>
-
-            {!creating && agent.enabled && (
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={onDisable}
-              >
-                Disable agent
-              </Button>
-            )}
-
-            {!creating && (
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={onDelete}
-              >
-                <Trash2Icon />
-                Delete agent
-              </Button>
-            )}
-          </div>
-        </form>
-      </CardContent>
-    </Card>
-  );
-}
-
-/**
- * Renders a labeled standard input field.
- */
-function Field({
-  name,
-  label,
-  ...props
-}: {
-  name: string;
-  label: string;
-} & React.ComponentProps<typeof Input>) {
-  return (
-    <label className="grid gap-1 text-sm">
-      {label}
-      <Input name={name} required {...props} />
-    </label>
-  );
-}
-
-/**
- * Manages creation and editing of an agent's outcome routes.
- */
-function RouteEditor({
-  agent,
-  agents,
-  refresh,
-  report,
-}: {
-  agent: AgentWithRoutes;
-  agents: Agent[];
-  refresh: () => void;
-  report: (message: string | null) => void;
-}) {
-  /**
-   * Creates a new explicit routing override.
-   */
-  async function addRoute(
-    event: FormEvent<HTMLFormElement>,
-  ) {
-    event.preventDefault();
-    report(null);
-
-    const form = new FormData(event.currentTarget);
-    const target = String(form.get("target"));
-
-    try {
-      await createAgentRoute(agent.id, {
-        outcome: String(
-          form.get("outcome"),
-        ) as AgentRouteOutcome,
-        enabled: true,
-        targetAgentId:
-          target === "terminal" ? null : target,
-        terminalAction:
-          target === "terminal"
-            ? (String(
-                form.get("terminalAction"),
-              ) as TerminalAction)
-            : null,
-      });
-
-      event.currentTarget.reset();
-      refresh();
-    } catch (error) {
-      report(
-        getErrorMessage(error, "Unable to add route"),
-      );
-    }
-  }
-
-  const availableTargets = agents.filter(
-    (candidate) =>
-      candidate.enabled && candidate.id !== agent.id,
-  );
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Outcome routes</CardTitle>
-        <CardDescription>
-          Explicit routes override normal progression in future
-          run snapshots.
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent className="flex flex-col gap-3">
-        {agent.routes.length === 0 && (
-          <p className="text-sm text-text-muted">
-            No explicit routing overrides configured.
-          </p>
-        )}
-
-        {agent.routes.map((route) => (
-          <RouteRowEditor
-            key={`${route.id}:${route.updatedAt}`}
-            agent={agent}
-            route={route}
-            agents={agents}
-            refresh={refresh}
-            report={report}
-          />
-        ))}
-
-        <form
-          onSubmit={addRoute}
-          className="grid gap-2 md:grid-cols-3"
-        >
-          <select
-            name="outcome"
-            className="h-9 rounded-lg border bg-transparent px-2"
           >
-            {outcomes.map((outcome) => (
-              <option key={outcome} value={outcome}>
-                {outcome}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger
+              className="min-w-28"
+              aria-label="Filter by layer"
+            >
+              <SelectValue />
+            </SelectTrigger>
 
-          <select
-            name="target"
-            className="h-9 rounded-lg border bg-transparent px-2"
+            <SelectContent align="end">
+              <SelectItem value="all">
+                All Layers
+              </SelectItem>
+
+              {availableLayers.map(
+                (
+                  layer,
+                ) => (
+                  <SelectItem
+                    key={
+                      layer
+                    }
+                    value={String(
+                      layer,
+                    )}
+                  >
+                    Layer{" "}
+                    {
+                      layer
+                    }
+                  </SelectItem>
+                ),
+              )}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={
+              statusFilter
+            }
+            onValueChange={(
+              value,
+            ) =>
+              setStatusFilter(
+                (
+                  value ??
+                  "all"
+                ) as AgentStatusFilter,
+              )
+            }
           >
-            <option value="terminal">
-              Terminal action
-            </option>
+            <SelectTrigger
+              className="min-w-28"
+              aria-label="Filter by status"
+            >
+              <SelectValue />
+            </SelectTrigger>
 
-            {availableTargets.map((candidate) => (
-              <option
-                key={candidate.id}
-                value={candidate.id}
-              >
-                {candidate.name}
-              </option>
-            ))}
-          </select>
+            <SelectContent align="end">
+              <SelectItem value="all">
+                All Status
+              </SelectItem>
 
-          <select
-            name="terminalAction"
-            className="h-9 rounded-lg border bg-transparent px-2"
+              <SelectItem value="enabled">
+                Enabled
+              </SelectItem>
+
+              <SelectItem value="disabled">
+                Disabled
+              </SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={
+              range
+            }
+            onValueChange={(
+              value,
+            ) => {
+              if (
+                value
+              ) {
+                setRange(
+                  value as AgentMonitoringRange,
+                );
+              }
+            }}
           >
-            {terminalActions.map((action) => (
-              <option key={action} value={action}>
-                {action}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger
+              className="min-w-32"
+              aria-label="Monitoring range"
+            >
+              <SelectValue />
+            </SelectTrigger>
+
+            <SelectContent align="end">
+              {AGENT_TIME_RANGE_OPTIONS.map(
+                (
+                  option,
+                ) => (
+                  <SelectItem
+                    key={
+                      option.value
+                    }
+                    value={
+                      option.value
+                    }
+                  >
+                    {
+                      option.label
+                    }
+                  </SelectItem>
+                ),
+              )}
+            </SelectContent>
+          </Select>
 
           <Button
-            type="submit"
-            className="md:col-span-3"
+            type="button"
+            size="icon-sm"
+            variant="outline"
+            onClick={() =>
+              void loadOverview(
+                range,
+              )
+            }
+            disabled={
+              loading
+            }
+            aria-label="Refresh Agents page"
           >
-            Add route
+            <RefreshCwIcon
+              className={
+                loading
+                  ? "animate-spin"
+                  : undefined
+              }
+            />
           </Button>
-        </form>
+
+          <Button
+            type="button"
+            onClick={
+              openCreateDrawer
+            }
+          >
+            <PlusIcon />
+            Create Agent
+          </Button>
+        </div>
+      </header>
+
+      {error ? (
+        <p
+          role="alert"
+          className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error"
+        >
+          {error}
+        </p>
+      ) : null}
+
+      {loading &&
+      !overview ? (
+        <Card size="sm">
+          <CardContent className="py-12 text-center text-sm text-text-muted">
+            Loading agent
+            configuration...
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {overview ? (
+        <>
+          <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+            <MetricCard
+              label="Layers"
+              value={String(
+                overview.metrics
+                  .layers,
+              )}
+              description="Configured"
+              icon={
+                <LayersIcon className="size-4" />
+              }
+            />
+
+            <MetricCard
+              label="Enabled Agents"
+              value={String(
+                overview.metrics
+                  .enabledAgents,
+              )}
+              description={`of ${overview.metrics.totalAgents} total`}
+              icon={
+                <BotIcon className="size-4 text-status-success" />
+              }
+            />
+
+            <MetricCard
+              label="Active Executions"
+              value={String(
+                overview.metrics
+                  .activeExecutions,
+              )}
+              description={`Across ${overview.metrics.activeRuns} active run${overview.metrics.activeRuns === 1 ? "" : "s"}`}
+              icon={
+                <ActivityIcon className="size-4 text-status-running" />
+              }
+            />
+
+            <MetricCard
+              label="Route Rules"
+              value={String(
+                overview.metrics
+                  .enabledRouteRules,
+              )}
+              description="Enabled"
+              icon={
+                <RouteIcon className="size-4 text-brand-accent" />
+              }
+            />
+
+            <MetricCard
+              label="Approval Rate"
+              value={
+                approvalRate ===
+                null
+                  ? "Unavailable"
+                  : `${approvalRate.toFixed(
+                      1,
+                    )}%`
+              }
+              description="Approved vs changes requested"
+            />
+
+            <MetricCard
+              label="Validation Issues"
+              value={String(
+                overview
+                  .validationIssues
+                  .length,
+              )}
+              description={
+                overview
+                  .validationIssues
+                  .length >
+                0
+                  ? "Needs attention"
+                  : "No issues detected"
+              }
+              icon={
+                <AlertTriangleIcon
+                  className={cn(
+                    "size-4",
+                    overview
+                      .validationIssues
+                      .length >
+                      0
+                      ? "text-status-warning"
+                      : "text-status-success",
+                  )}
+                />
+              }
+            />
+          </section>
+
+          <section className="grid min-w-0 gap-3 2xl:grid-cols-[minmax(17rem,0.8fr)_minmax(34rem,1.55fr)_minmax(23rem,1fr)]">
+            <AgentIndex
+              agents={
+                filteredAgents
+              }
+              totalCount={
+                agents.length
+              }
+              selectedAgentId={
+                selectedAgentId
+              }
+              onSelect={
+                selectAgent
+              }
+            />
+
+            <AgentWorkflowView
+              agents={
+                agents
+              }
+              selectedAgentId={
+                selectedAgentId
+              }
+              onSelectAgent={
+                selectAgent
+              }
+            />
+
+            {selectedAgent ? (
+              <AgentInspector
+                agent={
+                  selectedAgent
+                }
+                agents={
+                  agents
+                }
+                observability={
+                  observability
+                }
+                loading={
+                  observabilityLoading
+                }
+                error={
+                  observabilityError
+                }
+                range={
+                  range
+                }
+                liveMetrics={
+                  liveMetrics
+                }
+                onEdit={
+                  openEditDrawer
+                }
+              />
+            ) : (
+              <Card size="sm">
+                <CardContent className="py-12 text-center text-sm text-text-muted">
+                  Select an
+                  agent to inspect
+                  its configuration
+                  and execution
+                  history.
+                </CardContent>
+              </Card>
+            )}
+          </section>
+
+          <section className="grid min-w-0 gap-3 xl:grid-cols-[1fr_1.25fr_0.8fr]">
+            <RecentAuditEvents
+              overview={
+                overview
+              }
+            />
+
+            <ValidationNotices
+              overview={
+                overview
+              }
+            />
+
+            <AgentRouteHealth
+              agents={
+                agents
+              }
+            />
+          </section>
+
+          <AgentConfigDrawer
+            open={
+              drawerOpen
+            }
+            mode={
+              drawerMode
+            }
+            agent={
+              drawerMode ===
+                "edit"
+                ? selectedAgent
+                : null
+            }
+            agents={
+              agents
+            }
+            onOpenChange={
+              setDrawerOpen
+            }
+            onRefresh={
+              refreshAfterMutation
+            }
+          />
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+type AgentIndexProps = {
+  agents:
+    AgentWithRoutes[];
+  totalCount: number;
+  selectedAgentId:
+    string | null;
+  onSelect:
+    (agentId: string) => void;
+};
+
+/**
+ * Renders the compact searchable agent index grouped by generic numeric layer.
+ */
+function AgentIndex({
+  agents,
+  totalCount,
+  selectedAgentId,
+  onSelect,
+}: AgentIndexProps) {
+  const groups =
+    groupAgentsByLayer(
+      agents,
+    );
+
+  return (
+    <Card
+      size="sm"
+      className="min-w-0"
+    >
+      <CardHeader className="border-b border-divider">
+        <CardTitle>
+          Agent Index
+        </CardTitle>
+      </CardHeader>
+
+      <CardContent className="p-0">
+        {agents.length ===
+        0 ? (
+          <p className="p-6 text-center text-xs text-text-muted">
+            No agents match
+            the current
+            filters.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <div className="min-w-[34rem]">
+              <div className="grid grid-cols-[minmax(9rem,1fr)_5rem_6rem_5.5rem_5.5rem] gap-2 border-b border-divider px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-text-muted">
+                <span>
+                  Agent
+                </span>
+                <span>
+                  Harness
+                </span>
+                <span>
+                  Model
+                </span>
+                <span>
+                  Status
+                </span>
+                <span>
+                  Caps
+                </span>
+              </div>
+
+              {groups.map(
+                (group) => (
+                  <div
+                    key={
+                      group.layer
+                    }
+                  >
+                    <div className="border-b border-divider bg-surface-interactive/30 px-3 py-1.5 text-[10px] font-medium text-text-secondary">
+                      Layer{" "}
+                      {
+                        group.layer
+                      }{" "}
+                      <span className="text-text-muted">
+                        (
+                        {
+                          group.agents
+                            .length
+                        }
+                        )
+                      </span>
+                    </div>
+
+                    {group.agents.map(
+                      (
+                        agent,
+                      ) => (
+                        <button
+                          key={
+                            agent.id
+                          }
+                          type="button"
+                          onClick={() =>
+                            onSelect(
+                              agent.id,
+                            )
+                          }
+                          aria-pressed={
+                            selectedAgentId ===
+                            agent.id
+                          }
+                          className={cn(
+                            "grid w-full grid-cols-[minmax(9rem,1fr)_5rem_6rem_5.5rem_5.5rem] items-center gap-2 border-b border-divider px-3 py-2 text-left transition-colors last:border-0 hover:bg-surface-interactive/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring",
+                            selectedAgentId ===
+                              agent.id &&
+                              "bg-status-running/8 ring-1 ring-inset ring-status-running/40",
+                            !agent.enabled &&
+                              "opacity-55",
+                          )}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-xs font-medium text-text-primary">
+                              {
+                                agent.name
+                              }
+                            </span>
+
+                            <span className="block truncate font-mono text-[10px] text-text-muted">
+                              {
+                                agent.slug
+                              }{" "}
+                              ·{" "}
+                              {
+                                agent.executionOrder
+                              }
+                            </span>
+                          </span>
+
+                          <span className="truncate font-mono text-[10px] text-text-secondary">
+                            {
+                              agent.harness
+                            }
+                          </span>
+
+                          <span className="truncate font-mono text-[10px] text-text-secondary">
+                            {
+                              agent.model
+                            }
+                          </span>
+
+                          <Badge
+                            variant={
+                              agent.enabled
+                                ? "success"
+                                : "disabled"
+                            }
+                            className="px-1.5 text-[10px]"
+                          >
+                            {agent.enabled
+                              ? "Enabled"
+                              : "Disabled"}
+                          </Badge>
+
+                          <span className="flex items-center gap-1 text-text-muted">
+                            {agent.canWrite ? (
+                              <PencilIcon
+                                className="size-3"
+                                aria-label="Can write"
+                              />
+                            ) : null}
+
+                            {agent.canRunCommands ? (
+                              <TerminalIcon
+                                className="size-3"
+                                aria-label="Can run commands"
+                              />
+                            ) : null}
+
+                            {agent.canCommit ? (
+                              <GitCommitIcon
+                                className="size-3"
+                                aria-label="Can commit"
+                              />
+                            ) : null}
+
+                            {!agent.canWrite &&
+                            !agent.canRunCommands &&
+                            !agent.canCommit ? (
+                              <span className="text-[10px]">
+                                Read
+                              </span>
+                            ) : null}
+                          </span>
+                        </button>
+                      ),
+                    )}
+                  </div>
+                ),
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="border-t border-divider px-3 py-2 text-[10px] text-text-muted">
+          Showing{" "}
+          {agents.length} of{" "}
+          {totalCount} agents
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+type OverviewPanelProps = {
+  overview:
+    AgentMonitoringOverview;
+};
+
+/**
+ * Renders recent persisted runtime events that can be accurately associated with agent activity.
+ */
+function RecentAuditEvents({
+  overview,
+}: OverviewPanelProps) {
+  return (
+    <Card
+      size="sm"
+      className="h-full"
+    >
+      <CardHeader className="border-b border-divider">
+        <CardTitle>
+          Recent Audit
+          Events
+        </CardTitle>
+      </CardHeader>
+
+      <CardContent className="p-0">
+        {overview.recentEvents.length ===
+        0 ? (
+          <p className="p-5 text-xs text-text-muted">
+            No recent
+            persisted agent
+            events.
+          </p>
+        ) : (
+          <div className="divide-y divide-divider">
+            {overview.recentEvents.map(
+              (
+                event,
+              ) => (
+                <div
+                  key={
+                    event.id
+                  }
+                  className="grid grid-cols-[4.5rem_1fr] gap-3 px-3 py-2"
+                >
+                  <span className="text-[10px] text-text-muted">
+                    {formatRelativeTime(
+                      event.createdAt,
+                    )}
+                  </span>
+
+                  <div className="min-w-0">
+                    <p className="truncate text-xs text-text-secondary">
+                      {describeAgentMonitoringEvent(
+                        event,
+                        overview.agents,
+                      )}
+                    </p>
+
+                    <p className="mt-0.5 truncate font-mono text-[10px] text-text-muted">
+                      {formatIdentifier(
+                        event.type,
+                      )}
+                    </p>
+                  </div>
+                </div>
+              ),
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
 }
 
 /**
- * Edits one persisted routing record without requiring delete-and-recreate.
+ * Renders only deterministic current-configuration warnings plus the immutable snapshot notice.
  */
-function RouteRowEditor({
-  agent,
-  route,
-  agents,
-  refresh,
-  report,
-}: {
-  agent: AgentWithRoutes;
-  route: AgentRoute;
-  agents: Agent[];
-  refresh: () => void;
-  report: (message: string | null) => void;
-}) {
-  const [outcome, setOutcome] =
-    useState<AgentRouteOutcome>(route.outcome);
-  const [destination, setDestination] = useState(
-    route.targetAgentId ?? "terminal",
-  );
-  const [terminalAction, setTerminalAction] =
-    useState<TerminalAction>(
-      route.terminalAction ?? "complete_run",
-    );
-  const [enabled, setEnabled] = useState(route.enabled);
-  const [saving, setSaving] = useState(false);
-
-  const availableTargets = agents.filter(
-    (candidate) =>
-      candidate.enabled && candidate.id !== agent.id,
-  );
-
-  const currentTarget = route.targetAgentId
-    ? (agents.find(
-        (candidate) =>
-          candidate.id === route.targetAgentId,
-      ) ?? null)
-    : null;
-
-  const currentTargetIsAvailable =
-    currentTarget !== null &&
-    availableTargets.some(
-      (candidate) => candidate.id === currentTarget.id,
-    );
-
-  /**
-   * Saves all editable route fields through the existing PATCH endpoint.
-   */
-  async function saveRoute() {
-    setSaving(true);
-    report(null);
-
-    try {
-      await updateAgentRoute(agent.id, route.id, {
-        outcome,
-        enabled,
-        targetAgentId:
-          destination === "terminal"
-            ? null
-            : destination,
-        terminalAction:
-          destination === "terminal"
-            ? terminalAction
-            : null,
-      });
-
-      refresh();
-    } catch (error) {
-      report(
-        getErrorMessage(error, "Unable to update route"),
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  /**
-   * Permanently removes this explicit routing override.
-   */
-  async function removeRoute() {
-    report(null);
-
-    try {
-      await deleteAgentRoute(agent.id, route.id);
-      refresh();
-    } catch (error) {
-      report(
-        getErrorMessage(error, "Unable to remove route"),
-      );
-    }
-  }
-
+function ValidationNotices({
+  overview,
+}: OverviewPanelProps) {
   return (
-    <div className="grid gap-2 rounded-lg border p-3 md:grid-cols-[1fr_1fr_1fr_auto_auto] md:items-end">
-      <label className="grid gap-1 text-xs text-text-muted">
-        Outcome
-        <select
-          value={outcome}
-          onChange={(event) =>
-            setOutcome(
-              event.target.value as AgentRouteOutcome,
-            )
-          }
-          className="h-9 rounded-lg border bg-transparent px-2 text-sm text-foreground"
-        >
-          {outcomes.map((candidate) => (
-            <option
-              key={candidate}
-              value={candidate}
-            >
-              {candidate}
-            </option>
-          ))}
-        </select>
-      </label>
+    <Card
+      size="sm"
+      className="h-full"
+    >
+      <CardHeader className="border-b border-divider">
+        <CardTitle>
+          Validation &
+          Notices
+        </CardTitle>
+      </CardHeader>
 
-      <label className="grid gap-1 text-xs text-text-muted">
-        Destination
-        <select
-          value={destination}
-          onChange={(event) =>
-            setDestination(event.target.value)
-          }
-          className="h-9 rounded-lg border bg-transparent px-2 text-sm text-foreground"
-        >
-          <option value="terminal">
-            Terminal action
-          </option>
+      <CardContent className="p-0">
+        {overview.validationIssues.length ===
+        0 ? (
+          <div className="border-b border-divider px-3 py-3">
+            <p className="text-xs font-medium text-status-success">
+              No configuration
+              issues detected
+            </p>
 
-          {route.targetAgentId &&
-            !currentTargetIsAvailable && (
-              <option
-                value={route.targetAgentId}
-                disabled
-              >
-                {currentTarget?.name ??
-                  "Unavailable target"}{" "}
-                (unavailable)
-              </option>
+            <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
+              Persisted
+              configuration
+              currently satisfies
+              the deterministic
+              checks available to
+              this view.
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-divider">
+            {overview.validationIssues.map(
+              (
+                issue,
+              ) => (
+                <div
+                  key={
+                    issue.routeId
+                  }
+                  className="flex gap-2 px-3 py-3"
+                >
+                  <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0 text-status-warning" />
+
+                  <div>
+                    <p className="text-xs font-medium text-status-warning">
+                      Route target
+                      unavailable
+                    </p>
+
+                    <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
+                      {
+                        issue.message
+                      }
+                    </p>
+                  </div>
+                </div>
+              ),
             )}
+          </div>
+        )}
 
-          {availableTargets.map((candidate) => (
-            <option
-              key={candidate.id}
-              value={candidate.id}
-            >
-              {candidate.name}
-            </option>
-          ))}
-        </select>
-      </label>
+        <div className="flex gap-2 px-3 py-3">
+          <BotIcon className="mt-0.5 size-3.5 shrink-0 text-status-running" />
 
-      <label className="grid gap-1 text-xs text-text-muted">
-        Terminal action
-        <select
-          value={terminalAction}
-          onChange={(event) =>
-            setTerminalAction(
-              event.target.value as TerminalAction,
-            )
-          }
-          disabled={destination !== "terminal"}
-          className="h-9 rounded-lg border bg-transparent px-2 text-sm text-foreground disabled:opacity-50"
-        >
-          {terminalActions.map((action) => (
-            <option key={action} value={action}>
-              {action}
-            </option>
-          ))}
-        </select>
-      </label>
+          <div>
+            <p className="text-xs font-medium text-status-running">
+              Snapshot note
+            </p>
 
-      <label className="flex h-9 items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={enabled}
-          onChange={(event) =>
-            setEnabled(event.target.checked)
-          }
-        />
-        Enabled
-      </label>
-
-      <div className="flex gap-2">
-        <Button
-          type="button"
-          onClick={() => void saveRoute()}
-          disabled={saving}
-        >
-          {saving ? "Saving..." : "Save"}
-        </Button>
-
-        <Button
-          type="button"
-          size="icon-sm"
-          variant="ghost"
-          onClick={() => void removeRoute()}
-          aria-label={`Delete ${route.outcome} route`}
-        >
-          <Trash2Icon />
-        </Button>
-      </div>
-    </div>
+            <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
+              Active runs keep
+              their own immutable
+              agent snapshot.
+              Changes on this page
+              affect future runs
+              only.
+            </p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

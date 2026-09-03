@@ -9,3 +9,4 @@ export * from "./conversation.js";
 export * from "./event.js";
 export * from "./dashboard.js";
 export * from "./run-monitoring.js";
+export * from "./agent-monitoring.js";
