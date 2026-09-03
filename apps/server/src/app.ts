@@ -1,15 +1,19 @@
-import Fastify from "fastify";
 import cors from "@fastify/cors";
+import Fastify from "fastify";
 
 import { loggerOptions } from "./logger.js";
+import { agentExecutionRoutes } from "./routes/agent-executions.js";
+import { agentRoutes } from "./routes/agents.js";
+import { conversationRoutes } from "./routes/conversations.js";
+import { dashboardRoutes } from "./routes/dashboard.js";
 import { healthRoutes } from "./routes/health.js";
 import { projectRoutes } from "./routes/projects.js";
-import { agentRoutes } from "./routes/agents.js";
-import { agentExecutionRoutes } from "./routes/agent-executions.js";
 import { workflowRoutes } from "./routes/workflows.js";
-import { conversationRoutes } from "./routes/conversations.js";
 import { registerWebSocket } from "./ws/index.js";
 
+/**
+ * Constructs and registers the complete Fastify application.
+ */
 export async function buildApp() {
   const app = Fastify({ logger: loggerOptions });
 
@@ -21,6 +25,7 @@ export async function buildApp() {
   await app.register(agentExecutionRoutes);
   await app.register(workflowRoutes);
   await app.register(conversationRoutes);
+  await app.register(dashboardRoutes);
 
   return app;
 }
