@@ -53,9 +53,13 @@ function AgentExecutionTerminal({ executionId, title, className }: AgentExecutio
   useEffect(() => {
     if (!containerRef.current) return;
 
+    // xterm renders to a canvas, which cannot resolve CSS var() expressions -- read the
+    // design system's mono font stack from the computed style so it matches JetBrains Mono
+    // used elsewhere, instead of silently falling back to the browser's generic monospace font.
+    const resolvedMonoFont = getComputedStyle(document.documentElement).getPropertyValue("--font-mono").trim() || "monospace";
     const terminal = new Terminal({
       convertEol: true,
-      fontFamily: "var(--font-mono, monospace)",
+      fontFamily: resolvedMonoFont,
       fontSize: 13,
       theme: { background: "#0B0F14", foreground: "#C2CAD6" },
       disableStdin: true,

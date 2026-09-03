@@ -25,7 +25,7 @@ describe("harness adapters", () => {
     const input = { ...baseInput, agent: { ...baseInput.agent, harness: "claude", model: "sonnet", reasoning: "medium" } } as StartWorkerInput;
     const invocation = claudeHarness.createInvocation(input, composeInitialInstruction(input));
     expect(invocation).toEqual(expect.objectContaining({ command: "claude", cwd: "/projects/example" }));
-    expect(invocation.args).toEqual(expect.arrayContaining(["--print", "--output-format", "stream-json", "--model", "sonnet", "--effort", "medium"]));
+    expect(invocation.args).toEqual(expect.arrayContaining(["--print", "--output-format", "stream-json", "--verbose", "--model", "sonnet", "--effort", "medium"]));
   });
 
   it("composes capability guidance without provider permission modes", () => {

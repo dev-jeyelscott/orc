@@ -48,7 +48,7 @@ export const claudeHarness: HarnessAdapter = {
     }
     return {
       command: "claude",
-      args: ["--print", "--output-format", "stream-json", "--model", input.agent.model, "--effort", input.agent.reasoning, prompt],
+      args: ["--print", "--output-format", "stream-json", "--verbose", "--model", input.agent.model, "--effort", input.agent.reasoning, prompt],
       cwd: input.projectPath,
     };
   },
