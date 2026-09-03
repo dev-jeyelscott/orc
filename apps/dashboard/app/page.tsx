@@ -31,19 +31,30 @@ function DashboardUnavailable() {
 }
 
 /**
+ * Loads dashboard data while converting transport or validation failures into an empty result.
+ */
+async function loadDashboardData() {
+  try {
+    return await getDashboard();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Loads the initial production dashboard read model on the server.
  */
 export default async function Home() {
-  try {
-    const initialData =
-      await getDashboard();
+  const initialData =
+    await loadDashboardData();
 
-    return (
-      <DashboardOverview
-        initialData={initialData}
-      />
-    );
-  } catch {
+  if (!initialData) {
     return <DashboardUnavailable />;
   }
+
+  return (
+    <DashboardOverview
+      initialData={initialData}
+    />
+  );
 }

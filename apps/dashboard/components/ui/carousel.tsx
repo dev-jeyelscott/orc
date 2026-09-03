@@ -32,6 +32,9 @@ type CarouselContextProps = {
 
 const CarouselContext = React.createContext<CarouselContextProps | null>(null)
 
+/**
+ * Returns the active carousel context and rejects use outside the Carousel provider.
+ */
 function useCarousel() {
   const context = React.useContext(CarouselContext)
 
@@ -42,6 +45,56 @@ function useCarousel() {
   return context
 }
 
+/**
+ * Subscribes React to Embla selection and reinitialization events for one scroll direction.
+ */
+function useCarouselScrollAvailability(
+  api: CarouselApi,
+  direction: "previous" | "next",
+) {
+  const subscribe = React.useCallback(
+    (callback: () => void) => {
+      if (!api) {
+        return () => {}
+      }
+
+      const handleChange = () => {
+        callback()
+      }
+
+      api.on("select", handleChange)
+      api.on("reInit", handleChange)
+
+      return () => {
+        api.off("select", handleChange)
+        api.off("reInit", handleChange)
+      }
+    },
+    [api],
+  )
+
+  const getSnapshot = React.useCallback(() => {
+    if (!api) {
+      return false
+    }
+
+    return direction === "previous"
+      ? api.canScrollPrev()
+      : api.canScrollNext()
+  }, [api, direction])
+
+  const getServerSnapshot = React.useCallback(() => false, [])
+
+  return React.useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getServerSnapshot,
+  )
+}
+
+/**
+ * Provides Embla carousel behavior, keyboard navigation, and scroll availability.
+ */
 function Carousel({
   orientation = "horizontal",
   opts,
@@ -58,23 +111,33 @@ function Carousel({
     },
     plugins
   )
-  const [canScrollPrev, setCanScrollPrev] = React.useState(false)
-  const [canScrollNext, setCanScrollNext] = React.useState(false)
 
-  const onSelect = React.useCallback((api: CarouselApi) => {
-    if (!api) return
-    setCanScrollPrev(api.canScrollPrev())
-    setCanScrollNext(api.canScrollNext())
-  }, [])
+  const canScrollPrev = useCarouselScrollAvailability(
+    api,
+    "previous",
+  )
+  const canScrollNext = useCarouselScrollAvailability(
+    api,
+    "next",
+  )
 
+  /**
+   * Scrolls to the previous Embla snap when available.
+   */
   const scrollPrev = React.useCallback(() => {
     api?.scrollPrev()
   }, [api])
 
+  /**
+   * Scrolls to the next Embla snap when available.
+   */
   const scrollNext = React.useCallback(() => {
     api?.scrollNext()
   }, [api])
 
+  /**
+   * Maps horizontal arrow keys to carousel navigation controls.
+   */
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (event.key === "ArrowLeft") {
@@ -92,17 +155,6 @@ function Carousel({
     if (!api || !setApi) return
     setApi(api)
   }, [api, setApi])
-
-  React.useEffect(() => {
-    if (!api) return
-    onSelect(api)
-    api.on("reInit", onSelect)
-    api.on("select", onSelect)
-
-    return () => {
-      api?.off("select", onSelect)
-    }
-  }, [api, onSelect])
 
   return (
     <CarouselContext.Provider
@@ -132,6 +184,9 @@ function Carousel({
   )
 }
 
+/**
+ * Renders the overflow viewport and flex track used by Embla.
+ */
 function CarouselContent({ className, ...props }: React.ComponentProps<"div">) {
   const { carouselRef, orientation } = useCarousel()
 
@@ -153,6 +208,9 @@ function CarouselContent({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+/**
+ * Renders one accessible carousel slide.
+ */
 function CarouselItem({ className, ...props }: React.ComponentProps<"div">) {
   const { orientation } = useCarousel()
 
@@ -171,6 +229,9 @@ function CarouselItem({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+/**
+ * Renders the previous-slide control and disables it at the start boundary.
+ */
 function CarouselPrevious({
   className,
   variant = "outline",
@@ -201,6 +262,9 @@ function CarouselPrevious({
   )
 }
 
+/**
+ * Renders the next-slide control and disables it at the end boundary.
+ */
 function CarouselNext({
   className,
   variant = "outline",

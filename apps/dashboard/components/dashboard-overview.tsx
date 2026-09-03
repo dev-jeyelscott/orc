@@ -19,7 +19,6 @@ import {
   BotIcon,
   CheckCircle2Icon,
   CircleAlertIcon,
-  Clock3Icon,
   CpuIcon,
   DatabaseIcon,
   FolderGit2Icon,
@@ -33,7 +32,6 @@ import {
   RouteIcon,
   ServerIcon,
   SquareIcon,
-  XCircleIcon,
   ZapIcon,
 } from "lucide-react";
 
@@ -82,6 +80,13 @@ type MetricsState =
   | "loading"
   | "ready"
   | "unavailable";
+
+type MetricsSnapshot = {
+  executionId: string | null;
+  state: "ready" | "unavailable";
+  cpuPercent: number | null;
+  memoryBytes: number | null;
+};
 
 interface DashboardOverviewProps {
   initialData: DashboardSummary;
@@ -1217,15 +1222,13 @@ export function DashboardOverview({
     useState(false);
   const [actionError, setActionError] =
     useState<string | null>(null);
-  const [metrics, setMetrics] = useState<{
-    cpuPercent: number | null;
-    memoryBytes: number | null;
-  }>({
-    cpuPercent: null,
-    memoryBytes: null,
-  });
-  const [metricsState, setMetricsState] =
-    useState<MetricsState>("idle");
+  const [metricsSnapshot, setMetricsSnapshot] =
+    useState<MetricsSnapshot>({
+      executionId: null,
+      state: "unavailable",
+      cpuPercent: null,
+      memoryBytes: null,
+    });
 
   const isActiveRun =
     data.activity?.kind === "active" &&
@@ -1242,6 +1245,24 @@ export function DashboardOverview({
     ["starting", "running"].includes(
       data.activity?.execution?.status ?? "",
     );
+
+  const metricsState: MetricsState =
+    !shouldPollMetrics || !executionId
+      ? "idle"
+      : metricsSnapshot.executionId !== executionId
+        ? "loading"
+        : metricsSnapshot.state;
+
+  const metrics =
+    metricsSnapshot.executionId === executionId
+      ? {
+          cpuPercent: metricsSnapshot.cpuPercent,
+          memoryBytes: metricsSnapshot.memoryBytes,
+        }
+      : {
+          cpuPercent: null,
+          memoryBytes: null,
+        };
 
   /**
    * Refreshes the bounded dashboard summary while retaining stale data on transient failure.
@@ -1302,22 +1323,16 @@ export function DashboardOverview({
   }, [isActiveRun]);
 
   useEffect(() => {
-    setMetrics({
-      cpuPercent: null,
-      memoryBytes: null,
-    });
+    const activeExecutionId = executionId;
 
     if (
       !shouldPollMetrics ||
-      !executionId
+      !activeExecutionId
     ) {
-      setMetricsState("idle");
       return;
     }
 
     let cancelled = false;
-
-    setMetricsState("loading");
 
     /**
      * Reads one live process sample from the existing bounded metrics endpoint.
@@ -1326,16 +1341,25 @@ export function DashboardOverview({
       try {
         const next =
           await getAgentExecutionMetrics(
-            executionId!,
+            activeExecutionId,
           );
 
         if (!cancelled) {
-          setMetrics(next);
-          setMetricsState("ready");
+          setMetricsSnapshot({
+            executionId: activeExecutionId,
+            state: "ready",
+            cpuPercent: next.cpuPercent,
+            memoryBytes: next.memoryBytes,
+          });
         }
       } catch {
         if (!cancelled) {
-          setMetricsState("unavailable");
+          setMetricsSnapshot({
+            executionId: activeExecutionId,
+            state: "unavailable",
+            cpuPercent: null,
+            memoryBytes: null,
+          });
         }
       }
     }

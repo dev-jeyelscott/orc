@@ -1,19 +1,42 @@
 import * as React from "react"
 
 const MOBILE_BREAKPOINT = 768
+const MOBILE_QUERY = `(max-width: ${MOBILE_BREAKPOINT - 1}px)`
 
+/**
+ * Subscribes React to browser viewport breakpoint changes.
+ */
+function subscribeToMobileBreakpoint(callback: () => void) {
+  const mediaQuery = window.matchMedia(MOBILE_QUERY)
+
+  mediaQuery.addEventListener("change", callback)
+
+  return () => {
+    mediaQuery.removeEventListener("change", callback)
+  }
+}
+
+/**
+ * Returns the current client-side mobile breakpoint state.
+ */
+function getMobileSnapshot() {
+  return window.matchMedia(MOBILE_QUERY).matches
+}
+
+/**
+ * Provides a deterministic server snapshot before browser hydration.
+ */
+function getServerMobileSnapshot() {
+  return false
+}
+
+/**
+ * Reports whether the current viewport is below the dashboard mobile breakpoint.
+ */
 export function useIsMobile() {
-  const [isMobile, setIsMobile] = React.useState<boolean | undefined>(undefined)
-
-  React.useEffect(() => {
-    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`)
-    const onChange = () => {
-      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    }
-    mql.addEventListener("change", onChange)
-    setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    return () => mql.removeEventListener("change", onChange)
-  }, [])
-
-  return !!isMobile
+  return React.useSyncExternalStore(
+    subscribeToMobileBreakpoint,
+    getMobileSnapshot,
+    getServerMobileSnapshot,
+  )
 }

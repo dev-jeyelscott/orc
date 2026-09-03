@@ -110,9 +110,36 @@ export function AgentsManager() {
     }
   }, []);
 
+  /**
+   * Performs the initial agent request and applies state only after the asynchronous request settles.
+   */
   useEffect(() => {
-    void loadAgents();
-  }, [loadAgents]);
+    let cancelled = false;
+
+    getAgents()
+      .then((nextAgents) => {
+        if (cancelled) return;
+
+        setAgents(nextAgents);
+        setMessage(null);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+
+        setMessage(
+          getErrorMessage(error, "Unable to load agents"),
+        );
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /**
    * Loads the selected agent together with its routes.
