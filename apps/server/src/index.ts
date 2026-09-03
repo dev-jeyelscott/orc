@@ -1,8 +1,10 @@
 import { buildApp } from "./app.js";
 import { env } from "./config/env.js";
 import { logger } from "./logger.js";
+import { recoverInterruptedWorkflows } from "./services/workflow-service.js";
 
 async function main() {
+  await recoverInterruptedWorkflows();
   const app = await buildApp();
 
   await app.listen({ port: env.SERVER_PORT, host: "0.0.0.0" });

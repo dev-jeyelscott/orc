@@ -15,6 +15,20 @@
       "when": 1788441600001,
       "tag": "0001_fuzzy_dexter_bennett",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788441600002,
+      "tag": "0002_phase7_workflow",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788441600003,
+      "tag": "0003_workflow_active_index",
+      "breakpoints": true
     }
   ]
 }

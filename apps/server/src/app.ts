@@ -6,6 +6,7 @@ import { healthRoutes } from "./routes/health.js";
 import { projectRoutes } from "./routes/projects.js";
 import { agentRoutes } from "./routes/agents.js";
 import { agentExecutionRoutes } from "./routes/agent-executions.js";
+import { workflowRoutes } from "./routes/workflows.js";
 import { registerWebSocket } from "./ws/index.js";
 
 export async function buildApp() {
@@ -17,6 +18,7 @@ export async function buildApp() {
   await app.register(projectRoutes);
   await app.register(agentRoutes);
   await app.register(agentExecutionRoutes);
+  await app.register(workflowRoutes);
 
   return app;
 }

@@ -9,7 +9,11 @@ const runFieldsSchema = z.object({
 export const createRunSchema = runFieldsSchema;
 export const runSchema = runFieldsSchema.extend({
   id: z.string().uuid(),
+  taskId: z.string().uuid().nullable(),
   status: runStatusSchema,
+  currentAgentId: z.string().uuid().nullable(),
+  executionCount: z.number().int().nonnegative(),
+  terminalReason: z.string().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

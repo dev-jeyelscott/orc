@@ -20,8 +20,31 @@ export class AgentExecutionServiceError extends Error {
   }
 }
 
+export type SnapshotAgent = WorkerConfiguration & {
+  id: string;
+  name: string;
+  role: string;
+  layer: number;
+  executionOrder: number;
+};
+
+export type ExecutionFinalization = {
+  executionId: string;
+  status: "completed" | "failed" | "blocked" | "cancelled";
+  resultStatus: AgentResultStatus | null;
+  failureReason: string | null;
+};
+
 function serializeRun(row: typeof runs.$inferSelect): Run {
-  return { ...row, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
+  return {
+    ...row,
+    taskId: row.taskId ?? null,
+    currentAgentId: row.currentAgentId ?? null,
+    executionCount: row.executionCount ?? 0,
+    terminalReason: row.terminalReason ?? null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
 }
 
 function serializeExecution(row: typeof agentExecutions.$inferSelect): AgentExecution {
@@ -59,6 +82,7 @@ export async function createRun(projectPath: string): Promise<Run> {
 // that connects shortly after completion can still read final in-memory metadata; the row in
 // Postgres remains authoritative once the process restarts.
 const liveSessions = new Map<string, RuntimeSession>();
+const cancellationRequests = new Set<string>();
 
 export async function startAgentExecution(runId: string, agentId: string, instruction: string): Promise<AgentExecution> {
   const [run] = await db.select().from(runs).where(eq(runs.id, runId));
@@ -67,12 +91,34 @@ export async function startAgentExecution(runId: string, agentId: string, instru
   const [agent] = await db.select().from(agents).where(eq(agents.id, agentId));
   if (!agent || !agent.enabled) throw new AgentExecutionServiceError("The agent does not exist or is disabled", 404);
 
+  return startSnapshotAgentExecution(run, {
+    id: agent.id,
+    name: agent.name,
+    role: agent.role,
+    layer: agent.layer,
+    executionOrder: agent.executionOrder,
+    harness: agent.harness,
+    model: agent.model,
+    reasoning: agent.reasoning,
+    systemPrompt: agent.systemPrompt,
+    canWrite: agent.canWrite,
+    canRunCommands: agent.canRunCommands,
+    canCommit: agent.canCommit,
+  }, instruction);
+}
+
+export async function startSnapshotAgentExecution(
+  run: typeof runs.$inferSelect,
+  agent: SnapshotAgent,
+  instruction: string,
+  onFinalized?: (finalization: ExecutionFinalization) => Promise<void> | void,
+): Promise<AgentExecution> {
   let execution: typeof agentExecutions.$inferSelect;
   try {
     [execution] = await db
       .insert(agentExecutions)
       .values({
-        runId,
+        runId: run.id,
         agentId: agent.id,
         agentName: agent.name,
         agentRole: agent.role,
@@ -88,20 +134,12 @@ export async function startAgentExecution(runId: string, agentId: string, instru
     return translateDatabaseError(error);
   }
 
-  const workerConfig: WorkerConfiguration = {
-    harness: agent.harness,
-    model: agent.model,
-    reasoning: agent.reasoning,
-    systemPrompt: agent.systemPrompt,
-    canWrite: agent.canWrite,
-    canRunCommands: agent.canRunCommands,
-    canCommit: agent.canCommit,
-  };
+  const workerConfig: WorkerConfiguration = agent;
 
   const session = startWorker({ projectPath: run.projectPath, agent: workerConfig, instruction });
 
   liveSessions.set(execution.id, session);
-  bridgeSessionToDatabase({ executionId: execution.id, projectPath: run.projectPath, agent: workerConfig, originalInstruction: instruction, session });
+  bridgeSessionToDatabase({ executionId: execution.id, projectPath: run.projectPath, agent: workerConfig, originalInstruction: instruction, session, onFinalized });
 
   return serializeExecution(execution);
 }
@@ -173,6 +211,7 @@ type BridgeParams = {
   agent: WorkerConfiguration;
   originalInstruction: string;
   session: RuntimeSession;
+  onFinalized?: (finalization: ExecutionFinalization) => Promise<void> | void;
 };
 
 // Persistence bridge between a live RuntimeSession and Postgres. Terminal output is written in
@@ -182,11 +221,18 @@ type BridgeParams = {
 // sequence numbering) are shared across the initial attempt and the single controlled repair
 // attempt so both write into the same `terminal_chunks` history for this execution.
 function bridgeSessionToDatabase(params: BridgeParams): void {
-  const { executionId, projectPath, agent, originalInstruction } = params;
+  const { executionId, projectPath, agent, originalInstruction, onFinalized } = params;
   const adapter = getHarnessAdapter(agent.harness);
 
   let writeQueue: Promise<unknown> = Promise.resolve();
   let terminalSequence = 0;
+  let finalizationSent = false;
+
+  const notifyFinalized = async (finalization: ExecutionFinalization) => {
+    if (finalizationSent) return;
+    finalizationSent = true;
+    await onFinalized?.(finalization);
+  };
 
   // Returns the queued task's own settled promise (rather than leaving it fire-and-forget) so
   // callers that need a write to be durable before proceeding -- e.g. persisting
@@ -226,6 +272,11 @@ function bridgeSessionToDatabase(params: BridgeParams): void {
   }
 
   async function finalizeAttempt(exitCode: number, messageText: string, attempt: 1 | 2): Promise<void> {
+    if (cancellationRequests.has(executionId)) {
+      await persistExecutionFields({ status: "cancelled", resultStatus: null, failureReason: "Cancelled by operator", exitCode, completedAt: new Date() });
+      await notifyFinalized({ executionId, status: "cancelled", resultStatus: null, failureReason: "Cancelled by operator" });
+      return;
+    }
     const outcome = extractAndValidateResult(messageText, agent.canCommit);
 
     if (outcome.ok) {
@@ -239,6 +290,7 @@ function bridgeSessionToDatabase(params: BridgeParams): void {
         exitCode,
         completedAt: new Date(),
       });
+      await notifyFinalized({ executionId, status: executionStatusForResult(result.status), resultStatus: result.status, failureReason: null });
       return;
     }
 
@@ -260,6 +312,7 @@ function bridgeSessionToDatabase(params: BridgeParams): void {
       exitCode,
       completedAt: new Date(),
     });
+    await notifyFinalized({ executionId, status: "failed", resultStatus: null, failureReason: outcome.reasons[0] ?? "The repair attempt did not produce a valid structured result." });
   }
 
   function attach(session: RuntimeSession, attempt: 1 | 2): void {
@@ -318,7 +371,7 @@ function bridgeSessionToDatabase(params: BridgeParams): void {
           // produced an "exit" event, so they remain the sole source of failure status here.
           if (event.diagnostic.code === "usage_unavailable" || event.diagnostic.code === "unexpected_exit") break;
           const { message } = event.diagnostic;
-          finalize({ status: "failed", resultStatus: null, failureReason: message });
+          void finalize({ status: "failed", resultStatus: null, failureReason: message }).then(() => notifyFinalized({ executionId, status: "failed", resultStatus: null, failureReason: message }));
           break;
         }
       }
@@ -326,6 +379,14 @@ function bridgeSessionToDatabase(params: BridgeParams): void {
   }
 
   attach(params.session, 1);
+}
+
+export async function cancelLiveExecution(id: string): Promise<boolean> {
+  const session = liveSessions.get(id);
+  if (!session || !["starting", "running", "stopping"].includes(session.metadata.state)) return false;
+  cancellationRequests.add(id);
+  session.stop();
+  return true;
 }
 
 export async function getExecution(id: string): Promise<AgentExecution | null> {

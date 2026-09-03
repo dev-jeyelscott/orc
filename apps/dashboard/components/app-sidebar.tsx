@@ -1,11 +1,11 @@
 import { Bot, FolderKanban, LayoutDashboard, ListTodo, Play } from "lucide-react";
+import Link from "next/link";
 
 import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -35,10 +35,10 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     render={
-                      <a href={item.url}>
+                      <Link href={item.url}>
                         <item.icon />
                         <span>{item.title}</span>
-                      </a>
+                      </Link>
                     }
                   />
                 </SidebarMenuItem>
@@ -46,10 +46,10 @@ export function AppSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   render={
-                    <a href="/tasks">
+                    <Link href="/tasks">
                       <ListTodo />
                       <span>Tasks</span>
-                    </a>
+                    </Link>
                   }
                 />
                 <SidebarMenuSub>
@@ -57,10 +57,10 @@ export function AppSidebar() {
                     <SidebarMenuSubItem key={item.title}>
                       <SidebarMenuSubButton
                         render={
-                          <a href={item.url}>
+                          <Link href={item.url}>
                             <item.icon />
                             <span>{item.title}</span>
-                          </a>
+                          </Link>
                         }
                       />
                     </SidebarMenuSubItem>

@@ -54,7 +54,21 @@ export const agentRoutes = pgTable("agent_routes", {
 // run itself.
 export const runs = pgTable("runs", {
   id: uuid("id").primaryKey().defaultRandom(),
+  taskId: uuid("task_id"),
   projectPath: text("project_path").notNull(),
+  status: runStatusEnum("status").notNull().default("pending"),
+  workflowSnapshot: jsonb("workflow_snapshot"),
+  currentAgentId: uuid("current_agent_id"),
+  executionCount: integer("execution_count").notNull().default(0),
+  terminalReason: text("terminal_reason"),
+  ...timestamps,
+});
+
+export const tasks = pgTable("tasks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectPath: text("project_path").notNull(),
+  title: text("title").notNull(),
+  instruction: text("instruction").notNull(),
   status: runStatusEnum("status").notNull().default("pending"),
   ...timestamps,
 });
