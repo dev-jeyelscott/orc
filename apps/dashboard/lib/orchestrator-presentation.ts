@@ -1,22 +1,15 @@
 import type {
   AgentExecution,
-  ConversationMessage,
   Run,
   RunDetail,
-} from "@orc/shared";
-
-export type ConversationExchange = {
-  id: string;
-  user: ConversationMessage | null;
-  assistant: ConversationMessage | null;
-};
+} from "@orc/shared"
 
 const ACTIVE_EXECUTION_STATUSES =
   new Set<AgentExecution["status"]>([
     "pending",
     "starting",
     "running",
-  ]);
+  ])
 
 const conversationTimeFormatter =
   new Intl.DateTimeFormat(
@@ -25,82 +18,7 @@ const conversationTimeFormatter =
       hour: "numeric",
       minute: "2-digit",
     },
-  );
-
-/** Pairs each assistant reply with the closest preceding unmatched user message. */
-export function pairConversationMessages(
-  messages: ConversationMessage[],
-): ConversationExchange[] {
-  const ordered = messages
-    .map((message, index) => ({
-      message,
-      index,
-    }))
-    .sort((left, right) => {
-      const timeDifference =
-        Date.parse(
-          left.message.createdAt,
-        ) -
-        Date.parse(
-          right.message.createdAt,
-        );
-
-      return (
-        timeDifference ||
-        left.index - right.index
-      );
-    })
-    .map(({ message }) => message);
-
-  const exchanges: ConversationExchange[] =
-    [];
-
-  let pendingUser:
-    | ConversationMessage
-    | null = null;
-
-  for (const message of ordered) {
-    if (message.role === "user") {
-      if (pendingUser) {
-        exchanges.push({
-          id: pendingUser.id,
-          user: pendingUser,
-          assistant: null,
-        });
-      }
-
-      pendingUser = message;
-      continue;
-    }
-
-    if (pendingUser) {
-      exchanges.push({
-        id: `${pendingUser.id}:${message.id}`,
-        user: pendingUser,
-        assistant: message,
-      });
-
-      pendingUser = null;
-      continue;
-    }
-
-    exchanges.push({
-      id: message.id,
-      user: null,
-      assistant: message,
-    });
-  }
-
-  if (pendingUser) {
-    exchanges.push({
-      id: pendingUser.id,
-      user: pendingUser,
-      assistant: null,
-    });
-  }
-
-  return exchanges;
-}
+  )
 
 /** Returns whether the backend considers a run actively cancellable. */
 export function isRunActive(
@@ -109,7 +27,7 @@ export function isRunActive(
   return (
     status === "pending" ||
     status === "running"
-  );
+  )
 }
 
 /** Returns whether the backend currently exposes retry for this terminal run state. */
@@ -119,7 +37,7 @@ export function isRunRetryable(
   return (
     status === "failed" ||
     status === "blocked"
-  );
+  )
 }
 
 /** Selects the active execution, preferring the run's persisted current agent reference. */
@@ -127,7 +45,7 @@ export function selectActiveExecution(
   detail: RunDetail | null,
 ): AgentExecution | null {
   if (!detail) {
-    return null;
+    return null
   }
 
   const activeExecutions =
@@ -136,7 +54,7 @@ export function selectActiveExecution(
         ACTIVE_EXECUTION_STATUSES.has(
           execution.status,
         ),
-    );
+    )
 
   if (
     detail.run.currentAgentId
@@ -148,17 +66,17 @@ export function selectActiveExecution(
           (execution) =>
             execution.agentId ===
             detail.run.currentAgentId,
-        );
+        )
 
     if (matchingExecution) {
-      return matchingExecution;
+      return matchingExecution
     }
   }
 
   return (
     activeExecutions.at(-1) ??
     null
-  );
+  )
 }
 
 /** Selects the execution whose terminal should be displayed, preferring the active worker. */
@@ -166,14 +84,14 @@ export function selectTerminalExecution(
   detail: RunDetail | null,
 ): AgentExecution | null {
   if (!detail) {
-    return null;
+    return null
   }
 
   return (
     selectActiveExecution(detail) ??
     detail.executions.at(-1) ??
     null
-  );
+  )
 }
 
 /** Selects the most recent execution containing a validated structured result. */
@@ -181,7 +99,7 @@ export function selectLatestResultExecution(
   detail: RunDetail | null,
 ): AgentExecution | null {
   if (!detail) {
-    return null;
+    return null
   }
 
   return (
@@ -192,26 +110,26 @@ export function selectLatestResultExecution(
           execution.resultPayload !==
           null,
       ) ?? null
-  );
+  )
 }
 
-/** Formats one conversation timestamp into the compact time used by message headers. */
+/** Formats one persisted conversation timestamp into a compact chat timestamp. */
 export function formatConversationTime(
   value: string,
 ): string {
-  const parsed = new Date(value);
+  const parsed = new Date(value)
 
   if (
     Number.isNaN(
       parsed.getTime(),
     )
   ) {
-    return "-";
+    return "-"
   }
 
   return conversationTimeFormatter.format(
     parsed,
-  );
+  )
 }
 
 /** Formats elapsed time from authoritative timestamps without estimating missing start time. */
@@ -221,48 +139,48 @@ export function formatElapsedTime(
   now: number,
 ): string {
   if (!startedAt) {
-    return "-";
+    return "-"
   }
 
   const start =
-    Date.parse(startedAt);
+    Date.parse(startedAt)
 
   const end = completedAt
     ? Date.parse(completedAt)
-    : now;
+    : now
 
   if (
     !Number.isFinite(start) ||
     !Number.isFinite(end) ||
     end < start
   ) {
-    return "-";
+    return "-"
   }
 
   const totalSeconds =
     Math.floor(
       (end - start) / 1000,
-    );
+    )
 
   const hours = Math.floor(
     totalSeconds / 3600,
-  );
+  )
 
   const minutes = Math.floor(
     (totalSeconds % 3600) /
       60,
-  );
+  )
 
   const seconds =
-    totalSeconds % 60;
+    totalSeconds % 60
 
   if (hours > 0) {
-    return `${hours}h ${minutes}m ${seconds}s`;
+    return `${hours}h ${minutes}m ${seconds}s`
   }
 
   if (minutes > 0) {
-    return `${minutes}m ${seconds}s`;
+    return `${minutes}m ${seconds}s`
   }
 
-  return `${seconds}s`;
+  return `${seconds}s`
 }
