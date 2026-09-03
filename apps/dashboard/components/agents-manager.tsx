@@ -774,10 +774,10 @@ function RouteRowEditor({
   );
 
   const currentTarget = route.targetAgentId
-    ? agents.find(
+    ? (agents.find(
         (candidate) =>
           candidate.id === route.targetAgentId,
-      )
+      ) ?? null)
     : null;
 
   const currentTargetIsAvailable =
