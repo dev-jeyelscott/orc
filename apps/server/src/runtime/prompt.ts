@@ -1,3 +1,5 @@
+import type { AgentResult } from "@orc/shared";
+
 import type { StartWorkerInput } from "./contracts.js";
 
 // Stable delimiter the agent-execution-service scans for when extracting the structured
@@ -43,6 +45,22 @@ export function composeInitialInstruction(input: StartWorkerInput): string {
     "",
     RESULT_CONTRACT,
   ].join("\n");
+}
+
+// Appended to the next agent's task instruction when the workflow router hands off from one
+// agent to another (same-layer sequence or a configured route), so the receiving agent sees the
+// structured result the previous agent reported instead of being re-run blind against the
+// original task text alone.
+export function composeHandoffNote(source: { name: string; role: string }, result: AgentResult): string {
+  const lines = [
+    `Handoff from ${source.name} (${source.role}):`,
+    `Previous outcome: ${result.status}`,
+    `Previous summary: ${result.summary}`,
+  ];
+  if (result.findings.length) lines.push("Findings:", ...result.findings.map((finding) => `- ${finding}`));
+  if (result.filesChanged.length) lines.push(`Files changed: ${result.filesChanged.join(", ")}`);
+  if (Object.keys(result.validation).length) lines.push(`Validation: ${JSON.stringify(result.validation)}`);
+  return lines.join("\n");
 }
 
 // Composed for the single controlled repair turn when the previous attempt's output did not

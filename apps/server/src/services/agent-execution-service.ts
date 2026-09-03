@@ -34,6 +34,7 @@ export type ExecutionFinalization = {
   status: "completed" | "failed" | "blocked" | "cancelled";
   resultStatus: AgentResultStatus | null;
   failureReason: string | null;
+  result: AgentResult | null;
 };
 
 function serializeRun(row: typeof runs.$inferSelect): Run {
@@ -287,7 +288,7 @@ function bridgeSessionToDatabase(params: BridgeParams): void {
   async function finalizeAttempt(exitCode: number, messageText: string, attempt: 1 | 2): Promise<void> {
     if (cancellationRequests.has(executionId)) {
       await persistExecutionFields({ status: "cancelled", resultStatus: null, failureReason: "Cancelled by operator", exitCode, completedAt: new Date() });
-      await notifyFinalized({ executionId, status: "cancelled", resultStatus: null, failureReason: "Cancelled by operator" });
+      await notifyFinalized({ executionId, status: "cancelled", resultStatus: null, failureReason: "Cancelled by operator", result: null });
       return;
     }
     const outcome = extractAndValidateResult(messageText, agent.canCommit);
@@ -303,7 +304,7 @@ function bridgeSessionToDatabase(params: BridgeParams): void {
         exitCode,
         completedAt: new Date(),
       });
-      await notifyFinalized({ executionId, status: executionStatusForResult(result.status), resultStatus: result.status, failureReason: null });
+      await notifyFinalized({ executionId, status: executionStatusForResult(result.status), resultStatus: result.status, failureReason: null, result });
       return;
     }
 
@@ -325,7 +326,7 @@ function bridgeSessionToDatabase(params: BridgeParams): void {
       exitCode,
       completedAt: new Date(),
     });
-    await notifyFinalized({ executionId, status: "failed", resultStatus: null, failureReason: outcome.reasons[0] ?? "The repair attempt did not produce a valid structured result." });
+    await notifyFinalized({ executionId, status: "failed", resultStatus: null, failureReason: outcome.reasons[0] ?? "The repair attempt did not produce a valid structured result.", result: null });
   }
 
   function attach(session: RuntimeSession, attempt: 1 | 2): void {
@@ -385,7 +386,7 @@ function bridgeSessionToDatabase(params: BridgeParams): void {
           // produced an "exit" event, so they remain the sole source of failure status here.
           if (event.diagnostic.code === "usage_unavailable" || event.diagnostic.code === "unexpected_exit") break;
           const { message } = event.diagnostic;
-          void finalize({ status: "failed", resultStatus: null, failureReason: message }).then(() => notifyFinalized({ executionId, status: "failed", resultStatus: null, failureReason: message }));
+          void finalize({ status: "failed", resultStatus: null, failureReason: message }).then(() => notifyFinalized({ executionId, status: "failed", resultStatus: null, failureReason: message, result: null }));
           break;
         }
       }

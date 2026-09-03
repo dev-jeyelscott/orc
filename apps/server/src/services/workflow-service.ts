@@ -5,6 +5,7 @@ import type { AgentExecution, AgentResultStatus, CreateTask, Run, Task, TaskWith
 import { db } from "../db/client.js";
 import { agentExecutions, agentRoutes, agents, runs, tasks } from "../db/schema.js";
 import { env } from "../config/env.js";
+import { composeHandoffNote } from "../runtime/index.js";
 import { getProject } from "./project-discovery.js";
 import { cancelLiveExecution, startSnapshotAgentExecution, type ExecutionFinalization, type SnapshotAgent } from "./agent-execution-service.js";
 import { recordEvent, listRunEvents } from "./event-service.js";
@@ -64,7 +65,7 @@ async function updateTerminal(run: typeof runs.$inferSelect, status: "completed"
   await recordEvent({ type: `run.${status}`, projectPath: run.projectPath, taskId: run.taskId, runId: run.id, data: { reason } });
 }
 
-async function launchNext(runId: string, nextAgentId: string): Promise<void> {
+async function launchNext(runId: string, nextAgentId: string, handoffNote?: string): Promise<void> {
   const [run] = await db.select().from(runs).where(eq(runs.id, runId));
   if (!run || run.status !== "running") return;
   const snapshot = snapshotOf(run);
@@ -79,7 +80,9 @@ async function launchNext(runId: string, nextAgentId: string): Promise<void> {
     .returning();
   if (!claimed) return;
   await recordEvent({ type: "agent.started", projectPath: claimed.projectPath, taskId: claimed.taskId, runId: claimed.id, data: { agentId: agent.id, layer: agent.layer, executionOrder: agent.executionOrder } });
-  await startSnapshotAgentExecution(claimed, agent, (await getTaskInstruction(claimed)), (finalization) => handleExecutionFinalization(claimed.id, agent.id, finalization));
+  const baseInstruction = await getTaskInstruction(claimed);
+  const instruction = handoffNote ? `${baseInstruction}\n\n${handoffNote}` : baseInstruction;
+  await startSnapshotAgentExecution(claimed, agent, instruction, (finalization) => handleExecutionFinalization(claimed.id, agent.id, finalization));
 }
 
 async function getTaskInstruction(run: typeof runs.$inferSelect): Promise<string> {
@@ -101,18 +104,20 @@ async function handleExecutionFinalization(runId: string, agentId: string, final
   await recordEvent({ type: "result.received", projectPath: run.projectPath, taskId: run.taskId, runId, agentExecutionId: finalization.executionId, data: { status: finalization.resultStatus } });
 
   const snapshot = snapshotOf(run);
+  const sourceAgent = snapshot.agents.find((candidate) => candidate.id === agentId);
+  const handoffNote = finalization.result && sourceAgent ? composeHandoffNote(sourceAgent, finalization.result) : undefined;
   const route = snapshot.routes.find((candidate) => candidate.sourceAgentId === agentId && candidate.outcome === finalization.resultStatus);
   if (route?.terminalAction) {
     const status = route.terminalAction === "complete_run" ? "completed" : route.terminalAction === "fail_run" ? "failed" : "blocked";
     return updateTerminal(run, status, `Terminal route: ${route.terminalAction}`);
   }
-  if (route?.targetAgentId) { await recordEvent({ type: "route.selected", projectPath: run.projectPath, taskId: run.taskId, runId, agentExecutionId: finalization.executionId, data: { targetAgentId: route.targetAgentId, outcome: finalization.resultStatus } }); return launchNext(run.id, route.targetAgentId); }
+  if (route?.targetAgentId) { await recordEvent({ type: "route.selected", projectPath: run.projectPath, taskId: run.taskId, runId, agentExecutionId: finalization.executionId, data: { targetAgentId: route.targetAgentId, outcome: finalization.resultStatus } }); return launchNext(run.id, route.targetAgentId, handoffNote); }
 
   if (finalization.resultStatus === "completed" || finalization.resultStatus === "approved") {
     const currentIndex = snapshot.agents.findIndex((candidate) => candidate.id === agentId);
     const next = snapshot.agents[currentIndex + 1];
     if (!next) return updateTerminal(run, "completed", null);
-    return launchNext(run.id, next.id);
+    return launchNext(run.id, next.id, handoffNote);
   }
   const terminalStatus = finalization.resultStatus === "blocked" || finalization.resultStatus === "changes_requested" ? "blocked" : "failed";
   return updateTerminal(run, terminalStatus, finalization.failureReason ?? `No configured route for ${finalization.resultStatus}.`);
