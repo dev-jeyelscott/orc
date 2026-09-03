@@ -1,11 +1,12 @@
 import {
+  agentExecutionMetricsSchema,
   agentExecutionSchema,
   type AgentExecution,
+  type AgentExecutionMetrics,
 } from "@orc/shared";
 
 const SERVER_URL =
-  process.env.NEXT_PUBLIC_SERVER_URL ??
-  "http://localhost:4000";
+  process.env.NEXT_PUBLIC_SERVER_URL ?? "http://localhost:4000";
 
 /** Performs one validated request against the orchestration backend. */
 async function request<T>(
@@ -20,8 +21,7 @@ async function request<T>(
     {
       ...options,
       headers: {
-        "content-type":
-          "application/json",
+        "content-type": "application/json",
         ...options.headers,
       },
     },
@@ -58,29 +58,16 @@ export function getAgentExecution(
   );
 }
 
-/** Returns live process metrics when the server can observe the execution PID. */
+/** Returns validated live process metrics when the server can observe the execution PID. */
 export function getAgentExecutionMetrics(
   id: string,
-): Promise<{
-  cpuPercent: number | null;
-  memoryBytes: number | null;
-}> {
+): Promise<AgentExecutionMetrics> {
   return request(
     `/api/agent-executions/${id}/metrics`,
     {
       cache: "no-store",
     },
-    {
-      parse: (value: unknown) =>
-        value as {
-          cpuPercent:
-            | number
-            | null;
-          memoryBytes:
-            | number
-            | null;
-        },
-    },
+    agentExecutionMetricsSchema,
   );
 }
 

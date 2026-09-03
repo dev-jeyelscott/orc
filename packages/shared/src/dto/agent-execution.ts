@@ -39,8 +39,18 @@ export const agentExecutionSchema = z.object({
   updatedAt: z.string().datetime(),
 });
 
+export const agentExecutionMetricsSchema = z
+  .object({
+    cpuPercent: z.number().finite().nonnegative().nullable(),
+    memoryBytes: z.number().finite().nonnegative().nullable(),
+  })
+  .strict();
+
 export type StartAgentExecution = z.infer<typeof startAgentExecutionSchema>;
 export type AgentExecution = z.infer<typeof agentExecutionSchema>;
+export type AgentExecutionMetrics = z.infer<
+  typeof agentExecutionMetricsSchema
+>;
 
 export const terminalChunkFrameSchema = z.object({
   type: z.literal("chunk"),

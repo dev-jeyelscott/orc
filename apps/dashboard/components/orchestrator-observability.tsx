@@ -15,6 +15,7 @@ import {
 import {
   useEffect,
   useState,
+  type ReactNode,
 } from "react";
 
 import { AgentExecutionTerminal } from "@/components/agent-execution-terminal";
@@ -29,7 +30,6 @@ import { Progress } from "@/components/ui/progress";
 import { getAgentExecutionMetrics } from "@/lib/agent-executions";
 import {
   formatElapsedTime,
-  isRunActive,
 } from "@/lib/orchestrator-presentation";
 import {
   compactPath,
@@ -62,20 +62,14 @@ function formatBytes(
     return "Unavailable";
   }
 
-  if (
-    value >=
-    1024 ** 3
-  ) {
+  if (value >= 1024 ** 3) {
     return `${(
       value /
       1024 ** 3
     ).toFixed(2)} GiB`;
   }
 
-  if (
-    value >=
-    1024 ** 2
-  ) {
+  if (value >= 1024 ** 2) {
     return `${(
       value /
       1024 ** 2
@@ -130,7 +124,7 @@ function eventVariant(
   return "running";
 }
 
-/** Shortens long settings text for the compact observability summary. */
+/** Shortens long supervisor configuration text for dense operator display. */
 function truncateText(
   value: string,
   length: number,
@@ -148,15 +142,17 @@ function truncateText(
   )}...`;
 }
 
-/** Polls process metrics only while an execution is live and observable. */
+/** Polls process metrics only while the selected execution can have live process telemetry. */
 function useAgentMetrics(
   execution: AgentExecution | null,
 ) {
-  const [metrics, setMetrics] =
-    useState<{
-      cpuPercent: number | null;
-      memoryBytes: number | null;
-    } | null>(null);
+  const [
+    metrics,
+    setMetrics,
+  ] = useState<{
+    cpuPercent: number | null;
+    memoryBytes: number | null;
+  } | null>(null);
 
   useEffect(() => {
     if (
@@ -174,7 +170,7 @@ function useAgentMetrics(
 
     let disposed = false;
 
-    /** Loads one authoritative process metrics snapshot and degrades to unavailable on failure. */
+    /** Loads one authoritative process metrics snapshot and fails closed to unavailable telemetry. */
     const refresh =
       async (): Promise<void> => {
         try {
@@ -184,7 +180,9 @@ function useAgentMetrics(
             );
 
           if (!disposed) {
-            setMetrics(next);
+            setMetrics(
+              next,
+            );
           }
         } catch {
           if (!disposed) {
@@ -223,29 +221,28 @@ function useAgentMetrics(
   return metrics;
 }
 
-/** Renders one compact label and authoritative value pair. */
+/** Renders one compact definition-list field. */
 function Detail({
   label,
   children,
 }: {
   label: string;
-  children:
-    React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] uppercase tracking-wide text-text-muted">
+      <dt className="text-[9px] font-medium uppercase tracking-wide text-text-muted">
         {label}
       </dt>
 
-      <dd className="mt-1 min-w-0 break-words text-xs text-text-primary">
+      <dd className="mt-1 min-w-0 break-words text-[11px] text-text-primary">
         {children}
       </dd>
     </div>
   );
 }
 
-/** Renders persisted run-level state without projecting unexecuted workflow steps. */
+/** Renders authoritative run-level state without projecting unexecuted workflow steps. */
 function RunSummary({
   detail,
   error,
@@ -274,7 +271,7 @@ function RunSummary({
             No run is linked to this conversation yet.
           </p>
         ) : (
-          <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <dl className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-5">
             <Detail label="Status">
               <Badge
                 variant={getLifecycleBadgeVariant(
@@ -287,7 +284,7 @@ function RunSummary({
               </Badge>
             </Detail>
 
-            <Detail label="Executions">
+            <Detail label="Execution Count">
               {
                 detail.run
                   .executionCount
@@ -297,17 +294,17 @@ function RunSummary({
             <Detail label="Terminal Reason">
               {detail.run
                 .terminalReason ??
-                "-"}
+                "Not set"}
             </Detail>
 
-            <Detail label="Created">
+            <Detail label="Created At">
               {formatAbsoluteTimestamp(
                 detail.run
                   .createdAt,
               )}
             </Detail>
 
-            <Detail label="Updated">
+            <Detail label="Updated At">
               {formatAbsoluteTimestamp(
                 detail.run
                   .updatedAt,
@@ -340,7 +337,7 @@ function RunSummary({
   );
 }
 
-/** Renders only execution records that actually exist for the run. */
+/** Renders only execution attempts that actually exist for the selected run. */
 function ExecutionTimeline({
   detail,
   now,
@@ -349,7 +346,8 @@ function ExecutionTimeline({
   now: number;
 }) {
   const executions =
-    detail?.executions ?? [];
+    detail?.executions ??
+    [];
 
   return (
     <Card className="min-w-0">
@@ -361,7 +359,7 @@ function ExecutionTimeline({
 
       <CardContent className="max-h-72 overflow-y-auto p-3">
         {executions.length ? (
-          <ol className="space-y-2">
+          <ol className="space-y-2.5">
             {executions.map(
               (
                 execution,
@@ -379,14 +377,14 @@ function ExecutionTimeline({
                   />
 
                   <div className="min-w-0">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className="font-mono text-[10px] text-text-muted">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <span className="font-mono text-[9px] text-text-muted">
                         #
                         {index +
                           1}
                       </span>
 
-                      <span className="truncate text-xs font-medium text-text-primary">
+                      <span className="truncate text-[11px] font-medium text-text-primary">
                         {
                           execution.agentName
                         }
@@ -403,23 +401,24 @@ function ExecutionTimeline({
                       </Badge>
                     </div>
 
-                    <p className="mt-1 truncate text-[11px] text-text-muted">
+                    <p className="mt-1 truncate text-[10px] text-text-muted">
                       Layer{" "}
                       {
                         execution.layer
-                      }{" "}
-                      · order{" "}
+                      }
+                      {" · "}
+                      order{" "}
                       {
                         execution.executionOrder
-                      }{" "}
-                      ·{" "}
+                      }
+                      {" · "}
                       {
                         execution.agentRole
                       }
                     </p>
                   </div>
 
-                  <span className="whitespace-nowrap text-[10px] text-text-muted">
+                  <span className="whitespace-nowrap font-mono text-[9px] text-text-muted">
                     {formatElapsedTime(
                       execution.startedAt,
                       execution.completedAt,
@@ -440,7 +439,7 @@ function ExecutionTimeline({
   );
 }
 
-/** Renders the currently persisted active worker and supported live telemetry. */
+/** Renders the currently persisted active worker together with supported runtime telemetry. */
 function ActiveAgentDetails({
   execution,
 }: {
@@ -481,7 +480,7 @@ function ActiveAgentDetails({
         ) : (
           <div className="space-y-3">
             <div className="flex min-w-0 items-center gap-2">
-              <BotIcon className="size-4 shrink-0 text-status-success" />
+              <BotIcon className="size-4 shrink-0 text-status-running" />
 
               <span className="truncate text-xs font-semibold text-text-primary">
                 {
@@ -535,7 +534,44 @@ function ActiveAgentDetails({
 
               <Detail label="PID">
                 {execution.pid ??
-                  "-"}
+                  "Unavailable"}
+              </Detail>
+
+              <Detail label="Exit Code">
+                {execution.exitCode ??
+                  "Not available"}
+              </Detail>
+
+              <Detail label="Repair Attempted">
+                {execution.repairAttempted
+                  ? "Yes"
+                  : "No"}
+              </Detail>
+
+              <Detail label="Tokens Used">
+                {formatTokenCount(
+                  tokenUsage
+                    ?.totalTokens ??
+                    null,
+                )}
+              </Detail>
+
+              <Detail label="CPU Usage">
+                {metrics?.cpuPercent !==
+                  null &&
+                metrics?.cpuPercent !==
+                  undefined
+                  ? `${metrics.cpuPercent.toFixed(
+                      1,
+                    )}%`
+                  : "Unavailable"}
+              </Detail>
+
+              <Detail label="Memory Usage">
+                {formatBytes(
+                  metrics?.memoryBytes ??
+                    null,
+                )}
               </Detail>
 
               <Detail label="Commit">
@@ -549,45 +585,26 @@ function ActiveAgentDetails({
                     )}
                   </span>
                 ) : (
-                  "-"
+                  "Not available"
                 )}
               </Detail>
 
-              <Detail label="Tokens">
-                {formatTokenCount(
-                  tokenUsage
-                    ?.totalTokens ??
-                    null,
+              <Detail label="Started At">
+                {formatAbsoluteTimestamp(
+                  execution.startedAt,
                 )}
               </Detail>
 
-              <Detail label="CPU">
-                {metrics?.cpuPercent !==
-                null &&
-                metrics?.cpuPercent !==
-                  undefined
-                  ? `${metrics.cpuPercent.toFixed(
-                      1,
-                    )}%`
-                  : "Unavailable"}
-              </Detail>
-
-              <Detail label="Memory">
-                {formatBytes(
-                  metrics?.memoryBytes ??
-                    null,
+              <Detail label="Completed At">
+                {formatAbsoluteTimestamp(
+                  execution.completedAt,
                 )}
               </Detail>
 
-              <Detail label="Repair Attempted">
-                {execution.repairAttempted
-                  ? "Yes"
-                  : "No"}
-              </Detail>
-
-              <Detail label="Exit Code">
-                {execution.exitCode ??
-                  "-"}
+              <Detail label="Updated At">
+                {formatAbsoluteTimestamp(
+                  execution.updatedAt,
+                )}
               </Detail>
             </dl>
 
@@ -613,7 +630,7 @@ function ActiveAgentDetails({
 
               {contextUsage
                 ?.percent !==
-              null &&
+                null &&
               contextUsage
                 ?.percent !==
                 undefined ? (
@@ -640,14 +657,44 @@ function ActiveAgentDetails({
   );
 }
 
-/** Renders the latest persisted workflow events independently from terminal output. */
+/** Resolves the affected persisted execution for one event without inferring missing relationships. */
+function affectedExecutionLabel(
+  event: DomainEvent,
+  detail: RunDetail | null,
+): string {
+  if (
+    !event.agentExecutionId
+  ) {
+    return "Run event";
+  }
+
+  const execution =
+    detail?.executions.find(
+      (candidate) =>
+        candidate.id ===
+        event.agentExecutionId,
+    );
+
+  if (!execution) {
+    return `Execution ${shortId(
+      event.agentExecutionId,
+    )}`;
+  }
+
+  return `${execution.agentName} · ${shortId(
+    execution.id,
+  )}`;
+}
+
+/** Renders the latest persisted business events independently from raw terminal output. */
 function EventStream({
   detail,
 }: {
   detail: RunDetail | null;
 }) {
   const events = [
-    ...(detail?.events ?? []),
+    ...(detail?.events ??
+      []),
   ]
     .sort(
       (left, right) =>
@@ -683,9 +730,7 @@ function EventStream({
                       event,
                     )}
                   >
-                    {
-                      event.type
-                    }
+                    {event.type}
                   </Badge>
 
                   <div className="min-w-0">
@@ -695,11 +740,24 @@ function EventStream({
                       )}
                     </p>
 
-                    <p className="mt-0.5 text-[10px] text-text-muted">
-                      {formatAbsoluteTimestamp(
-                        event.createdAt,
-                      )}
-                    </p>
+                    <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] text-text-muted">
+                      <span className="truncate">
+                        {affectedExecutionLabel(
+                          event,
+                          detail,
+                        )}
+                      </span>
+
+                      <time
+                        dateTime={
+                          event.createdAt
+                        }
+                      >
+                        {formatAbsoluteTimestamp(
+                          event.createdAt,
+                        )}
+                      </time>
+                    </div>
                   </div>
                 </div>
               ),
@@ -726,7 +784,7 @@ function EventStream({
   );
 }
 
-/** Renders the separately configured supervisor settings without treating it as a worker agent. */
+/** Renders separately configured supervisor settings without representing the Orchestrator as a worker layer. */
 function OrchestratorSettingsCard({
   settings,
   error,
@@ -745,7 +803,7 @@ function OrchestratorSettingsCard({
       <CardContent className="p-3">
         {error ? (
           <p className="text-xs text-status-error">
-            Settings unavailable
+            {error}
           </p>
         ) : !settings ? (
           <p className="text-xs text-text-muted">
@@ -754,21 +812,15 @@ function OrchestratorSettingsCard({
         ) : (
           <dl className="space-y-3">
             <Detail label="Harness">
-              {
-                settings.harness
-              }
+              {settings.harness}
             </Detail>
 
             <Detail label="Model">
-              {
-                settings.model
-              }
+              {settings.model}
             </Detail>
 
             <Detail label="Reasoning">
-              {
-                settings.reasoning
-              }
+              {settings.reasoning}
             </Detail>
 
             <Detail label="System Prompt">
@@ -790,7 +842,7 @@ function OrchestratorSettingsCard({
   );
 }
 
-/** Renders run summary, timeline, active execution telemetry, events, and supervisor settings. */
+/** Renders run summary, execution timeline, active worker telemetry, events, and supervisor settings. */
 export function OrchestratorObservability({
   runDetail,
   runError,
@@ -806,7 +858,7 @@ export function OrchestratorObservability({
         error={runError}
       />
 
-      <div className="grid min-w-0 gap-3 lg:grid-cols-2">
+      <div className="grid min-w-0 gap-3 2xl:grid-cols-2">
         <ExecutionTimeline
           detail={runDetail}
           now={now}
@@ -819,7 +871,7 @@ export function OrchestratorObservability({
         />
       </div>
 
-      <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.25fr)_minmax(240px,0.75fr)]">
+      <div className="grid min-w-0 gap-3 2xl:grid-cols-[minmax(0,1.2fr)_minmax(230px,0.8fr)]">
         <EventStream
           detail={runDetail}
         />
@@ -833,7 +885,7 @@ export function OrchestratorObservability({
   );
 }
 
-/** Renders live or historical terminal output for the execution currently relevant to the run. */
+/** Renders the existing replayable xterm session for the active or most recent execution. */
 export function OrchestratorTerminalPanel({
   execution,
 }: {
@@ -860,13 +912,13 @@ export function OrchestratorTerminalPanel({
       executionId={
         execution.id
       }
-      title={`${execution.agentName} Terminal`}
+      title={`Live Terminal Output · ${execution.agentName}`}
       heightClassName="h-[260px] lg:h-[300px]"
     />
   );
 }
 
-/** Renders the most recent validated worker result without parsing terminal text. */
+/** Renders the newest validated structured worker result without parsing raw terminal text. */
 export function OrchestratorResultPreview({
   execution,
 }: {
@@ -911,9 +963,7 @@ export function OrchestratorResultPreview({
               </h3>
 
               <p className="mt-2 text-xs leading-5 text-text-secondary">
-                {
-                  result.summary
-                }
+                {result.summary}
               </p>
 
               {Object.keys(
@@ -946,9 +996,7 @@ export function OrchestratorResultPreview({
                         key={`${index}:${finding}`}
                         className="text-xs leading-5 text-text-secondary"
                       >
-                        {
-                          finding
-                        }
+                        {finding}
                       </li>
                     ),
                   )}
@@ -973,9 +1021,7 @@ export function OrchestratorResultPreview({
                       <li
                         key={file}
                         className="truncate font-mono text-[10px] text-text-secondary"
-                        title={
-                          file
-                        }
+                        title={file}
                       >
                         {file}
                       </li>
@@ -1006,9 +1052,7 @@ export function OrchestratorResultPreview({
                         key={`${index}:${command}`}
                         className="break-all rounded bg-surface-interactive px-2 py-1 font-mono text-[10px] text-text-secondary"
                       >
-                        {
-                          command
-                        }
+                        {command}
                       </li>
                     ),
                   )}
@@ -1045,9 +1089,7 @@ export function OrchestratorResultPreview({
                 <p className="mt-3 inline-flex items-center gap-1 font-mono text-[10px] text-link">
                   <GitCommitHorizontalIcon className="size-3" />
 
-                  {
-                    result.commit
-                  }
+                  {result.commit}
                 </p>
               ) : null}
             </section>

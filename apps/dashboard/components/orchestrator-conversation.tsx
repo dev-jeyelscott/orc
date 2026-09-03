@@ -1,43 +1,30 @@
-"use client"
+"use client";
 
 import type {
   Conversation,
   ConversationMessage,
-  Project,
   Run,
-} from "@orc/shared"
+} from "@orc/shared";
 import {
   BotIcon,
+  CirclePlayIcon,
   RefreshCcwIcon,
   SendIcon,
   SquareIcon,
-} from "lucide-react"
+  UserIcon,
+} from "lucide-react";
 import type {
   FormEvent,
-} from "react"
+} from "react";
 
-import {
-  Avatar,
-  AvatarFallback,
-} from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import {
-  Bubble,
-  BubbleContent,
-} from "@/components/ui/bubble"
-import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
-import {
-  Message,
-  MessageAvatar,
-  MessageContent,
-  MessageHeader,
-} from "@/components/ui/message"
+} from "@/components/ui/card";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -45,162 +32,170 @@ import {
   MessageScrollerItem,
   MessageScrollerProvider,
   MessageScrollerViewport,
-} from "@/components/ui/message-scroller"
-import { Textarea } from "@/components/ui/textarea"
+} from "@/components/ui/message-scroller";
+import { Textarea } from "@/components/ui/textarea";
 import {
   formatConversationTime,
   isRunActive,
   isRunRetryable,
-} from "@/lib/orchestrator-presentation"
+  pairConversationMessages,
+} from "@/lib/orchestrator-presentation";
 import {
+  compactPath,
   formatStatusLabel,
   getLifecycleBadgeVariant,
-  projectNameFromPath,
-} from "@/lib/task-presentation"
-import { cn } from "@/lib/utils"
+  shortId,
+} from "@/lib/task-presentation";
+import { cn } from "@/lib/utils";
 
 interface OrchestratorConversationProps {
-  projects: Project[]
-  projectPath: string
-  conversation: Conversation
-  messages: ConversationMessage[]
-  content: string
-  runStatus: Run["status"] | null
-  busyAction: string | null
-  onProjectChange: (
-    path: string,
-  ) => Promise<void>
-  onContentChange: (
-    content: string,
-  ) => void
+  projectPath: string;
+  conversation: Conversation;
+  messages: ConversationMessage[];
+  content: string;
+  runStatus: Run["status"] | null;
+  busyAction: string | null;
+  onContentChange: (content: string) => void;
   onSubmit: (
     event: FormEvent<HTMLFormElement>,
-  ) => void
-  onExplainStatus: () => void
-  onStop: () => void
-  onRetry: () => void
+  ) => void;
+  onStartTask: () => void;
+  onExplainStatus: () => void;
+  onStop: () => void;
+  onRetry: () => void;
 }
 
-/** Renders one persisted user or Orchestrator message using the shadcn Message composition. */
-function ConversationMessageRow({
+/** Renders one authoritative persisted message as an independent User or Orchestrator card. */
+function ConversationMessageCard({
   message,
+  sender,
+  className,
 }: {
-  message: ConversationMessage
+  message: ConversationMessage;
+  sender: "user" | "assistant";
+  className?: string;
 }) {
-  const isUser =
-    message.role === "user"
-
-  const align =
-    isUser
-      ? "end"
-      : "start"
+  const user =
+    sender === "user";
 
   return (
-    <Message
-      align={align}
-      className="gap-2"
+    <article
+      className={cn(
+        "min-w-0 rounded-lg border border-border-default p-3",
+        user
+          ? "bg-surface-interactive"
+          : "bg-surface-elevated",
+        className,
+      )}
     >
-      {!isUser ? (
-        <MessageAvatar className="size-7 bg-brand-accent/10">
-          <Avatar className="size-7">
-            <AvatarFallback className="bg-brand-accent/10 text-brand-accent">
-              <BotIcon className="size-3.5" />
-            </AvatarFallback>
-          </Avatar>
-        </MessageAvatar>
-      ) : null}
-
-      <MessageContent
-        className={cn(
-          "gap-1.5",
-          isUser
-            ? "max-w-[86%] items-end"
-            : "max-w-[90%] items-start",
-        )}
-      >
-        <MessageHeader
+      <header className="mb-2 flex items-center gap-2">
+        <div
           className={cn(
-            "gap-2 px-1 text-[10px] text-text-muted",
-            isUser
-              ? "justify-end"
-              : "justify-start",
+            "flex size-6 shrink-0 items-center justify-center rounded-full",
+            user
+              ? "bg-brand-accent text-primary-foreground"
+              : "border border-brand-accent/40 bg-brand-accent/10 text-brand-accent",
           )}
+          aria-hidden
         >
-          <span className="font-semibold text-text-primary">
-            {isUser
-              ? "You"
-              : "Orchestrator"}
-          </span>
+          {user ? (
+            <UserIcon className="size-3.5" />
+          ) : (
+            <BotIcon className="size-3.5" />
+          )}
+        </div>
 
-          <time
-            dateTime={
-              message.createdAt
-            }
-          >
-            {formatConversationTime(
-              message.createdAt,
-            )}
-          </time>
-        </MessageHeader>
+        <span className="text-[11px] font-semibold text-text-primary">
+          {user
+            ? "User"
+            : "Orchestrator"}
+        </span>
 
-        <Bubble
-          align={align}
-          variant={
-            isUser
-              ? "tinted"
-              : "outline"
-          }
-          className="max-w-full"
+        <time
+          dateTime={message.createdAt}
+          className="ms-auto whitespace-nowrap text-[10px] text-text-muted"
         >
-          <BubbleContent className="max-w-full whitespace-pre-wrap">
-            {message.content}
-          </BubbleContent>
-        </Bubble>
-      </MessageContent>
-    </Message>
-  )
+          {formatConversationTime(
+            message.createdAt,
+          )}
+        </time>
+      </header>
+
+      <div className="whitespace-pre-wrap break-words text-xs leading-5 text-text-secondary">
+        {message.content}
+      </div>
+    </article>
+  );
 }
 
-/** Renders the persisted conversation, shadcn message scroller, composer, and supported workflow controls. */
+/** Renders one deterministic chronological exchange as two columns on desktop and one column on smaller screens. */
+function ConversationExchangeRow({
+  user,
+  assistant,
+}: {
+  user: ConversationMessage | null;
+  assistant: ConversationMessage | null;
+}) {
+  return (
+    <div className="grid min-w-0 gap-2 lg:grid-cols-2 lg:gap-3">
+      {user ? (
+        <ConversationMessageCard
+          message={user}
+          sender="user"
+        />
+      ) : null}
+
+      {assistant ? (
+        <ConversationMessageCard
+          message={assistant}
+          sender="assistant"
+          className={cn(
+            !user &&
+              "lg:col-start-2",
+          )}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** Renders the paired persisted conversation, composer, and supported workflow controls. */
 export function OrchestratorConversation({
-  projects,
   projectPath,
   conversation,
   messages,
   content,
   runStatus,
   busyAction,
-  onProjectChange,
   onContentChange,
   onSubmit,
+  onStartTask,
   onExplainStatus,
   onStop,
   onRetry,
 }: OrchestratorConversationProps) {
   const busy =
-    busyAction !== null
+    busyAction !== null;
 
   const active =
     runStatus !== null &&
     isRunActive(
       runStatus,
-    )
+    );
 
   const retryable =
     runStatus !== null &&
     isRunRetryable(
       runStatus,
-    )
+    );
 
-  const projectExists =
-    projects.some(
-      (project) =>
-        project.path ===
-        projectPath,
-    )
+  const exchanges =
+    pairConversationMessages(
+      messages,
+    );
 
   return (
-    <Card className="flex min-h-[640px] min-w-0 flex-col overflow-hidden xl:h-[680px]">
+    <Card className="flex min-h-[620px] min-w-0 flex-col overflow-hidden 2xl:h-[700px]">
       <CardHeader className="border-b border-divider px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -209,7 +204,7 @@ export function OrchestratorConversation({
             </CardTitle>
 
             <p className="mt-1 text-[11px] text-text-muted">
-              Persisted project-scoped supervisor history
+              User and Orchestrator exchanges
             </p>
           </div>
 
@@ -229,31 +224,38 @@ export function OrchestratorConversation({
             <MessageScroller>
               <MessageScrollerViewport>
                 <MessageScrollerContent
-                  className="gap-2 p-3"
+                  className="gap-3 p-3"
                   aria-busy={
                     busyAction ===
-                    "send"
+                      "send" ||
+                    busyAction ===
+                      "start-task" ||
+                    busyAction ===
+                      "explain-status"
                   }
                 >
-                  {messages.length ? (
-                    messages.map(
-                      (message) => (
+                  {exchanges.length ? (
+                    exchanges.map(
+                      (exchange) => (
                         <MessageScrollerItem
                           key={
-                            message.id
+                            exchange.id
                           }
                           messageId={
-                            message.id
+                            exchange.id
                           }
                           scrollAnchor={
-                            message.role ===
-                            "user"
+                            exchange.user !==
+                            null
                           }
-                          className="py-1"
+                          className="py-0.5"
                         >
-                          <ConversationMessageRow
-                            message={
-                              message
+                          <ConversationExchangeRow
+                            user={
+                              exchange.user
+                            }
+                            assistant={
+                              exchange.assistant
                             }
                           />
                         </MessageScrollerItem>
@@ -272,7 +274,7 @@ export function OrchestratorConversation({
                           </p>
 
                           <p className="mt-1 text-xs leading-5 text-text-muted">
-                            Describe an engineering task or ask the Orchestrator about the current system state.
+                            Describe an engineering task or ask the Orchestrator about authoritative system state.
                           </p>
                         </div>
                       </div>
@@ -290,65 +292,32 @@ export function OrchestratorConversation({
           onSubmit={onSubmit}
           className="border-t border-divider bg-surface-elevated p-3"
         >
-          <div className="mb-2 flex items-center gap-2">
-            <label
-              htmlFor="orchestrator-project"
-              className="text-[11px] font-medium text-text-muted"
-            >
+          <div className="mb-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-text-muted">
+            <span>
               Project
-            </label>
-
-            <select
-              id="orchestrator-project"
-              value={projectPath}
-              disabled={busy}
-              onChange={(event) => {
-                void onProjectChange(
-                  event.target.value,
-                )
-              }}
-              className="h-8 min-w-0 flex-1 rounded-md border border-border-default bg-surface-interactive px-2 text-xs text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-            >
-              {!projectExists ? (
-                <option
-                  value={
-                    projectPath
-                  }
-                >
-                  {projectNameFromPath(
-                    projectPath,
-                  )}{" "}
-                  (unavailable)
-                </option>
-              ) : null}
-
-              {projects.map(
-                (project) => (
-                  <option
-                    key={
-                      project.id
-                    }
-                    value={
-                      project.path
-                    }
-                  >
-                    {
-                      project.name
-                    }
-                  </option>
-                ),
-              )}
-            </select>
+            </span>
 
             <span
-              className="hidden max-w-40 truncate font-mono text-[10px] text-text-muted sm:block"
+              className="max-w-full truncate font-mono text-text-secondary"
+              title={projectPath}
+            >
+              {compactPath(
+                projectPath,
+              )}
+            </span>
+
+            <span className="hidden sm:inline">
+              Conversation
+            </span>
+
+            <span
+              className="hidden font-mono text-text-secondary sm:inline"
               title={
                 conversation.id
               }
             >
-              {conversation.id.slice(
-                0,
-                8,
+              {shortId(
+                conversation.id,
               )}
             </span>
           </div>
@@ -362,7 +331,18 @@ export function OrchestratorConversation({
                   event.target.value,
                 )
               }
-              placeholder="Ask the Orchestrator to start work, explain status, stop a run, or retry execution..."
+              onKeyDown={(event) => {
+                if (
+                  event.key ===
+                    "Enter" &&
+                  (event.ctrlKey ||
+                    event.metaKey)
+                ) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+              placeholder="Ask about this run or describe an engineering task..."
               className="min-h-20 resize-none"
             />
 
@@ -379,7 +359,24 @@ export function OrchestratorConversation({
             </Button>
           </div>
 
-          <div className="mt-2 flex flex-wrap gap-2">
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={
+                busy ||
+                active ||
+                !content.trim()
+              }
+              onClick={
+                onStartTask
+              }
+            >
+              <CirclePlayIcon className="size-3.5" />
+              Start task
+            </Button>
+
             <Button
               type="button"
               size="sm"
@@ -395,35 +392,33 @@ export function OrchestratorConversation({
               Explain status
             </Button>
 
-            {active ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="destructive"
-                disabled={busy}
-                onClick={
-                  onStop
-                }
-              >
-                <SquareIcon className="size-3.5" />
-                Stop run
-              </Button>
-            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              disabled={
+                busy ||
+                !active
+              }
+              onClick={onStop}
+            >
+              <SquareIcon className="size-3.5" />
+              Stop current run
+            </Button>
 
-            {retryable ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={
-                  onRetry
-                }
-              >
-                <RefreshCcwIcon className="size-3.5" />
-                Retry execution
-              </Button>
-            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={
+                busy ||
+                !retryable
+              }
+              onClick={onRetry}
+            >
+              <RefreshCcwIcon className="size-3.5" />
+              Retry last execution
+            </Button>
 
             {runStatus ? (
               <Badge
@@ -438,8 +433,12 @@ export function OrchestratorConversation({
               </Badge>
             ) : null}
           </div>
+
+          <p className="mt-2 text-[10px] text-text-muted">
+            Ctrl+Enter or Cmd+Enter sends. Enter inserts a new line.
+          </p>
         </form>
       </CardContent>
     </Card>
-  )
+  );
 }
