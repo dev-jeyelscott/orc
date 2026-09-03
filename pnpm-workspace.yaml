@@ -3,6 +3,7 @@ packages:
   - "packages/*"
 allowBuilds:
   esbuild: true
+  node-pty: true
   unrs-resolver: true
 minimumReleaseAgeExclude:
   - shadcn@4.20.1
