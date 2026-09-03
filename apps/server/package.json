@@ -8,8 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node --env-file=.env dist/index.js",
     "lint": "eslint .",
-    "test": "vitest run src",
-    "typecheck": "tsc --noEmit",
+    "test": "pnpm --filter @orc/shared build && vitest run src",
+    "typecheck": "pnpm --filter @orc/shared build && tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file=.env src/db/migrate.ts",
     "db:studio": "drizzle-kit studio"

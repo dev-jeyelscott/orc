@@ -233,64 +233,67 @@ export async function agentExecutionRoutes(
       const executionId =
         parsedParams.data.id;
 
-      let unsubscribe:
-        | (() => void)
-        | undefined;
+      const subscription: {
+        unsubscribe?: () => void;
+      } = {};
 
       socket.on("close", () => {
-        unsubscribe?.();
+        subscription.unsubscribe?.();
       });
 
       // Only resize is accepted from the browser in V1.
-      socket.on("message", (message) => {
-        let payload: unknown;
+      socket.on(
+        "message",
+        (message: { toString(): string }) => {
+          let payload: unknown;
 
-        try {
-          payload = JSON.parse(
-            message.toString(),
-          );
-        } catch {
-          send(socket, {
-            type: "error",
-            error:
+          try {
+            payload = JSON.parse(
+              message.toString(),
+            );
+          } catch {
+            send(socket, {
+              type: "error",
+              error:
+                "invalid_terminal_frame",
+            });
+            socket.close(
+              1008,
               "invalid_terminal_frame",
-          });
-          socket.close(
-            1008,
-            "invalid_terminal_frame",
-          );
-          return;
-        }
+            );
+            return;
+          }
 
-        const parsedFrame =
-          terminalClientFrameSchema.safeParse(
-            payload,
-          );
+          const parsedFrame =
+            terminalClientFrameSchema.safeParse(
+              payload,
+            );
 
-        if (!parsedFrame.success) {
-          send(socket, {
-            type: "error",
-            error:
+          if (!parsedFrame.success) {
+            send(socket, {
+              type: "error",
+              error:
+                "invalid_terminal_frame",
+            });
+            socket.close(
+              1008,
               "invalid_terminal_frame",
-          });
-          socket.close(
-            1008,
-            "invalid_terminal_frame",
-          );
-          return;
-        }
+            );
+            return;
+          }
 
-        if (
-          parsedFrame.data.type ===
-          "resize"
-        ) {
-          resizeLiveExecution(
-            executionId,
-            parsedFrame.data.cols,
-            parsedFrame.data.rows,
-          );
-        }
-      });
+          if (
+            parsedFrame.data.type ===
+            "resize"
+          ) {
+            resizeLiveExecution(
+              executionId,
+              parsedFrame.data.cols,
+              parsedFrame.data.rows,
+            );
+          }
+        },
+      );
 
       const execution =
         await getExecution(executionId);
@@ -365,7 +368,7 @@ export async function agentExecutionRoutes(
         send(socket, frame);
       };
 
-      unsubscribe =
+      subscription.unsubscribe =
         subscribeToExecutionTerminal(
           executionId,
           (frame) => {
@@ -405,7 +408,7 @@ export async function agentExecutionRoutes(
       }
 
       if (
-        !unsubscribe &&
+        !subscription.unsubscribe &&
         !completeSent &&
         socket.readyState === 1
       ) {
