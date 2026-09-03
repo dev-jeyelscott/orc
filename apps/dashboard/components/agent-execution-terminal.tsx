@@ -19,6 +19,28 @@ interface AgentExecutionTerminalProps {
   className?: string;
 }
 
+function readableProviderLine(line: string): string | null {
+  try {
+    const event = JSON.parse(line) as Record<string, unknown>;
+    if (event.type === "item.completed") {
+      const item = event.item as { type?: unknown; text?: unknown } | undefined;
+      if (item?.type === "agent_message" && typeof item.text === "string") return item.text;
+      return null;
+    }
+    if (event.type === "assistant") {
+      const message = event.message as { content?: unknown } | undefined;
+      const content = Array.isArray(message?.content) ? message.content : [];
+      const text = content.filter((block): block is { type: string; text: string } => typeof block === "object" && block !== null && (block as { type?: unknown }).type === "text" && typeof (block as { text?: unknown }).text === "string").map((block) => block.text).join("");
+      return text || null;
+    }
+    if (event.type === "result" && typeof event.result === "string") return event.result;
+    if (event.type === "error" && typeof event.message === "string") return `Error: ${event.message}`;
+    return null;
+  } catch {
+    return line;
+  }
+}
+
 /**
  * Terminal chrome mirrors TerminalPanel (dark, independent of app theme) but mounts a real
  * xterm.js instance that replays persisted `terminal_chunks` then streams live output over the
@@ -45,6 +67,17 @@ function AgentExecutionTerminal({ executionId, title, className }: AgentExecutio
 
     const resizeObserver = new ResizeObserver(() => fitAddon.fit());
     resizeObserver.observe(containerRef.current);
+    let providerBuffer = "";
+    const writeReadable = (data: string, flush = false) => {
+      providerBuffer += data;
+      const lines = providerBuffer.split(/\r?\n/);
+      providerBuffer = flush ? "" : (lines.pop() ?? "");
+      for (const line of lines) {
+        if (!line) continue;
+        const readable = readableProviderLine(line);
+        if (readable) terminal.write(`${readable}\r\n`);
+      }
+    };
 
     setStatus("connecting");
     const socket = new WebSocket(getAgentExecutionTerminalUrl(executionId));
@@ -58,8 +91,9 @@ function AgentExecutionTerminal({ executionId, title, className }: AgentExecutio
         return;
       }
       if (frame.type === "chunk") {
-        terminal.write(frame.data);
+        writeReadable(frame.data);
       } else if (frame.type === "complete") {
+        writeReadable("\n", true);
         setStatus("complete");
       } else if (frame.type === "error") {
         setStatus("error");

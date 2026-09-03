@@ -17,6 +17,7 @@ async function request<T>(path: string, options: RequestInit, schema: { parse: (
 export function getAgentExecution(id: string): Promise<AgentExecution> {
   return request(`/api/agent-executions/${id}`, {}, agentExecutionSchema);
 }
+export function getAgentExecutionMetrics(id: string): Promise<{ cpuPercent: number | null; memoryBytes: number | null }> { return request(`/api/agent-executions/${id}/metrics`, {}, { parse: (value: unknown) => value as { cpuPercent: number | null; memoryBytes: number | null } }); }
 
 export function getAgentExecutionTerminalUrl(id: string): string {
   const wsUrl = SERVER_URL.replace(/^http/, "ws");

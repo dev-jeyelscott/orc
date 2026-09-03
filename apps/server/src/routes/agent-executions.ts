@@ -8,6 +8,7 @@ import {
   createRun,
   getExecution,
   listTerminalChunks,
+  getLiveProcessMetrics,
   startAgentExecution,
 } from "../services/agent-execution-service.js";
 
@@ -59,6 +60,7 @@ export async function agentExecutionRoutes(app: FastifyInstance) {
     const execution = await getExecution(id);
     return execution ?? reply.status(404).send({ error: "agent_execution_not_found" });
   });
+  app.get("/api/agent-executions/:id/metrics", async (request) => { const { id } = parse(executionIdParams, request.params); return getLiveProcessMetrics(id); });
 
   app.get("/api/agent-executions/:id/terminal", { websocket: true }, async (socket, request) => {
     const parsedParams = executionIdParams.safeParse(request.params);

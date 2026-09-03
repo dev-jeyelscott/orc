@@ -5,3 +5,5 @@ export * from "./run.js";
 export * from "./task.js";
 export * from "./agent-execution.js";
 export * from "./agent-result.js";
+export * from "./conversation.js";
+export * from "./event.js";

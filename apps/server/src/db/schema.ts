@@ -120,3 +120,10 @@ export const terminalChunks = pgTable("terminal_chunks", {
 }, (table) => [
   unique("terminal_chunks_execution_sequence_unique").on(table.agentExecutionId, table.sequence),
 ]);
+
+export const orchestratorSettings = pgTable("orchestrator_settings", {
+  id: integer("id").primaryKey().default(1), harness: harnessEnum("harness").notNull().default("codex"), model: text("model").notNull().default("default"), reasoning: text("reasoning").notNull().default("medium"), systemPrompt: text("system_prompt").notNull().default("You supervise engineering workflows. Use only supplied state and be concise."), ...timestamps,
+});
+export const conversations = pgTable("conversations", { id: uuid("id").primaryKey().defaultRandom(), projectPath: text("project_path").notNull(), taskId: uuid("task_id"), runId: uuid("run_id"), ...timestamps });
+export const conversationMessages = pgTable("conversation_messages", { id: uuid("id").primaryKey().defaultRandom(), conversationId: uuid("conversation_id").notNull().references(() => conversations.id), role: text("role").notNull(), content: text("content").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow() }, (table) => [check("conversation_messages_role_check", sql`${table.role} in ('user', 'assistant')`)]);
+export const domainEvents = pgTable("domain_events", { id: uuid("id").primaryKey().defaultRandom(), type: text("type").notNull(), projectPath: text("project_path").notNull(), taskId: uuid("task_id"), runId: uuid("run_id"), agentExecutionId: uuid("agent_execution_id"), data: jsonb("data").notNull().default({}), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow() }, (table) => [index("domain_events_run_id_created_at_idx").on(table.runId, table.createdAt)]);

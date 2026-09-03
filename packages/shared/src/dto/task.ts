@@ -3,6 +3,7 @@ import { z } from "zod";
 import { taskStatusSchema } from "../enums/task-status.js";
 import { runSchema } from "./run.js";
 import { agentExecutionSchema } from "./agent-execution.js";
+import { domainEventSchema } from "./event.js";
 
 export const createTaskSchema = z.object({
   projectId: z.string().trim().min(1),
@@ -23,7 +24,7 @@ export const taskSchema = z.object({
 export const taskWithRunSchema = z.object({ task: taskSchema, run: runSchema });
 export const taskListResponseSchema = z.object({ tasks: z.array(taskSchema) });
 export const runListResponseSchema = z.object({ runs: z.array(runSchema) });
-export const runDetailSchema = z.object({ run: runSchema, task: taskSchema.nullable(), executions: z.array(agentExecutionSchema) });
+export const runDetailSchema = z.object({ run: runSchema, task: taskSchema.nullable(), executions: z.array(agentExecutionSchema), events: z.array(domainEventSchema).default([]) });
 
 export type CreateTask = z.infer<typeof createTaskSchema>;
 export type Task = z.infer<typeof taskSchema>;

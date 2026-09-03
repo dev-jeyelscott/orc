@@ -29,6 +29,20 @@
       "when": 1788441600003,
       "tag": "0003_workflow_active_index",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788441600004,
+      "tag": "0004_phase9_conversations_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788441600005,
+      "tag": "0005_supervisor_default_model",
+      "breakpoints": true
     }
   ]
 }

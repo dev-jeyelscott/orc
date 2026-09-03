@@ -1,4 +1,4 @@
-import { Bot, FolderKanban, LayoutDashboard, ListTodo, Play } from "lucide-react";
+import { Bot, FolderKanban, LayoutDashboard, ListTodo, Play, MessageSquare } from "lucide-react";
 import Link from "next/link";
 
 import {
@@ -17,6 +17,7 @@ import {
 const topItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Projects", url: "/projects", icon: FolderKanban },
+  { title: "Orchestrator", url: "/orchestrator", icon: MessageSquare },
 ];
 
 const taskItems = [

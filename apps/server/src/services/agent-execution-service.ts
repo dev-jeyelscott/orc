@@ -1,4 +1,5 @@
 import { asc, eq } from "drizzle-orm";
+import fs from "node:fs/promises";
 
 import { agentResultSchema, type AgentExecution, type AgentResult, type AgentResultStatus, type Run } from "@orc/shared";
 
@@ -83,6 +84,18 @@ export async function createRun(projectPath: string): Promise<Run> {
 // Postgres remains authoritative once the process restarts.
 const liveSessions = new Map<string, RuntimeSession>();
 const cancellationRequests = new Set<string>();
+const processSamples = new Map<number, { ticks: number; at: number }>();
+
+export async function getLiveProcessMetrics(id: string): Promise<{ cpuPercent: number | null; memoryBytes: number | null }> {
+  const execution = await getExecution(id);
+  if (!execution?.pid || !["starting", "running"].includes(execution.status) || process.platform !== "linux") return { cpuPercent: null, memoryBytes: null };
+  try {
+    const [stat, status] = await Promise.all([fs.readFile(`/proc/${execution.pid}/stat`, "utf8"), fs.readFile(`/proc/${execution.pid}/status`, "utf8")]);
+    const fields = stat.trim().split(" "); const ticks = Number(fields[13]) + Number(fields[14]); const now = Date.now(); const previous = processSamples.get(execution.pid); processSamples.set(execution.pid, { ticks, at: now });
+    const rss = /VmRSS:\s+(\d+)\s+kB/.exec(status)?.[1]; const cpuPercent = previous && now > previous.at ? Math.max(0, ((ticks - previous.ticks) / 100) / ((now - previous.at) / 1000) * 100) : null;
+    return { cpuPercent, memoryBytes: rss ? Number(rss) * 1024 : null };
+  } catch { return { cpuPercent: null, memoryBytes: null }; }
+}
 
 export async function startAgentExecution(runId: string, agentId: string, instruction: string): Promise<AgentExecution> {
   const [run] = await db.select().from(runs).where(eq(runs.id, runId));
@@ -341,12 +354,13 @@ function bridgeSessionToDatabase(params: BridgeParams): void {
         }
         case "usage": {
           const { usage } = event;
-          // The runtime does not yet distinguish token usage from context usage; mirror the
-          // reported telemetry into both rather than fabricating a split.
+          // Harness adapters expose a provider usage object, but not every provider reports a
+          // context-window measurement. Preserve the reported token payload and leave context
+          // unavailable rather than presenting the same number as two different metrics.
           enqueue(() =>
             db
               .update(agentExecutions)
-              .set({ tokenUsage: usage, contextUsage: usage, updatedAt: new Date() })
+              .set({ tokenUsage: usage, updatedAt: new Date() })
               .where(eq(agentExecutions.id, executionId)),
           );
           break;

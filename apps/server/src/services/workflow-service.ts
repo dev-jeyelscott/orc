@@ -7,8 +7,9 @@ import { agentExecutions, agentRoutes, agents, runs, tasks } from "../db/schema.
 import { env } from "../config/env.js";
 import { getProject } from "./project-discovery.js";
 import { cancelLiveExecution, startSnapshotAgentExecution, type ExecutionFinalization, type SnapshotAgent } from "./agent-execution-service.js";
+import { recordEvent, listRunEvents } from "./event-service.js";
 
-const MAX_EXECUTIONS = 3;
+const MAX_EXECUTIONS = Number(process.env.MAX_WORKFLOW_EXECUTIONS ?? 10);
 
 type SnapshotRoute = {
   sourceAgentId: string;
@@ -60,6 +61,7 @@ async function updateTerminal(run: typeof runs.$inferSelect, status: "completed"
     await tx.update(runs).set({ status, currentAgentId: null, terminalReason: reason, updatedAt: now }).where(eq(runs.id, run.id));
     if (run.taskId) await tx.update(tasks).set({ status, updatedAt: now }).where(eq(tasks.id, run.taskId));
   });
+  await recordEvent({ type: `run.${status}`, projectPath: run.projectPath, taskId: run.taskId, runId: run.id, data: { reason } });
 }
 
 async function launchNext(runId: string, nextAgentId: string): Promise<void> {
@@ -76,6 +78,7 @@ async function launchNext(runId: string, nextAgentId: string): Promise<void> {
     .where(and(eq(runs.id, run.id), eq(runs.status, "running"), sql`${runs.currentAgentId} is null`))
     .returning();
   if (!claimed) return;
+  await recordEvent({ type: "agent.started", projectPath: claimed.projectPath, taskId: claimed.taskId, runId: claimed.id, data: { agentId: agent.id, layer: agent.layer, executionOrder: agent.executionOrder } });
   await startSnapshotAgentExecution(claimed, agent, (await getTaskInstruction(claimed)), (finalization) => handleExecutionFinalization(claimed.id, agent.id, finalization));
 }
 
@@ -95,13 +98,15 @@ async function handleExecutionFinalization(runId: string, agentId: string, final
   if (finalization.status === "cancelled") return updateTerminal(run, "cancelled", finalization.failureReason);
   if (!finalization.resultStatus) return updateTerminal(run, "failed", finalization.failureReason ?? "Worker did not produce a valid structured result.");
 
+  await recordEvent({ type: "result.received", projectPath: run.projectPath, taskId: run.taskId, runId, agentExecutionId: finalization.executionId, data: { status: finalization.resultStatus } });
+
   const snapshot = snapshotOf(run);
   const route = snapshot.routes.find((candidate) => candidate.sourceAgentId === agentId && candidate.outcome === finalization.resultStatus);
   if (route?.terminalAction) {
     const status = route.terminalAction === "complete_run" ? "completed" : route.terminalAction === "fail_run" ? "failed" : "blocked";
     return updateTerminal(run, status, `Terminal route: ${route.terminalAction}`);
   }
-  if (route?.targetAgentId) return launchNext(run.id, route.targetAgentId);
+  if (route?.targetAgentId) { await recordEvent({ type: "route.selected", projectPath: run.projectPath, taskId: run.taskId, runId, agentExecutionId: finalization.executionId, data: { targetAgentId: route.targetAgentId, outcome: finalization.resultStatus } }); return launchNext(run.id, route.targetAgentId); }
 
   if (finalization.resultStatus === "completed" || finalization.resultStatus === "approved") {
     const currentIndex = snapshot.agents.findIndex((candidate) => candidate.id === agentId);
@@ -128,6 +133,7 @@ export async function createAndStartTask(input: CreateTask): Promise<TaskWithRun
     return { task, run };
   });
   const snapshot = snapshotOf(result.run);
+  await recordEvent({ type: "run.started", projectPath: result.run.projectPath, taskId: result.task.id, runId: result.run.id, data: { title: result.task.title } });
   void launchNext(result.run.id, snapshot.agents[0].id);
   return { task: serializeTask(result.task), run: serializeRun(result.run) };
 }
@@ -140,14 +146,14 @@ export async function listRuns(): Promise<Run[]> {
   return (await db.select().from(runs).orderBy(desc(runs.createdAt))).map(serializeRun);
 }
 
-export async function getRunDetail(id: string): Promise<{ run: Run; task: Task | null; executions: AgentExecution[] } | null> {
+export async function getRunDetail(id: string): Promise<{ run: Run; task: Task | null; executions: AgentExecution[]; events: Awaited<ReturnType<typeof listRunEvents>> } | null> {
   const [run] = await db.select().from(runs).where(eq(runs.id, id));
   if (!run) return null;
   const rows = await db.select().from(agentExecutions).where(eq(agentExecutions.runId, id)).orderBy(asc(agentExecutions.createdAt));
   const { getExecution } = await import("./agent-execution-service.js");
   const executions = (await Promise.all(rows.map((row) => getExecution(row.id)))).filter((value): value is AgentExecution => value !== null);
   const [task] = run.taskId ? await db.select().from(tasks).where(eq(tasks.id, run.taskId)) : [];
-  return { run: serializeRun(run), task: task ? serializeTask(task) : null, executions };
+  return { run: serializeRun(run), task: task ? serializeTask(task) : null, executions, events: await listRunEvents(id) };
 }
 
 export async function cancelRun(id: string): Promise<Run | null> {
@@ -158,6 +164,22 @@ export async function cancelRun(id: string): Promise<Run | null> {
   if (execution) await cancelLiveExecution(execution.id);
   if (execution) await db.update(agentExecutions).set({ status: "cancelled", failureReason: "Cancelled by operator", completedAt: new Date(), updatedAt: new Date() }).where(eq(agentExecutions.id, execution.id));
   await updateTerminal(run, "cancelled", "Cancelled by operator");
+  const [updated] = await db.select().from(runs).where(eq(runs.id, id));
+  return updated ? serializeRun(updated) : null;
+}
+
+export async function retryLastExecution(id: string): Promise<Run | null> {
+  const [run] = await db.select().from(runs).where(eq(runs.id, id));
+  if (!run) return null;
+  if (run.status !== "failed" && run.status !== "blocked") throw new WorkflowServiceError("Only failed or blocked runs can be retried", 409);
+  const [execution] = await db.select().from(agentExecutions).where(eq(agentExecutions.runId, id)).orderBy(desc(agentExecutions.createdAt)).limit(1);
+  if (!execution?.agentId) throw new WorkflowServiceError("The final execution cannot be retried because its agent snapshot is unavailable", 409);
+  const snapshot = snapshotOf(run);
+  if (!snapshot.agents.some((agent) => agent.id === execution.agentId)) throw new WorkflowServiceError("The final execution is outside this run's workflow snapshot", 409);
+  if (run.executionCount >= MAX_EXECUTIONS) throw new WorkflowServiceError(`Workflow execution limit (${MAX_EXECUTIONS}) reached.`, 409);
+  await db.update(runs).set({ status: "running", currentAgentId: null, terminalReason: null, updatedAt: new Date() }).where(eq(runs.id, id));
+  await recordEvent({ type: "execution.retried", projectPath: run.projectPath, taskId: run.taskId, runId: id, agentExecutionId: execution.id, data: { agentId: execution.agentId } });
+  void launchNext(id, execution.agentId);
   const [updated] = await db.select().from(runs).where(eq(runs.id, id));
   return updated ? serializeRun(updated) : null;
 }

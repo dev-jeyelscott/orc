@@ -201,6 +201,12 @@
 }
 
 @layer base {
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
   * {
     @apply border-border outline-ring/50;
   }
@@ -212,5 +218,17 @@
   }
   button:not(:disabled), [role="button"]:not(:disabled) {
     cursor: pointer;
+  }
+  /* Native select menus are rendered by the browser outside the React tree. Set both
+     color-scheme and explicit option colors so the popup follows our dark tokens. */
+  select,
+  select option,
+  select optgroup {
+    background-color: var(--surface-elevated);
+    color: var(--text-primary);
+  }
+  select option:checked {
+    background-color: var(--brand-accent);
+    color: #ffffff;
   }
 }

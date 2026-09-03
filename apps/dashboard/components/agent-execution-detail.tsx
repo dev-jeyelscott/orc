@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AgentExecution } from "@orc/shared";
 
-import { getAgentExecution } from "@/lib/agent-executions";
+import { getAgentExecution, getAgentExecutionMetrics } from "@/lib/agent-executions";
 import { AgentDetailPanel } from "@/components/agent-detail-panel";
 import { AgentExecutionTerminal } from "@/components/agent-execution-terminal";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +23,7 @@ const statusVariant: Record<AgentExecution["status"], "running" | "success" | "e
 export function AgentExecutionDetail({ executionId }: { executionId: string }) {
   const [execution, setExecution] = useState<AgentExecution | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [metrics, setMetrics] = useState<{ cpuPercent: number | null; memoryBytes: number | null } | null>(null);
 
   const load = useCallback(() => {
     let cancelled = false;
@@ -42,6 +43,7 @@ export function AgentExecutionDetail({ executionId }: { executionId: string }) {
   }, [executionId]);
 
   useEffect(() => load(), [load]);
+  useEffect(() => { if (!execution || !["starting", "running"].includes(execution.status)) return; const refresh = () => { void getAgentExecutionMetrics(execution.id).then(setMetrics); }; refresh(); const timer = setInterval(refresh, 2000); return () => clearInterval(timer); }, [execution]);
 
   if (error) {
     return (
@@ -77,6 +79,10 @@ export function AgentExecutionDetail({ executionId }: { executionId: string }) {
           { label: "Started", value: execution.startedAt ?? "—" },
           { label: "Completed", value: execution.completedAt ?? "—" },
           { label: "Failure reason", value: execution.failureReason ?? "—" },
+          { label: "Token usage", value: execution.tokenUsage ? JSON.stringify(execution.tokenUsage) : "Unavailable" },
+          { label: "Context usage", value: execution.contextUsage ? JSON.stringify(execution.contextUsage) : "Unavailable" },
+          { label: "CPU", value: metrics?.cpuPercent === null || !metrics ? "Unavailable" : `${metrics.cpuPercent.toFixed(1)}%` },
+          { label: "Memory", value: metrics?.memoryBytes === null || !metrics ? "Unavailable" : `${Math.round(metrics.memoryBytes / 1024 / 1024)} MB` },
         ]}
       />
       <div>

@@ -34,7 +34,7 @@ export const codexHarness: HarnessAdapter = {
     }
     return {
       command: "codex",
-      args: ["exec", "--json", "--model", input.agent.model, "--config", `model_reasoning_effort=${input.agent.reasoning}`, prompt],
+      args: ["exec", "--json", ...(input.agent.model === "default" ? [] : ["--model", input.agent.model]), "--config", `model_reasoning_effort=${input.agent.reasoning}`, prompt],
       cwd: input.projectPath,
     };
   },

@@ -20,7 +20,7 @@ export class InMemoryRuntimeSession implements RuntimeSession {
     this.metadata = { id: crypto.randomUUID(), pid: null, state: "starting", exitCode: null, signal: null, usage: null };
   }
 
-  static start(input: StartWorkerInput, adapter: HarnessAdapter, ptyFactory: PtyFactory): InMemoryRuntimeSession {
+  static start(input: StartWorkerInput, adapter: HarnessAdapter, ptyFactory: PtyFactory, prompt = composeInitialInstruction(input)): InMemoryRuntimeSession {
     const session = new InMemoryRuntimeSession();
     session.adapter = adapter;
     if (!fs.existsSync(input.projectPath)) {
@@ -33,7 +33,7 @@ export class InMemoryRuntimeSession implements RuntimeSession {
     }
 
     try {
-      const invocation = adapter.createInvocation(input, composeInitialInstruction(input));
+      const invocation = adapter.createInvocation(input, prompt);
       session.process = ptyFactory.spawn(invocation.command, invocation.args, { cwd: invocation.cwd, name: "xterm-256color", cols: 120, rows: 30 });
       session.metadata.pid = session.process.pid;
       session.metadata.state = "running";
