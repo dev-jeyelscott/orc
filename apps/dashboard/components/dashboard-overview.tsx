@@ -1,11 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import {
-  useCallback,
-  useEffect,
-  useState,
-} from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
   DashboardActivity,
   DashboardStatusCounts,
@@ -39,25 +35,12 @@ import { HealthStatus } from "@/components/health-status";
 import { MetricCard } from "@/components/metric-card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
-import {
-  Button,
-  buttonVariants,
-} from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import {
-  getAgentExecutionMetrics,
-} from "@/lib/agent-executions";
+import { getAgentExecutionMetrics } from "@/lib/agent-executions";
 import { getDashboard } from "@/lib/dashboard";
-import {
-  cancelRun,
-  retryRun,
-} from "@/lib/workflows";
+import { cancelRun, retryRun } from "@/lib/workflows";
 
 const STATUS_ORDER: RunStatus[] = [
   "pending",
@@ -68,18 +51,9 @@ const STATUS_ORDER: RunStatus[] = [
   "cancelled",
 ];
 
-type BadgeVariant =
-  | "running"
-  | "success"
-  | "warning"
-  | "error"
-  | "neutral";
+type BadgeVariant = "running" | "success" | "warning" | "error" | "neutral";
 
-type MetricsState =
-  | "idle"
-  | "loading"
-  | "ready"
-  | "unavailable";
+type MetricsState = "idle" | "loading" | "ready" | "unavailable";
 
 type MetricsSnapshot = {
   executionId: string | null;
@@ -120,17 +94,12 @@ function statusLabel(status: string): string {
 /**
  * Returns the total represented by one complete status-count object.
  */
-function statusTotal(
-  counts: DashboardStatusCounts | null,
-): number | null {
+function statusTotal(counts: DashboardStatusCounts | null): number | null {
   if (!counts) {
     return null;
   }
 
-  return STATUS_ORDER.reduce(
-    (total, status) => total + counts[status],
-    0,
-  );
+  return STATUS_ORDER.reduce((total, status) => total + counts[status], 0);
 }
 
 /**
@@ -189,10 +158,7 @@ function formatUtc(value: string | null): string {
     return "Unavailable";
   }
 
-  return `${parsed
-    .toISOString()
-    .replace("T", " ")
-    .slice(0, 19)} UTC`;
+  return `${parsed.toISOString().replace("T", " ").slice(0, 19)} UTC`;
 }
 
 /**
@@ -204,25 +170,15 @@ function formatElapsed(
   now: number,
 ): string {
   const start = Date.parse(startedAt);
-  const end = completedAt
-    ? Date.parse(completedAt)
-    : now;
+  const end = completedAt ? Date.parse(completedAt) : now;
 
-  if (
-    !Number.isFinite(start) ||
-    !Number.isFinite(end) ||
-    end < start
-  ) {
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
     return "Unavailable";
   }
 
-  const totalSeconds = Math.floor(
-    (end - start) / 1000,
-  );
+  const totalSeconds = Math.floor((end - start) / 1000);
   const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor(
-    (totalSeconds % 3600) / 60,
-  );
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
 
   if (hours > 0) {
@@ -239,20 +195,14 @@ function formatElapsed(
 /**
  * Formats an event timestamp relative to the current dashboard clock.
  */
-function formatAge(
-  createdAt: string,
-  now: number,
-): string {
+function formatAge(createdAt: string, now: number): string {
   const timestamp = Date.parse(createdAt);
 
   if (!Number.isFinite(timestamp)) {
     return "Unknown";
   }
 
-  const seconds = Math.max(
-    0,
-    Math.floor((now - timestamp) / 1000),
-  );
+  const seconds = Math.max(0, Math.floor((now - timestamp) / 1000));
 
   if (seconds < 60) {
     return `${seconds}s ago`;
@@ -283,30 +233,19 @@ function shortId(value: string): string {
 /**
  * Reads a string field from event payload data without assuming provider-specific structure.
  */
-function eventString(
-  event: DomainEvent,
-  key: string,
-): string | null {
+function eventString(event: DomainEvent, key: string): string | null {
   const value = event.data[key];
 
-  return typeof value === "string"
-    ? value
-    : null;
+  return typeof value === "string" ? value : null;
 }
 
 /**
  * Reads a numeric field from event payload data without coercing unknown data.
  */
-function eventNumber(
-  event: DomainEvent,
-  key: string,
-): number | null {
+function eventNumber(event: DomainEvent, key: string): number | null {
   const value = event.data[key];
 
-  return typeof value === "number" &&
-    Number.isFinite(value)
-    ? value
-    : null;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 /**
@@ -351,30 +290,20 @@ function describeEvent(event: DomainEvent): string {
 /**
  * Chooses semantic event styling from the persisted event outcome.
  */
-function eventVariant(
-  event: DomainEvent,
-): BadgeVariant {
-  if (
-    event.type.includes("failed")
-  ) {
+function eventVariant(event: DomainEvent): BadgeVariant {
+  if (event.type.includes("failed")) {
     return "error";
   }
 
-  if (
-    event.type.includes("blocked")
-  ) {
+  if (event.type.includes("blocked")) {
     return "warning";
   }
 
-  if (
-    event.type.includes("completed")
-  ) {
+  if (event.type.includes("completed")) {
     return "success";
   }
 
-  if (
-    event.type.includes("cancelled")
-  ) {
+  if (event.type.includes("cancelled")) {
     return "neutral";
   }
 
@@ -384,38 +313,21 @@ function eventVariant(
 /**
  * Renders compact nonzero status badges for overview metric cards.
  */
-function StatusBadges({
-  counts,
-}: {
-  counts: DashboardStatusCounts | null;
-}) {
+function StatusBadges({ counts }: { counts: DashboardStatusCounts | null }) {
   if (!counts) {
-    return (
-      <Badge variant="neutral">
-        Unavailable
-      </Badge>
-    );
+    return <Badge variant="neutral">Unavailable</Badge>;
   }
 
-  const visible = STATUS_ORDER.filter(
-    (status) => counts[status] > 0,
-  );
+  const visible = STATUS_ORDER.filter((status) => counts[status] > 0);
 
   if (visible.length === 0) {
-    return (
-      <Badge variant="neutral">
-        No records
-      </Badge>
-    );
+    return <Badge variant="neutral">No records</Badge>;
   }
 
   return (
     <div className="flex flex-wrap gap-1">
       {visible.map((status) => (
-        <Badge
-          key={status}
-          variant={statusVariant(status)}
-        >
+        <Badge key={status} variant={statusVariant(status)}>
           {counts[status]} {statusLabel(status)}
         </Badge>
       ))}
@@ -438,9 +350,7 @@ function Detail({
       <dt className="text-[11px] uppercase tracking-wide text-text-muted">
         {label}
       </dt>
-      <dd className="mt-1 min-w-0 text-sm text-text-primary">
-        {children}
-      </dd>
+      <dd className="mt-1 min-w-0 text-sm text-text-primary">{children}</dd>
     </div>
   );
 }
@@ -465,29 +375,19 @@ function CurrentActivityCard({
 }) {
   const canStop =
     activity?.kind === "active" &&
-    ["pending", "running"].includes(
-      activity.runStatus,
-    );
+    ["pending", "running"].includes(activity.runStatus);
 
   const canRetry =
     activity?.kind === "recent" &&
-    ["failed", "blocked"].includes(
-      activity.runStatus,
-    );
+    ["failed", "blocked"].includes(activity.runStatus);
 
   return (
     <Card className="min-w-0">
       <CardHeader className="flex flex-row items-center justify-between gap-3">
-        <CardTitle className="text-sm">
-          Current System Activity
-        </CardTitle>
+        <CardTitle className="text-sm">Current System Activity</CardTitle>
 
         {activity ? (
-          <Badge
-            variant={statusVariant(
-              activity.runStatus,
-            )}
-          >
+          <Badge variant={statusVariant(activity.runStatus)}>
             {statusLabel(activity.runStatus)}
           </Badge>
         ) : null}
@@ -500,8 +400,7 @@ function CurrentActivityCard({
               No task-backed runs yet
             </p>
             <p className="mt-1 text-xs text-text-muted">
-              Start a task to populate system
-              activity.
+              Start a task to populate system activity.
             </p>
           </div>
         ) : (
@@ -514,10 +413,7 @@ function CurrentActivityCard({
               </p>
 
               <h3 className="mt-1 text-base font-semibold text-text-primary">
-                {activity.taskTitle ??
-                  `Run ${shortId(
-                    activity.runId,
-                  )}`}
+                {activity.taskTitle ?? `Run ${shortId(activity.runId)}`}
               </h3>
 
               <dl className="mt-4 grid min-w-0 gap-4 sm:grid-cols-2">
@@ -563,9 +459,7 @@ function CurrentActivityCard({
 
                 <Detail label="Started">
                   <span className="font-mono text-xs">
-                    {formatUtc(
-                      activity.runCreatedAt,
-                    )}
+                    {formatUtc(activity.runCreatedAt)}
                   </span>
                 </Detail>
 
@@ -573,9 +467,7 @@ function CurrentActivityCard({
                   <span className="font-mono text-xs">
                     {formatElapsed(
                       activity.runCreatedAt,
-                      activity.kind === "active"
-                        ? null
-                        : activity.runUpdatedAt,
+                      activity.kind === "active" ? null : activity.runUpdatedAt,
                       now,
                     )}
                   </span>
@@ -651,10 +543,7 @@ function CurrentActivityCard({
             </div>
 
             {actionError ? (
-              <p
-                role="alert"
-                className="text-xs text-status-error"
-              >
+              <p role="alert" className="text-xs text-status-error">
                 {actionError}
               </p>
             ) : null}
@@ -680,13 +569,9 @@ function UsageTile({
   progress?: number | null;
 }) {
   const boundedProgress =
-    progress === undefined ||
-    progress === null
+    progress === undefined || progress === null
       ? null
-      : Math.min(
-          100,
-          Math.max(0, progress),
-        );
+      : Math.min(100, Math.max(0, progress));
 
   return (
     <div className="min-w-0 rounded-lg border bg-surface-interactive/20 p-3">
@@ -703,9 +588,7 @@ function UsageTile({
         <Progress
           value={boundedProgress}
           className="mt-3"
-          aria-label={`${label} ${boundedProgress.toFixed(
-            1,
-          )} percent`}
+          aria-label={`${label} ${boundedProgress.toFixed(1)} percent`}
         />
       ) : null}
     </div>
@@ -732,8 +615,7 @@ function ExecutionHealthCard({
   const cpuValue =
     metricsState === "loading"
       ? "Sampling..."
-      : metricsState === "ready" &&
-          metrics.cpuPercent !== null
+      : metricsState === "ready" && metrics.cpuPercent !== null
         ? `${metrics.cpuPercent.toFixed(1)}%`
         : "Unavailable";
 
@@ -749,9 +631,7 @@ function ExecutionHealthCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm">
-          Execution Health and Usage
-        </CardTitle>
+        <CardTitle className="text-sm">Execution Health and Usage</CardTitle>
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4">
@@ -760,11 +640,7 @@ function ExecutionHealthCard({
             icon={CpuIcon}
             label="CPU Usage"
             value={cpuValue}
-            progress={
-              metricsState === "ready"
-                ? metrics.cpuPercent
-                : null
-            }
+            progress={metricsState === "ready" ? metrics.cpuPercent : null}
           />
 
           <UsageTile
@@ -776,9 +652,7 @@ function ExecutionHealthCard({
           <UsageTile
             icon={ZapIcon}
             label="Reported Tokens"
-            value={formatTokens(
-              execution?.tokenTotal ?? null,
-            )}
+            value={formatTokens(execution?.tokenTotal ?? null)}
           />
 
           <UsageTile
@@ -786,9 +660,7 @@ function ExecutionHealthCard({
             label="Context Usage"
             value={
               context
-                ? `${formatTokens(
-                    context.used,
-                  )} / ${formatTokens(
+                ? `${formatTokens(context.used)} / ${formatTokens(
                     context.limit,
                   )}`
                 : "Unavailable"
@@ -804,8 +676,7 @@ function ExecutionHealthCard({
           </div>
 
           <p className="mt-2 break-all font-mono text-sm text-text-primary">
-            {activity?.latestCommitHash ??
-              "Unavailable"}
+            {activity?.latestCommitHash ?? "Unavailable"}
           </p>
         </div>
       </CardContent>
@@ -826,9 +697,7 @@ function StatusList({
   if (!counts) {
     return (
       <div className="rounded-lg border p-4">
-        <p className="text-sm font-medium text-text-primary">
-          {title}
-        </p>
+        <p className="text-sm font-medium text-text-primary">{title}</p>
         <p className="mt-4 text-sm text-text-muted">
           Database summary unavailable.
         </p>
@@ -838,9 +707,7 @@ function StatusList({
 
   return (
     <div className="rounded-lg border p-4">
-      <p className="text-sm font-medium text-text-primary">
-        {title}
-      </p>
+      <p className="text-sm font-medium text-text-primary">{title}</p>
 
       <div className="mt-4 space-y-2.5">
         {STATUS_ORDER.map((status) => (
@@ -875,9 +742,7 @@ function StatusList({
       </div>
 
       <div className="mt-4 flex items-center justify-between border-t pt-3 text-sm">
-        <span className="text-text-muted">
-          Total
-        </span>
+        <span className="text-text-muted">Total</span>
         <span className="font-mono font-semibold text-text-primary">
           {statusTotal(counts)}
         </span>
@@ -899,20 +764,12 @@ function StatusOverviewCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm">
-          Status Overview
-        </CardTitle>
+        <CardTitle className="text-sm">Status Overview</CardTitle>
       </CardHeader>
 
       <CardContent className="grid gap-3 md:grid-cols-2">
-        <StatusList
-          title="Tasks by Status"
-          counts={tasks}
-        />
-        <StatusList
-          title="Runs by Status"
-          counts={runs}
-        />
+        <StatusList title="Tasks by Status" counts={tasks} />
+        <StatusList title="Runs by Status" counts={runs} />
       </CardContent>
     </Card>
   );
@@ -931,9 +788,7 @@ function RecentEventsCard({
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
-        <CardTitle className="text-sm">
-          Recent System Events
-        </CardTitle>
+        <CardTitle className="text-sm">Recent System Events</CardTitle>
         <ActivityIcon className="size-4 text-text-muted" />
       </CardHeader>
 
@@ -951,9 +806,7 @@ function RecentEventsCard({
               >
                 <div className="pt-0.5">
                   <Badge
-                    variant={eventVariant(
-                      event,
-                    )}
+                    variant={eventVariant(event)}
                     className="size-5 rounded-full p-0"
                     aria-label={event.type}
                   >
@@ -970,10 +823,7 @@ function RecentEventsCard({
                       {event.type}
                     </span>
                     <span className="text-[11px] text-text-muted">
-                      {formatAge(
-                        event.createdAt,
-                        now,
-                      )}
+                      {formatAge(event.createdAt, now)}
                     </span>
                   </div>
 
@@ -987,8 +837,7 @@ function RecentEventsCard({
                         href={`/runs/${event.runId}`}
                         className="text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                       >
-                        Run{" "}
-                        {shortId(event.runId)}
+                        Run {shortId(event.runId)}
                       </Link>
                     ) : null}
 
@@ -1014,17 +863,11 @@ function RecentEventsCard({
 /**
  * Renders authoritative filesystem project counts and deterministic run-based activity.
  */
-function ProjectsSummaryCard({
-  data,
-}: {
-  data: DashboardSummary;
-}) {
+function ProjectsSummaryCard({ data }: { data: DashboardSummary }) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
-        <CardTitle className="text-sm">
-          Projects Summary
-        </CardTitle>
+        <CardTitle className="text-sm">Projects Summary</CardTitle>
         <Link
           href="/projects"
           className={buttonVariants({
@@ -1042,36 +885,28 @@ function ProjectsSummaryCard({
             <p className="font-heading text-xl font-semibold text-text-primary">
               {data.projects.discovered}
             </p>
-            <p className="text-xs text-text-muted">
-              Discovered
-            </p>
+            <p className="text-xs text-text-muted">Discovered</p>
           </div>
 
           <div>
             <p className="font-heading text-xl font-semibold text-status-success">
               {data.projects.clean}
             </p>
-            <p className="text-xs text-text-muted">
-              Clean
-            </p>
+            <p className="text-xs text-text-muted">Clean</p>
           </div>
 
           <div>
             <p className="font-heading text-xl font-semibold text-status-warning">
               {data.projects.dirty}
             </p>
-            <p className="text-xs text-text-muted">
-              Dirty
-            </p>
+            <p className="text-xs text-text-muted">Dirty</p>
           </div>
 
           <div>
             <p className="font-heading text-xl font-semibold text-status-neutral">
               {data.projects.unknown}
             </p>
-            <p className="text-xs text-text-muted">
-              Unknown
-            </p>
+            <p className="text-xs text-text-muted">Unknown</p>
           </div>
         </div>
 
@@ -1088,30 +923,26 @@ function ProjectsSummaryCard({
             </p>
 
             <div className="space-y-3">
-              {data.projectActivity.map(
-                (project) => (
-                  <div
-                    key={project.projectPath}
-                    className="flex min-w-0 items-center justify-between gap-3"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-medium text-text-primary">
-                        {project.projectName}
-                      </p>
-                      <p
-                        title={project.projectPath}
-                        className="truncate font-mono text-[11px] text-text-muted"
-                      >
-                        {project.projectPath}
-                      </p>
-                    </div>
-
-                    <Badge variant="running">
-                      {project.runCount} runs
-                    </Badge>
+              {data.projectActivity.map((project) => (
+                <div
+                  key={project.projectPath}
+                  className="flex min-w-0 items-center justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-medium text-text-primary">
+                      {project.projectName}
+                    </p>
+                    <p
+                      title={project.projectPath}
+                      className="truncate font-mono text-[11px] text-text-muted"
+                    >
+                      {project.projectPath}
+                    </p>
                   </div>
-                ),
-              )}
+
+                  <Badge variant="running">{project.runCount} runs</Badge>
+                </div>
+              ))}
             </div>
           </div>
         ) : null}
@@ -1178,9 +1009,7 @@ function QuickNavigationCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm">
-          Quick Navigation
-        </CardTitle>
+        <CardTitle className="text-sm">Quick Navigation</CardTitle>
       </CardHeader>
 
       <CardContent className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3">
@@ -1206,45 +1035,30 @@ function QuickNavigationCard({
 /**
  * Coordinates bounded dashboard refresh, active execution telemetry polling, and operator controls.
  */
-export function DashboardOverview({
-  initialData,
-}: DashboardOverviewProps) {
-  const [data, setData] =
-    useState(initialData);
-  const [now, setNow] = useState(
-    () => Date.parse(initialData.generatedAt),
-  );
-  const [refreshError, setRefreshError] =
-    useState<string | null>(null);
-  const [isRefreshing, setIsRefreshing] =
-    useState(false);
-  const [actionPending, setActionPending] =
-    useState(false);
-  const [actionError, setActionError] =
-    useState<string | null>(null);
-  const [metricsSnapshot, setMetricsSnapshot] =
-    useState<MetricsSnapshot>({
-      executionId: null,
-      state: "unavailable",
-      cpuPercent: null,
-      memoryBytes: null,
-    });
+export function DashboardOverview({ initialData }: DashboardOverviewProps) {
+  const [data, setData] = useState(initialData);
+  const [now, setNow] = useState(() => Date.parse(initialData.generatedAt));
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [actionPending, setActionPending] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [metricsSnapshot, setMetricsSnapshot] = useState<MetricsSnapshot>({
+    executionId: null,
+    state: "unavailable",
+    cpuPercent: null,
+    memoryBytes: null,
+  });
 
   const isActiveRun =
     data.activity?.kind === "active" &&
-    ["pending", "running"].includes(
-      data.activity.runStatus,
-    );
+    ["pending", "running"].includes(data.activity.runStatus);
 
-  const executionId =
-    data.activity?.execution?.id ?? null;
+  const executionId = data.activity?.execution?.id ?? null;
 
   const shouldPollMetrics =
     isActiveRun &&
     data.activity?.execution !== null &&
-    ["starting", "running"].includes(
-      data.activity?.execution?.status ?? "",
-    );
+    ["starting", "running"].includes(data.activity?.execution?.status ?? "");
 
   const metricsState: MetricsState =
     !shouldPollMetrics || !executionId
@@ -1267,32 +1081,27 @@ export function DashboardOverview({
   /**
    * Refreshes the bounded dashboard summary while retaining stale data on transient failure.
    */
-  const refreshDashboard = useCallback(
-    async (showIndicator = false) => {
+  const refreshDashboard = useCallback(async (showIndicator = false) => {
+    if (showIndicator) {
+      setIsRefreshing(true);
+    }
+
+    try {
+      const next = await getDashboard();
+
+      setData(next);
+      setNow(Date.parse(next.generatedAt));
+      setRefreshError(null);
+    } catch (error) {
+      setRefreshError(
+        error instanceof Error ? error.message : "Unable to refresh dashboard",
+      );
+    } finally {
       if (showIndicator) {
-        setIsRefreshing(true);
+        setIsRefreshing(false);
       }
-
-      try {
-        const next = await getDashboard();
-
-        setData(next);
-        setNow(Date.parse(next.generatedAt));
-        setRefreshError(null);
-      } catch (error) {
-        setRefreshError(
-          error instanceof Error
-            ? error.message
-            : "Unable to refresh dashboard",
-        );
-      } finally {
-        if (showIndicator) {
-          setIsRefreshing(false);
-        }
-      }
-    },
-    [],
-  );
+    }
+  }, []);
 
   useEffect(() => {
     if (!isActiveRun) {
@@ -1323,15 +1132,11 @@ export function DashboardOverview({
   }, [isActiveRun]);
 
   useEffect(() => {
-    const activeExecutionId = executionId;
-
-    if (
-      !shouldPollMetrics ||
-      !activeExecutionId
-    ) {
+    if (!shouldPollMetrics || !executionId) {
       return;
     }
 
+    const activeExecutionId = executionId;
     let cancelled = false;
 
     /**
@@ -1339,10 +1144,7 @@ export function DashboardOverview({
      */
     async function pollMetrics() {
       try {
-        const next =
-          await getAgentExecutionMetrics(
-            activeExecutionId,
-          );
+        const next = await getAgentExecutionMetrics(activeExecutionId);
 
         if (!cancelled) {
           setMetricsSnapshot({
@@ -1392,9 +1194,7 @@ export function DashboardOverview({
       await refreshDashboard(false);
     } catch (error) {
       setActionError(
-        error instanceof Error
-          ? error.message
-          : "Unable to stop run",
+        error instanceof Error ? error.message : "Unable to stop run",
       );
     } finally {
       setActionPending(false);
@@ -1417,9 +1217,7 @@ export function DashboardOverview({
       await refreshDashboard(false);
     } catch (error) {
       setActionError(
-        error instanceof Error
-          ? error.message
-          : "Unable to retry run",
+        error instanceof Error ? error.message : "Unable to retry run",
       );
     } finally {
       setActionPending(false);
@@ -1437,31 +1235,21 @@ export function DashboardOverview({
             Dashboard
           </h1>
           <p className="mt-1 text-sm text-text-muted">
-            System overview and operational
-            status
+            System overview and operational status
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <HealthStatus
-            health={data.health}
-            compact
-          />
+          <HealthStatus health={data.health} compact />
 
           <Button
             variant="outline"
             size="sm"
             disabled={isRefreshing}
-            onClick={() =>
-              void refreshDashboard(true)
-            }
+            onClick={() => void refreshDashboard(true)}
           >
             <RefreshCcwIcon
-              className={
-                isRefreshing
-                  ? "animate-spin"
-                  : undefined
-              }
+              className={isRefreshing ? "animate-spin" : undefined}
             />
             Refresh
           </Button>
@@ -1470,9 +1258,7 @@ export function DashboardOverview({
         </div>
       </header>
 
-      {data.databaseError ||
-      data.projects.error ||
-      refreshError ? (
+      {data.databaseError || data.projects.error || refreshError ? (
         <div
           role="status"
           aria-live="polite"
@@ -1480,9 +1266,7 @@ export function DashboardOverview({
         >
           <CircleAlertIcon className="mt-0.5 size-4 shrink-0 text-status-warning" />
           <span>
-            {refreshError ??
-              data.databaseError ??
-              data.projects.error}
+            {refreshError ?? data.databaseError ?? data.projects.error}
           </span>
         </div>
       ) : null}
@@ -1493,67 +1277,32 @@ export function DashboardOverview({
       >
         <MetricCard
           label="Application Health"
-          value={
-            data.health.status === "ok"
-              ? "Healthy"
-              : "Degraded"
-          }
-          icon={
-            <ServerIcon className="size-4" />
-          }
-          footer={
-            <HealthStatus
-              health={data.health}
-              compact
-            />
-          }
+          value={data.health.status === "ok" ? "Healthy" : "Degraded"}
+          icon={<ServerIcon className="size-4" />}
+          footer={<HealthStatus health={data.health} compact />}
         />
 
         <MetricCard
           label="Database Health"
-          value={
-            data.health.db === "up"
-              ? "Healthy"
-              : "Unavailable"
-          }
-          icon={
-            <DatabaseIcon className="size-4" />
-          }
+          value={data.health.db === "up" ? "Healthy" : "Unavailable"}
+          icon={<DatabaseIcon className="size-4" />}
           footer={
-            <Badge
-              variant={
-                data.health.db === "up"
-                  ? "success"
-                  : "error"
-              }
-            >
-              {data.health.db === "up"
-                ? "Operational"
-                : "Down"}
+            <Badge variant={data.health.db === "up" ? "success" : "error"}>
+              {data.health.db === "up" ? "Operational" : "Down"}
             </Badge>
           }
         />
 
         <MetricCard
           label="Discovered Projects"
-          value={String(
-            data.projects.discovered,
-          )}
-          icon={
-            <FolderGit2Icon className="size-4" />
-          }
+          value={String(data.projects.discovered)}
+          icon={<FolderGit2Icon className="size-4" />}
           footer={
             <div className="flex flex-wrap gap-1">
-              <Badge variant="success">
-                {data.projects.clean} Clean
-              </Badge>
-              <Badge variant="warning">
-                {data.projects.dirty} Dirty
-              </Badge>
+              <Badge variant="success">{data.projects.clean} Clean</Badge>
+              <Badge variant="warning">{data.projects.dirty} Dirty</Badge>
               {data.projects.unknown > 0 ? (
-                <Badge variant="neutral">
-                  {data.projects.unknown} Unknown
-                </Badge>
+                <Badge variant="neutral">{data.projects.unknown} Unknown</Badge>
               ) : null}
             </div>
           }
@@ -1561,81 +1310,37 @@ export function DashboardOverview({
 
         <MetricCard
           label="Agents Configured"
-          value={
-            data.agents
-              ? String(
-                  data.agents.configured,
-                )
-              : "Unavailable"
-          }
-          icon={
-            <BotIcon className="size-4" />
-          }
+          value={data.agents ? String(data.agents.configured) : "Unavailable"}
+          icon={<BotIcon className="size-4" />}
         />
 
         <MetricCard
           label="Agents Enabled"
-          value={
-            data.agents
-              ? String(data.agents.enabled)
-              : "Unavailable"
-          }
-          icon={
-            <CheckCircle2Icon className="size-4" />
-          }
+          value={data.agents ? String(data.agents.enabled) : "Unavailable"}
+          icon={<CheckCircle2Icon className="size-4" />}
         />
 
         <MetricCard
           label="Tasks Overview"
-          value={
-            taskTotal === null
-              ? "Unavailable"
-              : String(taskTotal)
-          }
-          icon={
-            <ListTodoIcon className="size-4" />
-          }
-          footer={
-            <StatusBadges
-              counts={data.tasks}
-            />
-          }
+          value={taskTotal === null ? "Unavailable" : String(taskTotal)}
+          icon={<ListTodoIcon className="size-4" />}
+          footer={<StatusBadges counts={data.tasks} />}
         />
 
         <MetricCard
           label="Runs Overview"
-          value={
-            runTotal === null
-              ? "Unavailable"
-              : String(runTotal)
-          }
-          icon={
-            <PlayIcon className="size-4" />
-          }
-          footer={
-            <StatusBadges
-              counts={data.runs}
-            />
-          }
+          value={runTotal === null ? "Unavailable" : String(runTotal)}
+          icon={<PlayIcon className="size-4" />}
+          footer={<StatusBadges counts={data.runs} />}
         />
 
         <MetricCard
           label="Active Workflow"
           value={isActiveRun ? "1" : "0"}
-          icon={
-            <RouteIcon className="size-4" />
-          }
+          icon={<RouteIcon className="size-4" />}
           footer={
-            <Badge
-              variant={
-                isActiveRun
-                  ? "running"
-                  : "neutral"
-              }
-            >
-              {isActiveRun
-                ? "Running"
-                : "Idle"}
+            <Badge variant={isActiveRun ? "running" : "neutral"}>
+              {isActiveRun ? "Running" : "Idle"}
             </Badge>
           }
         />
@@ -1649,9 +1354,7 @@ export function DashboardOverview({
             actionPending={actionPending}
             actionError={actionError}
             onStop={() => void handleStop()}
-            onRetry={() =>
-              void handleRetry()
-            }
+            onRetry={() => void handleRetry()}
           />
 
           <ExecutionHealthCard
@@ -1662,25 +1365,15 @@ export function DashboardOverview({
         </div>
 
         <div className="flex min-w-0 flex-col gap-4">
-          <StatusOverviewCard
-            tasks={data.tasks}
-            runs={data.runs}
-          />
+          <StatusOverviewCard tasks={data.tasks} runs={data.runs} />
 
-          <RecentEventsCard
-            events={data.recentEvents}
-            now={now}
-          />
+          <RecentEventsCard events={data.recentEvents} now={now} />
         </div>
 
         <div className="flex min-w-0 flex-col gap-4">
-          <ProjectsSummaryCard
-            data={data}
-          />
+          <ProjectsSummaryCard data={data} />
 
-          <QuickNavigationCard
-            activity={data.activity}
-          />
+          <QuickNavigationCard activity={data.activity} />
         </div>
       </div>
 
@@ -1689,10 +1382,7 @@ export function DashboardOverview({
           <span className="mr-2 font-medium text-text-secondary">
             Workspace Root
           </span>
-          <span
-            title={data.projects.workspaceRoot}
-            className="font-mono"
-          >
+          <span title={data.projects.workspaceRoot} className="font-mono">
             {data.projects.workspaceRoot}
           </span>
         </div>
@@ -1701,9 +1391,7 @@ export function DashboardOverview({
           <span className="mr-2 font-medium text-text-secondary">
             Summary Generated
           </span>
-          <span className="font-mono">
-            {formatUtc(data.generatedAt)}
-          </span>
+          <span className="font-mono">{formatUtc(data.generatedAt)}</span>
         </div>
       </footer>
     </div>
