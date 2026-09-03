@@ -4,6 +4,7 @@ import cors from "@fastify/cors";
 import { loggerOptions } from "./logger.js";
 import { healthRoutes } from "./routes/health.js";
 import { projectRoutes } from "./routes/projects.js";
+import { agentRoutes } from "./routes/agents.js";
 import { registerWebSocket } from "./ws/index.js";
 
 export async function buildApp() {
@@ -13,6 +14,7 @@ export async function buildApp() {
   await registerWebSocket(app);
   await app.register(healthRoutes);
   await app.register(projectRoutes);
+  await app.register(agentRoutes);
 
   return app;
 }

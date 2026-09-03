@@ -34,7 +34,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         "font-sans"
       )}
     >
-      <body className="antialiased">
+      <body className="antialiased" suppressHydrationWarning>
         <ThemeProvider>
           <SidebarProvider>
             <AppSidebar />
