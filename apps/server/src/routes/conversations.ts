@@ -1,46 +1,91 @@
-import type { FastifyInstance } from "fastify";
+import type {
+  FastifyInstance,
+} from "fastify";
 import { z } from "zod";
+
 import {
-  orchestratorSettingsSchema,
+  createConversationSchema,
   postConversationMessageSchema,
+  updateOrchestratorSettingsSchema,
 } from "@orc/shared";
 
 import {
+  ConversationServiceError,
+  createConversation,
   getConversation,
-  getOrCreateConversation,
   getOrchestratorSettings,
+  listConversations,
   postConversationMessage,
+  updateOrchestratorSettings,
 } from "../services/conversation-service.js";
+import {
+  OrchestratorToolServiceError,
+} from "../services/orchestrator-tool-service.js";
 
-const idParams = z.object({
-  id: z.string().uuid(),
-});
+const idParams =
+  z.object({
+    id:
+      z.string().uuid(),
+  });
 
-const projectBodySchema = z.object({
-  projectPath: z.string().min(1),
-});
+const projectQuery =
+  createConversationSchema;
 
-/** Registers persisted conversation and read-only supervisor configuration routes. */
+/**
+ * Sends known conversation and orchestrator-tool errors with their intended HTTP status.
+ */
+function sendError(
+  error: unknown,
+  reply: {
+    status: (
+      code: number,
+    ) => {
+      send: (
+        body: unknown,
+      ) => unknown;
+    };
+  },
+) {
+  if (
+    error instanceof
+      ConversationServiceError ||
+    error instanceof
+      OrchestratorToolServiceError
+  ) {
+    return reply
+      .status(
+        error.statusCode,
+      )
+      .send({
+        error:
+          error.message,
+      });
+  }
+
+  throw error;
+}
+
+/**
+ * Registers persistent conversation and orchestrator-settings routes.
+ */
 export async function conversationRoutes(
-  app: FastifyInstance,
+  app:
+    FastifyInstance,
 ) {
   app.get(
-    "/api/orchestrator/settings",
-    async () =>
-      orchestratorSettingsSchema.parse(
-        await getOrchestratorSettings(),
-      ),
-  );
-
-  app.post(
     "/api/conversations",
-    async (request, reply) => {
+    async (
+      request,
+      reply,
+    ) => {
       const parsed =
-        projectBodySchema.safeParse(
-          request.body,
+        projectQuery.safeParse(
+          request.query,
         );
 
-      if (!parsed.success) {
+      if (
+        !parsed.success
+      ) {
         return reply
           .status(400)
           .send({
@@ -49,25 +94,77 @@ export async function conversationRoutes(
           });
       }
 
-      return reply
-        .status(201)
-        .send(
-          await getOrCreateConversation(
-            parsed.data.projectPath,
-          ),
+      try {
+        return {
+          conversations:
+            await listConversations(
+              parsed.data
+                .projectPath,
+            ),
+        };
+      } catch (error) {
+        return sendError(
+          error,
+          reply,
         );
+      }
+    },
+  );
+
+  app.post(
+    "/api/conversations",
+    async (
+      request,
+      reply,
+    ) => {
+      const parsed =
+        createConversationSchema.safeParse(
+          request.body,
+        );
+
+      if (
+        !parsed.success
+      ) {
+        return reply
+          .status(400)
+          .send({
+            error:
+              "projectPath is required",
+          });
+      }
+
+      try {
+        return reply
+          .status(201)
+          .send(
+            await createConversation(
+              parsed.data
+                .projectPath,
+            ),
+          );
+      } catch (error) {
+        return sendError(
+          error,
+          reply,
+        );
+      }
     },
   );
 
   app.get(
     "/api/conversations/:id",
-    async (request, reply) => {
+    async (
+      request,
+      reply,
+    ) => {
       const parsed =
         idParams.safeParse(
           request.params,
         );
 
-      if (!parsed.success) {
+      if (
+        !parsed.success
+      ) {
         return reply
           .status(400)
           .send({
@@ -83,17 +180,22 @@ export async function conversationRoutes(
 
       return (
         value ??
-        reply.status(404).send({
-          error:
-            "conversation_not_found",
-        })
+        reply
+          .status(404)
+          .send({
+            error:
+              "conversation_not_found",
+          })
       );
     },
   );
 
   app.post(
     "/api/conversations/:id/messages",
-    async (request, reply) => {
+    async (
+      request,
+      reply,
+    ) => {
       const params =
         idParams.safeParse(
           request.params,
@@ -111,7 +213,8 @@ export async function conversationRoutes(
         return reply
           .status(400)
           .send({
-            error: "invalid_message",
+            error:
+              "invalid_message",
           });
       }
 
@@ -119,25 +222,83 @@ export async function conversationRoutes(
         const value =
           await postConversationMessage(
             params.data.id,
-            body.data.content,
+            body.data
+              .content,
           );
 
         return (
           value ??
-          reply.status(404).send({
-            error:
-              "conversation_not_found",
-          })
+          reply
+            .status(404)
+            .send({
+              error:
+                "conversation_not_found",
+            })
         );
       } catch (error) {
+        return sendError(
+          error,
+          reply,
+        );
+      }
+    },
+  );
+
+  app.get(
+    "/api/orchestrator/settings",
+    async (
+      _request,
+      reply,
+    ) => {
+      try {
+        return await getOrchestratorSettings();
+      } catch (error) {
+        return sendError(
+          error,
+          reply,
+        );
+      }
+    },
+  );
+
+  app.put(
+    "/api/orchestrator/settings",
+    async (
+      request,
+      reply,
+    ) => {
+      const parsed =
+        updateOrchestratorSettingsSchema.safeParse(
+          request.body,
+        );
+
+      if (
+        !parsed.success
+      ) {
         return reply
           .status(400)
           .send({
             error:
-              error instanceof Error
-                ? error.message
-                : "conversation_failed",
+              parsed.error.issues
+                .map(
+                  (
+                    issue,
+                  ) =>
+                    issue.message,
+                )
+                .join(", "),
           });
+      }
+
+      try {
+        return await updateOrchestratorSettings(
+          parsed.data,
+        );
+      } catch (error) {
+        return sendError(
+          error,
+          reply,
+        );
       }
     },
   );

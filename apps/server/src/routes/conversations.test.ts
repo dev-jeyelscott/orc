@@ -1,6 +1,3 @@
-import Fastify, {
-  type FastifyInstance,
-} from "fastify";
 import {
   afterEach,
   beforeEach,
@@ -10,71 +7,309 @@ import {
   vi,
 } from "vitest";
 
-const serviceMocks = vi.hoisted(
-  () => ({
-    getConversation: vi.fn(),
-    getOrCreateConversation: vi.fn(),
-    getOrchestratorSettings: vi.fn(),
-    postConversationMessage: vi.fn(),
-  }),
-);
+const mocks =
+  vi.hoisted(
+    () => ({
+      createConversation:
+        vi.fn(),
+      listConversations:
+        vi.fn(),
+      getConversation:
+        vi.fn(),
+      postConversationMessage:
+        vi.fn(),
+      getOrchestratorSettings:
+        vi.fn(),
+      updateOrchestratorSettings:
+        vi.fn(),
+    }),
+  );
 
 vi.mock(
   "../services/conversation-service.js",
-  () => serviceMocks,
+  () => {
+    class ConversationServiceError extends Error {
+      /**
+       * Creates the route-test service error.
+       */
+      constructor(
+        message: string,
+        readonly statusCode:
+          number,
+      ) {
+        super(message);
+      }
+    }
+
+    return {
+      ConversationServiceError,
+      createConversation:
+        mocks.createConversation,
+      listConversations:
+        mocks.listConversations,
+      getConversation:
+        mocks.getConversation,
+      postConversationMessage:
+        mocks.postConversationMessage,
+      getOrchestratorSettings:
+        mocks.getOrchestratorSettings,
+      updateOrchestratorSettings:
+        mocks.updateOrchestratorSettings,
+    };
+  },
 );
 
-import { conversationRoutes } from "./conversations.js";
+vi.mock(
+  "../services/orchestrator-tool-service.js",
+  () => {
+    class OrchestratorToolServiceError extends Error {
+      /**
+       * Creates the route-test orchestrator tool error.
+       */
+      constructor(
+        message: string,
+        readonly statusCode:
+          number,
+      ) {
+        super(message);
+      }
+    }
 
-describe("conversation routes", () => {
-  let app: FastifyInstance;
+    return {
+      OrchestratorToolServiceError,
+    };
+  },
+);
 
-  /** Creates an isolated Fastify application containing only conversation routes. */
-  beforeEach(async () => {
-    vi.clearAllMocks();
+const {
+  buildApp,
+} =
+  await import(
+    "../app.js"
+  );
 
-    app = Fastify();
+let app:
+  Awaited<
+    ReturnType<
+      typeof buildApp
+    >
+  >;
 
-    await app.register(
-      conversationRoutes,
-    );
+/**
+ * Creates a valid persisted conversation response for route tests.
+ */
+function conversation() {
+  return {
+    id:
+      crypto.randomUUID(),
+    projectPath:
+      "/workspace/orc",
+    taskId:
+      null,
+    runId:
+      null,
+    createdAt:
+      new Date().toISOString(),
+    updatedAt:
+      new Date().toISOString(),
+  };
+}
 
-    await app.ready();
-  });
+beforeEach(
+  async () => {
+    for (
+      const mock of Object.values(
+        mocks,
+      )
+    ) {
+      mock.mockReset();
+    }
 
-  /** Closes the isolated Fastify application after every route test. */
-  afterEach(async () => {
+    app =
+      await buildApp();
+  },
+);
+
+afterEach(
+  async () => {
     await app.close();
-  });
+  },
+);
 
-  /** Returns the persisted supervisor configuration through the read-only API. */
-  it("returns orchestrator settings", async () => {
-    serviceMocks.getOrchestratorSettings.mockResolvedValue(
-      {
-        harness: "codex",
-        model: "default",
-        reasoning: "medium",
-        systemPrompt:
-          "You supervise engineering workflows.",
+describe(
+  "conversation routes",
+  () => {
+    it(
+      "lists conversations explicitly by project path",
+      async () => {
+        const value =
+          conversation();
+
+        mocks.listConversations.mockResolvedValue(
+          [
+            value,
+          ],
+        );
+
+        const response =
+          await app.inject({
+            method:
+              "GET",
+            url:
+              `/api/conversations?projectPath=${encodeURIComponent(value.projectPath)}`,
+          });
+
+        expect(
+          response.statusCode,
+        ).toBe(200);
+
+        expect(
+          response.json(),
+        ).toEqual({
+          conversations: [
+            value,
+          ],
+        });
       },
     );
 
-    const response =
-      await app.inject({
-        method: "GET",
-        url: "/api/orchestrator/settings",
-      });
+    it(
+      "creates a new conversation instead of reopening the latest one",
+      async () => {
+        const value =
+          conversation();
 
-    expect(response.statusCode).toBe(
-      200,
+        mocks.createConversation.mockResolvedValue(
+          value,
+        );
+
+        const response =
+          await app.inject({
+            method:
+              "POST",
+            url:
+              "/api/conversations",
+            payload: {
+              projectPath:
+                value.projectPath,
+            },
+          });
+
+        expect(
+          response.statusCode,
+        ).toBe(201);
+
+        expect(
+          mocks.createConversation,
+        ).toHaveBeenCalledWith(
+          value.projectPath,
+        );
+      },
     );
 
-    expect(response.json()).toEqual({
-      harness: "codex",
-      model: "default",
-      reasoning: "medium",
-      systemPrompt:
-        "You supervise engineering workflows.",
-    });
-  });
-});
+    it(
+      "rejects missing project context",
+      async () => {
+        const response =
+          await app.inject({
+            method:
+              "POST",
+            url:
+              "/api/conversations",
+            payload: {},
+          });
+
+        expect(
+          response.statusCode,
+        ).toBe(400);
+      },
+    );
+
+    it(
+      "rejects malformed conversation identifiers",
+      async () => {
+        const response =
+          await app.inject({
+            method:
+              "GET",
+            url:
+              "/api/conversations/not-a-uuid",
+          });
+
+        expect(
+          response.statusCode,
+        ).toBe(400);
+      },
+    );
+
+    it(
+      "returns persisted orchestrator settings",
+      async () => {
+        mocks.getOrchestratorSettings.mockResolvedValue(
+          {
+            harness:
+              "codex",
+            model:
+              "default",
+            reasoning:
+              "medium",
+            systemPrompt:
+              "Ground responses.",
+          },
+        );
+
+        const response =
+          await app.inject({
+            method:
+              "GET",
+            url:
+              "/api/orchestrator/settings",
+          });
+
+        expect(
+          response.statusCode,
+        ).toBe(200);
+
+        expect(
+          response.json(),
+        ).toMatchObject({
+          harness:
+            "codex",
+          model:
+            "default",
+        });
+      },
+    );
+
+    it(
+      "validates orchestrator settings before updating persistence",
+      async () => {
+        const response =
+          await app.inject({
+            method:
+              "PUT",
+            url:
+              "/api/orchestrator/settings",
+            payload: {
+              harness:
+                "unsupported",
+              model:
+                "",
+              reasoning:
+                "",
+              systemPrompt:
+                "",
+            },
+          });
+
+        expect(
+          response.statusCode,
+        ).toBe(400);
+
+        expect(
+          mocks.updateOrchestratorSettings,
+        ).not.toHaveBeenCalled();
+      },
+    );
+  },
+);

@@ -27,7 +27,9 @@ import {
   runs,
   tasks,
 } from "../db/schema.js";
-import { composeHandoffNote } from "../runtime/index.js";
+import {
+  composeHandoffNote,
+} from "../runtime/index.js";
 import {
   cancelLiveExecution,
   startSnapshotAgentExecution,
@@ -38,7 +40,10 @@ import {
   listRunEvents,
   recordEvent,
 } from "./event-service.js";
-import { getProject } from "./project-discovery.js";
+import {
+  getProject,
+  getProjectByPath,
+} from "./project-discovery.js";
 
 type TerminalAction =
   | "complete_run"
@@ -54,7 +59,9 @@ type SnapshotRoute = {
   sourceAgentId: string;
   outcome: AgentResultStatus;
   targetAgentId: string | null;
-  terminalAction: TerminalAction | null;
+  terminalAction:
+    | TerminalAction
+    | null;
 };
 
 type WorkflowSnapshot = {
@@ -70,7 +77,9 @@ type TransitionOrigin =
 
 type AgentWorkflowTransition = {
   kind: "agent";
-  origin: "explicit" | "default";
+  origin:
+    | "explicit"
+    | "default";
   sourceAgentId: string;
   outcome: AgentResultStatus;
   targetAgentId: string;
@@ -83,7 +92,8 @@ type TerminalWorkflowTransition = {
   sourceAgentId: string;
   outcome: AgentResultStatus;
   targetAgentId: null;
-  terminalAction: TerminalAction;
+  terminalAction:
+    TerminalAction;
   reason: string | null;
   attemptedTargetAgentId?: string;
 };
@@ -94,9 +104,14 @@ type WorkflowTransition =
 
 type AppliedWorkflowTransition = {
   run: typeof runs.$inferSelect;
-  sourceAgent: SnapshotAgent | null;
-  targetAgent: SnapshotAgent | null;
-  transition: WorkflowTransition;
+  sourceAgent:
+    | SnapshotAgent
+    | null;
+  targetAgent:
+    | SnapshotAgent
+    | null;
+  transition:
+    WorkflowTransition;
 };
 
 export class WorkflowServiceError extends Error {
@@ -119,11 +134,20 @@ export function orderWorkflowAgents<
     layer: number;
     executionOrder: number;
   },
->(agentRows: readonly T[]): T[] {
-  return [...agentRows].sort(
-    (left, right) =>
-      left.layer - right.layer ||
-      left.executionOrder - right.executionOrder,
+>(
+  agentRows: readonly T[],
+): T[] {
+  return [
+    ...agentRows,
+  ].sort(
+    (
+      left,
+      right,
+    ) =>
+      left.layer -
+        right.layer ||
+      left.executionOrder -
+        right.executionOrder,
   );
 }
 
@@ -135,8 +159,10 @@ function serializeTask(
 ): Task {
   return {
     ...row,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
+    createdAt:
+      row.createdAt.toISOString(),
+    updatedAt:
+      row.updatedAt.toISOString(),
   };
 }
 
@@ -148,14 +174,23 @@ function serializeRun(
 ): Run {
   return {
     id: row.id,
-    projectPath: row.projectPath,
-    taskId: row.taskId ?? null,
+    projectPath:
+      row.projectPath,
+    taskId:
+      row.taskId ?? null,
     status: row.status,
-    currentAgentId: row.currentAgentId ?? null,
-    executionCount: row.executionCount,
-    terminalReason: row.terminalReason ?? null,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
+    currentAgentId:
+      row.currentAgentId ??
+      null,
+    executionCount:
+      row.executionCount,
+    terminalReason:
+      row.terminalReason ??
+      null,
+    createdAt:
+      row.createdAt.toISOString(),
+    updatedAt:
+      row.updatedAt.toISOString(),
   };
 }
 
@@ -163,48 +198,81 @@ function serializeRun(
  * Creates an immutable run-owned workflow snapshot from current agent configuration.
  */
 function snapshotFromRows(
-  agentRows: Array<typeof agents.$inferSelect>,
-  routeRows: Array<typeof agentRoutes.$inferSelect>,
+  agentRows: Array<
+    typeof agents.$inferSelect
+  >,
+  routeRows: Array<
+    typeof agentRoutes.$inferSelect
+  >,
 ): WorkflowSnapshot {
   const orderedAgents =
-    orderWorkflowAgents(agentRows);
-  const enabledIds = new Set(
-    orderedAgents.map((agent) => agent.id),
-  );
+    orderWorkflowAgents(
+      agentRows,
+    );
+  const enabledIds =
+    new Set(
+      orderedAgents.map(
+        (agent) =>
+          agent.id,
+      ),
+    );
 
   return {
-    agents: orderedAgents.map((agent) => ({
-      id: agent.id,
-      name: agent.name,
-      role: agent.role,
-      layer: agent.layer,
-      executionOrder: agent.executionOrder,
-      harness: agent.harness,
-      model: agent.model,
-      reasoning: agent.reasoning,
-      systemPrompt: agent.systemPrompt,
-      canWrite: agent.canWrite,
-      canRunCommands: agent.canRunCommands,
-      canCommit: agent.canCommit,
-    })),
-    routes: routeRows
-      .filter(
-        (route) =>
-          route.enabled &&
-          enabledIds.has(route.sourceAgentId) &&
-          (
-            !route.targetAgentId ||
-            enabledIds.has(route.targetAgentId)
-          ),
-      )
-      .map((route) => ({
-        sourceAgentId: route.sourceAgentId,
-        outcome: route.outcome,
-        targetAgentId:
-          route.targetAgentId ?? null,
-        terminalAction:
-          route.terminalAction ?? null,
-      })),
+    agents:
+      orderedAgents.map(
+        (agent) => ({
+          id: agent.id,
+          name: agent.name,
+          role: agent.role,
+          layer:
+            agent.layer,
+          executionOrder:
+            agent.executionOrder,
+          harness:
+            agent.harness,
+          model:
+            agent.model,
+          reasoning:
+            agent.reasoning,
+          systemPrompt:
+            agent.systemPrompt,
+          canWrite:
+            agent.canWrite,
+          canRunCommands:
+            agent.canRunCommands,
+          canCommit:
+            agent.canCommit,
+        }),
+      ),
+    routes:
+      routeRows
+        .filter(
+          (route) =>
+            route.enabled &&
+            enabledIds.has(
+              route.sourceAgentId,
+            ) &&
+            (
+              !route.targetAgentId ||
+              enabledIds.has(
+                route.targetAgentId,
+              )
+            ),
+        )
+        .map(
+          (route) => ({
+            sourceAgentId:
+              route.sourceAgentId,
+            outcome:
+              route.outcome,
+            targetAgentId:
+              route.targetAgentId ??
+              null,
+            terminalAction:
+              route.terminalAction ??
+              null,
+          }),
+        ),
   };
 }
 
@@ -215,12 +283,18 @@ function snapshotOf(
   row: typeof runs.$inferSelect,
 ): WorkflowSnapshot {
   const snapshot =
-    row.workflowSnapshot as WorkflowSnapshot | null;
+    row.workflowSnapshot as
+      | WorkflowSnapshot
+      | null;
 
   if (
     !snapshot ||
-    !Array.isArray(snapshot.agents) ||
-    !Array.isArray(snapshot.routes)
+    !Array.isArray(
+      snapshot.agents,
+    ) ||
+    !Array.isArray(
+      snapshot.routes,
+    )
   ) {
     throw new WorkflowServiceError(
       "Run workflow snapshot is invalid",
@@ -234,7 +308,9 @@ function snapshotOf(
 /**
  * Normalizes an unknown thrown value into an operator-readable error message.
  */
-function errorMessage(error: unknown): string {
+function errorMessage(
+  error: unknown,
+): string {
   return error instanceof Error
     ? error.message
     : String(error);
@@ -246,11 +322,17 @@ function errorMessage(error: unknown): string {
 function terminalStatusForAction(
   action: TerminalAction,
 ): TerminalRunStatus {
-  if (action === "complete_run") {
+  if (
+    action ===
+    "complete_run"
+  ) {
     return "completed";
   }
 
-  if (action === "block_run") {
+  if (
+    action ===
+    "block_run"
+  ) {
     return "blocked";
   }
 
@@ -261,35 +343,49 @@ function terminalStatusForAction(
  * Resolves one structured result into an explicit route, default progression, or terminal fallback.
  */
 function resolveWorkflowTransition(
-  snapshot: WorkflowSnapshot,
+  snapshot:
+    WorkflowSnapshot,
   sourceAgentId: string,
-  outcome: AgentResultStatus,
-  failureReason: string | null,
+  outcome:
+    AgentResultStatus,
+  failureReason:
+    string | null,
 ): WorkflowTransition {
-  const sourceIndex = snapshot.agents.findIndex(
-    (agent) => agent.id === sourceAgentId,
-  );
+  const sourceIndex =
+    snapshot.agents.findIndex(
+      (agent) =>
+        agent.id ===
+        sourceAgentId,
+    );
 
-  if (sourceIndex === -1) {
+  if (
+    sourceIndex === -1
+  ) {
     return {
       kind: "terminal",
       origin: "fallback",
       sourceAgentId,
       outcome,
       targetAgentId: null,
-      terminalAction: "fail_run",
+      terminalAction:
+        "fail_run",
       reason:
         "The completed agent is outside this run's workflow snapshot.",
     };
   }
 
-  const explicitRoute = snapshot.routes.find(
-    (route) =>
-      route.sourceAgentId === sourceAgentId &&
-      route.outcome === outcome,
-  );
+  const explicitRoute =
+    snapshot.routes.find(
+      (route) =>
+        route.sourceAgentId ===
+          sourceAgentId &&
+        route.outcome ===
+          outcome,
+    );
 
-  if (explicitRoute?.terminalAction) {
+  if (
+    explicitRoute?.terminalAction
+  ) {
     return {
       kind: "terminal",
       origin: "explicit",
@@ -303,12 +399,15 @@ function resolveWorkflowTransition(
     };
   }
 
-  if (explicitRoute?.targetAgentId) {
-    const targetExists = snapshot.agents.some(
-      (agent) =>
-        agent.id ===
-        explicitRoute.targetAgentId,
-    );
+  if (
+    explicitRoute?.targetAgentId
+  ) {
+    const targetExists =
+      snapshot.agents.some(
+        (agent) =>
+          agent.id ===
+          explicitRoute.targetAgentId,
+      );
 
     if (!targetExists) {
       return {
@@ -317,7 +416,8 @@ function resolveWorkflowTransition(
         sourceAgentId,
         outcome,
         targetAgentId: null,
-        terminalAction: "fail_run",
+        terminalAction:
+          "fail_run",
         reason:
           "The workflow route targeted an agent outside this run's snapshot.",
         attemptedTargetAgentId:
@@ -343,18 +443,23 @@ function resolveWorkflowTransition(
       sourceAgentId,
       outcome,
       targetAgentId: null,
-      terminalAction: "fail_run",
+      terminalAction:
+        "fail_run",
       reason:
         "The workflow snapshot contains a route without a destination.",
     };
   }
 
   if (
-    outcome === "completed" ||
-    outcome === "approved"
+    outcome ===
+      "completed" ||
+    outcome ===
+      "approved"
   ) {
     const nextAgent =
-      snapshot.agents[sourceIndex + 1];
+      snapshot.agents[
+        sourceIndex + 1
+      ];
 
     if (nextAgent) {
       return {
@@ -362,7 +467,8 @@ function resolveWorkflowTransition(
         origin: "default",
         sourceAgentId,
         outcome,
-        targetAgentId: nextAgent.id,
+        targetAgentId:
+          nextAgent.id,
         terminalAction: null,
       };
     }
@@ -373,14 +479,17 @@ function resolveWorkflowTransition(
       sourceAgentId,
       outcome,
       targetAgentId: null,
-      terminalAction: "complete_run",
+      terminalAction:
+        "complete_run",
       reason: null,
     };
   }
 
-  const terminalAction: TerminalAction =
+  const terminalAction:
+    TerminalAction =
     outcome === "blocked" ||
-    outcome === "changes_requested"
+    outcome ===
+      "changes_requested"
       ? "block_run"
       : "fail_run";
 
@@ -401,11 +510,13 @@ function resolveWorkflowTransition(
  * Converts a next-agent transition into a bounded failure when the run has reached its execution limit.
  */
 function enforceWorkflowExecutionLimit(
-  transition: WorkflowTransition,
+  transition:
+    WorkflowTransition,
   executionCount: number,
 ): WorkflowTransition {
   if (
-    transition.kind !== "agent" ||
+    transition.kind !==
+      "agent" ||
     executionCount <
       env.MAX_WORKFLOW_EXECUTIONS
   ) {
@@ -417,9 +528,11 @@ function enforceWorkflowExecutionLimit(
     origin: "limit",
     sourceAgentId:
       transition.sourceAgentId,
-    outcome: transition.outcome,
+    outcome:
+      transition.outcome,
     targetAgentId: null,
-    terminalAction: "fail_run",
+    terminalAction:
+      "fail_run",
     reason:
       `Workflow execution limit (${env.MAX_WORKFLOW_EXECUTIONS}) reached.`,
     attemptedTargetAgentId:
@@ -431,14 +544,23 @@ function enforceWorkflowExecutionLimit(
  * Builds the persisted observability payload for one resolved workflow transition.
  */
 function transitionEventData(
-  transition: WorkflowTransition,
+  transition:
+    WorkflowTransition,
   executionCount: number,
-): Record<string, unknown> {
-  const data: Record<string, unknown> = {
-    origin: transition.origin,
+): Record<
+  string,
+  unknown
+> {
+  const data: Record<
+    string,
+    unknown
+  > = {
+    origin:
+      transition.origin,
     sourceAgentId:
       transition.sourceAgentId,
-    outcome: transition.outcome,
+    outcome:
+      transition.outcome,
     targetAgentId:
       transition.targetAgentId,
     terminalAction:
@@ -446,8 +568,12 @@ function transitionEventData(
     executionCount,
   };
 
-  if (transition.kind === "terminal") {
-    data.reason = transition.reason;
+  if (
+    transition.kind ===
+    "terminal"
+  ) {
+    data.reason =
+      transition.reason;
 
     if (
       transition.attemptedTargetAgentId
@@ -464,81 +590,120 @@ function transitionEventData(
  * Atomically moves an active run and its task to a terminal state and records the matching run event.
  */
 async function updateTerminal(
-  run: typeof runs.$inferSelect,
+  run:
+    typeof runs.$inferSelect,
   status:
     | "completed"
     | "failed"
     | "blocked"
     | "cancelled",
-  reason: string | null,
+  reason:
+    string | null,
   expectedAgentId?: string,
 ): Promise<boolean> {
-  const now = new Date();
+  const now =
+    new Date();
 
-  return db.transaction(async (tx) => {
-    const condition = expectedAgentId
-      ? and(
-          eq(runs.id, run.id),
-          eq(runs.status, "running"),
-          eq(
-            runs.currentAgentId,
-            expectedAgentId,
-          ),
-        )
-      : and(
-          eq(runs.id, run.id),
-          inArray(runs.status, [
-            "pending",
-            "running",
-          ]),
-        );
+  return db.transaction(
+    async (tx) => {
+      const condition =
+        expectedAgentId
+          ? and(
+              eq(
+                runs.id,
+                run.id,
+              ),
+              eq(
+                runs.status,
+                "running",
+              ),
+              eq(
+                runs.currentAgentId,
+                expectedAgentId,
+              ),
+            )
+          : and(
+              eq(
+                runs.id,
+                run.id,
+              ),
+              inArray(
+                runs.status,
+                [
+                  "pending",
+                  "running",
+                ],
+              ),
+            );
 
-    const [updated] = await tx
-      .update(runs)
-      .set({
-        status,
-        currentAgentId: null,
-        terminalReason: reason,
-        updatedAt: now,
-      })
-      .where(condition)
-      .returning();
+      const [updated] =
+        await tx
+          .update(runs)
+          .set({
+            status,
+            currentAgentId:
+              null,
+            terminalReason:
+              reason,
+            updatedAt:
+              now,
+          })
+          .where(
+            condition,
+          )
+          .returning();
 
-    if (!updated) {
-      return false;
-    }
+      if (!updated) {
+        return false;
+      }
 
-    if (updated.taskId) {
+      if (
+        updated.taskId
+      ) {
+        await tx
+          .update(tasks)
+          .set({
+            status,
+            updatedAt:
+              now,
+          })
+          .where(
+            eq(
+              tasks.id,
+              updated.taskId,
+            ),
+          );
+      }
+
       await tx
-        .update(tasks)
-        .set({
-          status,
-          updatedAt: now,
-        })
-        .where(
-          eq(tasks.id, updated.taskId),
-        );
-    }
+        .insert(
+          domainEvents,
+        )
+        .values({
+          type:
+            `run.${status}`,
+          projectPath:
+            updated.projectPath,
+          taskId:
+            updated.taskId,
+          runId:
+            updated.id,
+          data: {
+            reason,
+          },
+        });
 
-    await tx.insert(domainEvents).values({
-      type: `run.${status}`,
-      projectPath: updated.projectPath,
-      taskId: updated.taskId,
-      runId: updated.id,
-      data: {
-        reason,
-      },
-    });
-
-    return true;
-  });
+      return true;
+    },
+  );
 }
 
 /**
  * Loads the raw task instruction belonging to a workflow run.
  */
 async function getTaskInstruction(
-  run: typeof runs.$inferSelect,
+  run:
+    typeof runs.$inferSelect,
 ): Promise<string> {
   if (!run.taskId) {
     throw new WorkflowServiceError(
@@ -547,12 +712,19 @@ async function getTaskInstruction(
     );
   }
 
-  const [task] = await db
-    .select({
-      instruction: tasks.instruction,
-    })
-    .from(tasks)
-    .where(eq(tasks.id, run.taskId));
+  const [task] =
+    await db
+      .select({
+        instruction:
+          tasks.instruction,
+      })
+      .from(tasks)
+      .where(
+        eq(
+          tasks.id,
+          run.taskId,
+        ),
+      );
 
   if (!task) {
     throw new WorkflowServiceError(
@@ -568,7 +740,8 @@ async function getTaskInstruction(
  * Applies an optional one-execution retry override without mutating the persisted workflow snapshot.
  */
 function resolveExecutionAgent(
-  snapshotAgent: SnapshotAgent,
+  snapshotAgent:
+    SnapshotAgent,
   override?: RetryRun,
 ): SnapshotAgent {
   if (
@@ -583,12 +756,14 @@ function resolveExecutionAgent(
     ...snapshotAgent,
     ...(override.harness
       ? {
-          harness: override.harness,
+          harness:
+            override.harness,
         }
       : {}),
     ...(override.model
       ? {
-          model: override.model,
+          model:
+            override.model,
         }
       : {}),
     ...(override.reasoning
@@ -604,44 +779,60 @@ function resolveExecutionAgent(
  * Starts a worker whose run row has already atomically claimed that agent.
  */
 async function launchClaimedAgent(
-  claimedRun: typeof runs.$inferSelect,
-  snapshotAgent: SnapshotAgent,
+  claimedRun:
+    typeof runs.$inferSelect,
+  snapshotAgent:
+    SnapshotAgent,
   handoffNote?: string,
   override?: RetryRun,
 ): Promise<void> {
-  const agent = resolveExecutionAgent(
-    snapshotAgent,
-    override,
-  );
+  const agent =
+    resolveExecutionAgent(
+      snapshotAgent,
+      override,
+    );
 
   try {
     const baseInstruction =
-      await getTaskInstruction(claimedRun);
-    const instruction = handoffNote
-      ? `${baseInstruction}\n\n${handoffNote}`
-      : baseInstruction;
+      await getTaskInstruction(
+        claimedRun,
+      );
+
+    const instruction =
+      handoffNote
+        ? `${baseInstruction}\n\n${handoffNote}`
+        : baseInstruction;
 
     await recordEvent({
-      type: "agent.started",
+      type:
+        "agent.started",
       projectPath:
         claimedRun.projectPath,
-      taskId: claimedRun.taskId,
-      runId: claimedRun.id,
+      taskId:
+        claimedRun.taskId,
+      runId:
+        claimedRun.id,
       data: {
-        agentId: agent.id,
-        layer: agent.layer,
+        agentId:
+          agent.id,
+        layer:
+          agent.layer,
         executionOrder:
           agent.executionOrder,
-        harness: agent.harness,
-        model: agent.model,
-        reasoning: agent.reasoning,
+        harness:
+          agent.harness,
+        model:
+          agent.model,
+        reasoning:
+          agent.reasoning,
         executionCount:
           claimedRun.executionCount,
         ...(override?.harness ||
         override?.model ||
         override?.reasoning
           ? {
-              overridden: true,
+              overridden:
+                true,
             }
           : {}),
       },
@@ -651,7 +842,9 @@ async function launchClaimedAgent(
       claimedRun,
       agent,
       instruction,
-      (finalization) =>
+      (
+        finalization,
+      ) =>
         handleExecutionFinalization(
           claimedRun.id,
           agent.id,
@@ -677,28 +870,40 @@ async function claimAndLaunchAgent(
   handoffNote?: string,
   override?: RetryRun,
 ): Promise<void> {
-  const [run] = await db
-    .select()
-    .from(runs)
-    .where(eq(runs.id, runId));
+  const [run] =
+    await db
+      .select()
+      .from(runs)
+      .where(
+        eq(
+          runs.id,
+          runId,
+        ),
+      );
 
   if (
     !run ||
-    run.status !== "running" ||
-    run.currentAgentId !== null
+    run.status !==
+      "running" ||
+    run.currentAgentId !==
+      null
   ) {
     return;
   }
 
-  let snapshot: WorkflowSnapshot;
+  let snapshot:
+    WorkflowSnapshot;
 
   try {
-    snapshot = snapshotOf(run);
+    snapshot =
+      snapshotOf(run);
   } catch (error) {
     await updateTerminal(
       run,
       "failed",
-      errorMessage(error),
+      errorMessage(
+        error,
+      ),
     );
     return;
   }
@@ -706,7 +911,8 @@ async function claimAndLaunchAgent(
   const snapshotAgent =
     snapshot.agents.find(
       (candidate) =>
-        candidate.id === nextAgentId,
+        candidate.id ===
+        nextAgentId,
     );
 
   if (!snapshotAgent) {
@@ -730,23 +936,32 @@ async function claimAndLaunchAgent(
     return;
   }
 
-  const [claimed] = await db
-    .update(runs)
-    .set({
-      currentAgentId:
-        snapshotAgent.id,
-      executionCount:
-        run.executionCount + 1,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(runs.id, run.id),
-        eq(runs.status, "running"),
-        sql`${runs.currentAgentId} is null`,
-      ),
-    )
-    .returning();
+  const [claimed] =
+    await db
+      .update(runs)
+      .set({
+        currentAgentId:
+          snapshotAgent.id,
+        executionCount:
+          run.executionCount +
+          1,
+        updatedAt:
+          new Date(),
+      })
+      .where(
+        and(
+          eq(
+            runs.id,
+            run.id,
+          ),
+          eq(
+            runs.status,
+            "running",
+          ),
+          sql`${runs.currentAgentId} is null`,
+        ),
+      )
+      .returning();
 
   if (!claimed) {
     return;
@@ -767,202 +982,279 @@ async function applyFinalizationTransition(
   runId: string,
   agentId: string,
   executionId: string,
-  resultStatus: AgentResultStatus,
-  failureReason: string | null,
-): Promise<AppliedWorkflowTransition | null> {
-  return db.transaction(async (tx) => {
-    const [run] = await tx
-      .select()
-      .from(runs)
-      .where(eq(runs.id, runId));
+  resultStatus:
+    AgentResultStatus,
+  failureReason:
+    string | null,
+): Promise<
+  | AppliedWorkflowTransition
+  | null
+> {
+  return db.transaction(
+    async (tx) => {
+      const [run] =
+        await tx
+          .select()
+          .from(runs)
+          .where(
+            eq(
+              runs.id,
+              runId,
+            ),
+          );
 
-    if (
-      !run ||
-      run.status !== "running" ||
-      run.currentAgentId !== agentId
-    ) {
-      return null;
-    }
+      if (
+        !run ||
+        run.status !==
+          "running" ||
+        run.currentAgentId !==
+          agentId
+      ) {
+        return null;
+      }
 
-    const snapshot = snapshotOf(run);
-    const sourceAgent =
-      snapshot.agents.find(
-        (candidate) =>
-          candidate.id === agentId,
-      ) ?? null;
+      const snapshot =
+        snapshotOf(run);
 
-    const transition =
-      enforceWorkflowExecutionLimit(
-        resolveWorkflowTransition(
-          snapshot,
-          agentId,
-          resultStatus,
-          failureReason,
-        ),
-        run.executionCount,
-      );
-
-    const now = new Date();
-    const activeSourceCondition = and(
-      eq(runs.id, run.id),
-      eq(runs.status, "running"),
-      eq(
-        runs.currentAgentId,
-        agentId,
-      ),
-    );
-
-    let updatedRun:
-      | typeof runs.$inferSelect
-      | undefined;
-    let targetAgent:
-      | SnapshotAgent
-      | null = null;
-    let terminalStatus:
-      | TerminalRunStatus
-      | null = null;
-
-    if (transition.kind === "agent") {
-      targetAgent =
+      const sourceAgent =
         snapshot.agents.find(
           (candidate) =>
             candidate.id ===
-            transition.targetAgentId,
+            agentId,
         ) ?? null;
 
-      if (!targetAgent) {
-        throw new WorkflowServiceError(
-          "The workflow transition targeted an unavailable snapshot agent",
-          500,
-        );
-      }
-
-      [updatedRun] = await tx
-        .update(runs)
-        .set({
-          currentAgentId:
-            targetAgent.id,
-          executionCount:
-            run.executionCount + 1,
-          updatedAt: now,
-        })
-        .where(activeSourceCondition)
-        .returning();
-    } else {
-      terminalStatus =
-        terminalStatusForAction(
-          transition.terminalAction,
+      const transition =
+        enforceWorkflowExecutionLimit(
+          resolveWorkflowTransition(
+            snapshot,
+            agentId,
+            resultStatus,
+            failureReason,
+          ),
+          run.executionCount,
         );
 
-      [updatedRun] = await tx
-        .update(runs)
-        .set({
-          status: terminalStatus,
-          currentAgentId: null,
-          terminalReason:
-            transition.reason,
-          updatedAt: now,
-        })
-        .where(activeSourceCondition)
-        .returning();
+      const now =
+        new Date();
+
+      const activeSourceCondition =
+        and(
+          eq(
+            runs.id,
+            run.id,
+          ),
+          eq(
+            runs.status,
+            "running",
+          ),
+          eq(
+            runs.currentAgentId,
+            agentId,
+          ),
+        );
+
+      let updatedRun:
+        | typeof runs.$inferSelect
+        | undefined;
+
+      let targetAgent:
+        | SnapshotAgent
+        | null = null;
+
+      let terminalStatus:
+        | TerminalRunStatus
+        | null = null;
 
       if (
-        updatedRun &&
-        run.taskId
+        transition.kind ===
+        "agent"
       ) {
-        await tx
-          .update(tasks)
-          .set({
-            status: terminalStatus,
-            updatedAt: now,
-          })
-          .where(
-            eq(tasks.id, run.taskId),
+        targetAgent =
+          snapshot.agents.find(
+            (
+              candidate,
+            ) =>
+              candidate.id ===
+              transition.targetAgentId,
+          ) ?? null;
+
+        if (
+          !targetAgent
+        ) {
+          throw new WorkflowServiceError(
+            "The workflow transition targeted an unavailable snapshot agent",
+            500,
           );
+        }
+
+        [updatedRun] =
+          await tx
+            .update(runs)
+            .set({
+              currentAgentId:
+                targetAgent.id,
+              executionCount:
+                run.executionCount +
+                1,
+              updatedAt:
+                now,
+            })
+            .where(
+              activeSourceCondition,
+            )
+            .returning();
+      } else {
+        terminalStatus =
+          terminalStatusForAction(
+            transition.terminalAction,
+          );
+
+        [updatedRun] =
+          await tx
+            .update(runs)
+            .set({
+              status:
+                terminalStatus,
+              currentAgentId:
+                null,
+              terminalReason:
+                transition.reason,
+              updatedAt:
+                now,
+            })
+            .where(
+              activeSourceCondition,
+            )
+            .returning();
+
+        if (
+          updatedRun &&
+          run.taskId
+        ) {
+          await tx
+            .update(tasks)
+            .set({
+              status:
+                terminalStatus,
+              updatedAt:
+                now,
+            })
+            .where(
+              eq(
+                tasks.id,
+                run.taskId,
+              ),
+            );
+        }
       }
-    }
 
-    if (!updatedRun) {
-      return null;
-    }
+      if (!updatedRun) {
+        return null;
+      }
 
-    const events: Array<
-      typeof domainEvents.$inferInsert
-    > = [
-      {
-        type: "result.received",
-        projectPath: run.projectPath,
-        taskId: run.taskId,
-        runId: run.id,
-        agentExecutionId:
-          executionId,
-        data: {
-          status: resultStatus,
+      const events: Array<
+        typeof domainEvents.$inferInsert
+      > = [
+        {
+          type:
+            "result.received",
+          projectPath:
+            run.projectPath,
+          taskId:
+            run.taskId,
+          runId:
+            run.id,
+          agentExecutionId:
+            executionId,
+          data: {
+            status:
+              resultStatus,
+          },
         },
-      },
-      {
-        type: "workflow.transition",
-        projectPath: run.projectPath,
-        taskId: run.taskId,
-        runId: run.id,
-        agentExecutionId:
-          executionId,
-        data: transitionEventData(
-          transition,
-          run.executionCount,
-        ),
-      },
-    ];
-
-    if (
-      transition.origin ===
-        "explicit" &&
-      transition.kind === "agent"
-    ) {
-      events.push({
-        type: "route.selected",
-        projectPath: run.projectPath,
-        taskId: run.taskId,
-        runId: run.id,
-        agentExecutionId:
-          executionId,
-        data: {
-          targetAgentId:
-            transition.targetAgentId,
-          outcome:
-            transition.outcome,
+        {
+          type:
+            "workflow.transition",
+          projectPath:
+            run.projectPath,
+          taskId:
+            run.taskId,
+          runId:
+            run.id,
+          agentExecutionId:
+            executionId,
+          data:
+            transitionEventData(
+              transition,
+              run.executionCount,
+            ),
         },
-      });
-    }
+      ];
 
-    if (terminalStatus) {
-      events.push({
-        type:
-          `run.${terminalStatus}`,
-        projectPath: run.projectPath,
-        taskId: run.taskId,
-        runId: run.id,
-        data: {
-          reason:
-            transition.kind ===
-            "terminal"
-              ? transition.reason
-              : null,
-        },
-      });
-    }
+      if (
+        transition.origin ===
+          "explicit" &&
+        transition.kind ===
+          "agent"
+      ) {
+        events.push({
+          type:
+            "route.selected",
+          projectPath:
+            run.projectPath,
+          taskId:
+            run.taskId,
+          runId:
+            run.id,
+          agentExecutionId:
+            executionId,
+          data: {
+            targetAgentId:
+              transition.targetAgentId,
+            outcome:
+              transition.outcome,
+          },
+        });
+      }
 
-    await tx
-      .insert(domainEvents)
-      .values(events);
+      if (
+        terminalStatus
+      ) {
+        events.push({
+          type:
+            `run.${terminalStatus}`,
+          projectPath:
+            run.projectPath,
+          taskId:
+            run.taskId,
+          runId:
+            run.id,
+          data: {
+            reason:
+              transition.kind ===
+              "terminal"
+                ? transition.reason
+                : null,
+          },
+        });
+      }
 
-    return {
-      run: updatedRun,
-      sourceAgent,
-      targetAgent,
-      transition,
-    };
-  });
+      await tx
+        .insert(
+          domainEvents,
+        )
+        .values(
+          events,
+        );
+
+      return {
+        run:
+          updatedRun,
+        sourceAgent,
+        targetAgent,
+        transition,
+      };
+    },
+  );
 }
 
 /**
@@ -971,16 +1263,24 @@ async function applyFinalizationTransition(
 async function handleExecutionFinalization(
   runId: string,
   agentId: string,
-  finalization: ExecutionFinalization,
+  finalization:
+    ExecutionFinalization,
 ): Promise<void> {
-  const [run] = await db
-    .select()
-    .from(runs)
-    .where(eq(runs.id, runId));
+  const [run] =
+    await db
+      .select()
+      .from(runs)
+      .where(
+        eq(
+          runs.id,
+          runId,
+        ),
+      );
 
   if (
     !run ||
-    run.status !== "running"
+    run.status !==
+      "running"
   ) {
     return;
   }
@@ -998,7 +1298,9 @@ async function handleExecutionFinalization(
     return;
   }
 
-  if (!finalization.resultStatus) {
+  if (
+    !finalization.resultStatus
+  ) {
     await updateTerminal(
       run,
       "failed",
@@ -1040,12 +1342,15 @@ async function handleExecutionFinalization(
     return;
   }
 
-  if (!applied.targetAgent) {
+  if (
+    !applied.targetAgent
+  ) {
     await updateTerminal(
       applied.run,
       "failed",
       "The claimed workflow transition has no target agent.",
-      applied.run.currentAgentId ??
+      applied.run
+        .currentAgentId ??
         undefined,
     );
     return;
@@ -1068,15 +1373,16 @@ async function handleExecutionFinalization(
 }
 
 /**
- * Creates a task and immutable workflow snapshot, then starts its first configured worker.
+ * Creates a pending task without creating or starting a run.
  */
-export async function createAndStartTask(
+export async function createTask(
   input: CreateTask,
-): Promise<TaskWithRun> {
-  const project = await getProject(
-    env.WORKSPACE_ROOT,
-    input.projectId,
-  );
+): Promise<Task> {
+  const project =
+    await getProject(
+      env.WORKSPACE_ROOT,
+      input.projectId,
+    );
 
   if (!project) {
     throw new WorkflowServiceError(
@@ -1085,107 +1391,284 @@ export async function createAndStartTask(
     );
   }
 
-  const result = await db.transaction(
-    async (tx) => {
-      const active = await tx
-        .select({
-          id: runs.id,
-        })
-        .from(runs)
-        .where(
-          inArray(runs.status, [
-            "pending",
-            "running",
-          ]),
-        )
-        .limit(1);
+  const [task] =
+    await db
+      .insert(tasks)
+      .values({
+        projectPath:
+          project.path,
+        title:
+          input.title,
+        instruction:
+          input.instruction,
+        status:
+          "pending",
+      })
+      .returning();
 
-      if (active.length) {
-        throw new WorkflowServiceError(
-          "Another task is already active",
-          409,
-        );
-      }
-
-      const enabledAgents = await tx
-        .select()
-        .from(agents)
-        .where(
-          eq(agents.enabled, true),
-        )
-        .orderBy(
-          asc(agents.layer),
-          asc(agents.executionOrder),
-        );
-
-      if (!enabledAgents.length) {
-        throw new WorkflowServiceError(
-          "Configure at least one enabled agent before starting a task",
-          400,
-        );
-      }
-
-      const routes = await tx
-        .select()
-        .from(agentRoutes)
-        .where(
-          eq(
-            agentRoutes.enabled,
-            true,
-          ),
-        );
-
-      const workflowSnapshot =
-        snapshotFromRows(
-          enabledAgents,
-          routes,
-        );
-      const now = new Date();
-
-      const [task] = await tx
-        .insert(tasks)
-        .values({
-          projectPath: project.path,
-          title: input.title,
-          instruction:
-            input.instruction,
-          status: "running",
-        })
-        .returning();
-
-      const [run] = await tx
-        .insert(runs)
-        .values({
-          taskId: task.id,
-          projectPath: project.path,
-          status: "running",
-          workflowSnapshot,
-          executionCount: 0,
-          updatedAt: now,
-        })
-        .returning();
-
-      await tx
-        .insert(domainEvents)
-        .values({
-          type: "run.started",
-          projectPath: run.projectPath,
-          taskId: task.id,
-          runId: run.id,
-          data: {
-            title: task.title,
-          },
-        });
-
-      return {
-        task,
-        run,
-      };
-    },
+  return serializeTask(
+    task,
   );
+}
+
+/**
+ * Loads one persisted task by identifier.
+ */
+export async function getTask(
+  id: string,
+): Promise<Task | null> {
+  const [task] =
+    await db
+      .select()
+      .from(tasks)
+      .where(
+        eq(
+          tasks.id,
+          id,
+        ),
+      );
+
+  return task
+    ? serializeTask(
+        task,
+      )
+    : null;
+}
+
+/**
+ * Starts a pending task through the normal snapshotted workflow execution path.
+ */
+export async function startTask(
+  id: string,
+): Promise<
+  TaskWithRun | null
+> {
+  const [existingTask] =
+    await db
+      .select()
+      .from(tasks)
+      .where(
+        eq(
+          tasks.id,
+          id,
+        ),
+      );
+
+  if (!existingTask) {
+    return null;
+  }
+
+  if (
+    existingTask.status !==
+    "pending"
+  ) {
+    throw new WorkflowServiceError(
+      "Only a pending task can be started",
+      409,
+    );
+  }
+
+  const project =
+    await getProjectByPath(
+      env.WORKSPACE_ROOT,
+      existingTask.projectPath,
+    );
+
+  if (!project) {
+    throw new WorkflowServiceError(
+      "The selected project is no longer available",
+      404,
+    );
+  }
+
+  const result =
+    await db.transaction(
+      async (tx) => {
+        const active =
+          await tx
+            .select({
+              id:
+                runs.id,
+            })
+            .from(runs)
+            .where(
+              inArray(
+                runs.status,
+                [
+                  "pending",
+                  "running",
+                ],
+              ),
+            )
+            .limit(1);
+
+        if (
+          active.length
+        ) {
+          throw new WorkflowServiceError(
+            "Another task is already active",
+            409,
+          );
+        }
+
+        const [currentTask] =
+          await tx
+            .select()
+            .from(tasks)
+            .where(
+              eq(
+                tasks.id,
+                id,
+              ),
+            );
+
+        if (
+          !currentTask
+        ) {
+          throw new WorkflowServiceError(
+            "The task no longer exists",
+            404,
+          );
+        }
+
+        if (
+          currentTask.status !==
+          "pending"
+        ) {
+          throw new WorkflowServiceError(
+            "The task changed while the run was being started",
+            409,
+          );
+        }
+
+        const enabledAgents =
+          await tx
+            .select()
+            .from(agents)
+            .where(
+              eq(
+                agents.enabled,
+                true,
+              ),
+            )
+            .orderBy(
+              asc(
+                agents.layer,
+              ),
+              asc(
+                agents.executionOrder,
+              ),
+            );
+
+        if (
+          !enabledAgents.length
+        ) {
+          throw new WorkflowServiceError(
+            "Configure at least one enabled agent before starting a task",
+            400,
+          );
+        }
+
+        const routes =
+          await tx
+            .select()
+            .from(
+              agentRoutes,
+            )
+            .where(
+              eq(
+                agentRoutes.enabled,
+                true,
+              ),
+            );
+
+        const workflowSnapshot =
+          snapshotFromRows(
+            enabledAgents,
+            routes,
+          );
+
+        const now =
+          new Date();
+
+        const [task] =
+          await tx
+            .update(tasks)
+            .set({
+              status:
+                "running",
+              updatedAt:
+                now,
+            })
+            .where(
+              and(
+                eq(
+                  tasks.id,
+                  id,
+                ),
+                eq(
+                  tasks.status,
+                  "pending",
+                ),
+              ),
+            )
+            .returning();
+
+        if (!task) {
+          throw new WorkflowServiceError(
+            "The task changed while the run was being started",
+            409,
+          );
+        }
+
+        const [run] =
+          await tx
+            .insert(runs)
+            .values({
+              taskId:
+                task.id,
+              projectPath:
+                project.path,
+              status:
+                "running",
+              workflowSnapshot,
+              executionCount:
+                0,
+              updatedAt:
+                now,
+            })
+            .returning();
+
+        await tx
+          .insert(
+            domainEvents,
+          )
+          .values({
+            type:
+              "run.started",
+            projectPath:
+              run.projectPath,
+            taskId:
+              task.id,
+            runId:
+              run.id,
+            data: {
+              title:
+                task.title,
+            },
+          });
+
+        return {
+          task,
+          run,
+        };
+      },
+    );
 
   const snapshot =
-    snapshotOf(result.run);
+    snapshotOf(
+      result.run,
+    );
 
   void claimAndLaunchAgent(
     result.run.id,
@@ -1193,8 +1676,194 @@ export async function createAndStartTask(
   );
 
   return {
-    task: serializeTask(result.task),
-    run: serializeRun(result.run),
+    task:
+      serializeTask(
+        result.task,
+      ),
+    run:
+      serializeRun(
+        result.run,
+      ),
+  };
+}
+
+/**
+ * Creates a task and immutable workflow snapshot, then starts its first configured worker.
+ */
+export async function createAndStartTask(
+  input: CreateTask,
+): Promise<TaskWithRun> {
+  const project =
+    await getProject(
+      env.WORKSPACE_ROOT,
+      input.projectId,
+    );
+
+  if (!project) {
+    throw new WorkflowServiceError(
+      "The selected project is no longer available",
+      404,
+    );
+  }
+
+  const result =
+    await db.transaction(
+      async (tx) => {
+        const active =
+          await tx
+            .select({
+              id:
+                runs.id,
+            })
+            .from(runs)
+            .where(
+              inArray(
+                runs.status,
+                [
+                  "pending",
+                  "running",
+                ],
+              ),
+            )
+            .limit(1);
+
+        if (
+          active.length
+        ) {
+          throw new WorkflowServiceError(
+            "Another task is already active",
+            409,
+          );
+        }
+
+        const enabledAgents =
+          await tx
+            .select()
+            .from(agents)
+            .where(
+              eq(
+                agents.enabled,
+                true,
+              ),
+            )
+            .orderBy(
+              asc(
+                agents.layer,
+              ),
+              asc(
+                agents.executionOrder,
+              ),
+            );
+
+        if (
+          !enabledAgents.length
+        ) {
+          throw new WorkflowServiceError(
+            "Configure at least one enabled agent before starting a task",
+            400,
+          );
+        }
+
+        const routes =
+          await tx
+            .select()
+            .from(
+              agentRoutes,
+            )
+            .where(
+              eq(
+                agentRoutes.enabled,
+                true,
+              ),
+            );
+
+        const workflowSnapshot =
+          snapshotFromRows(
+            enabledAgents,
+            routes,
+          );
+
+        const now =
+          new Date();
+
+        const [task] =
+          await tx
+            .insert(tasks)
+            .values({
+              projectPath:
+                project.path,
+              title:
+                input.title,
+              instruction:
+                input.instruction,
+              status:
+                "running",
+            })
+            .returning();
+
+        const [run] =
+          await tx
+            .insert(runs)
+            .values({
+              taskId:
+                task.id,
+              projectPath:
+                project.path,
+              status:
+                "running",
+              workflowSnapshot,
+              executionCount:
+                0,
+              updatedAt:
+                now,
+            })
+            .returning();
+
+        await tx
+          .insert(
+            domainEvents,
+          )
+          .values({
+            type:
+              "run.started",
+            projectPath:
+              run.projectPath,
+            taskId:
+              task.id,
+            runId:
+              run.id,
+            data: {
+              title:
+                task.title,
+            },
+          });
+
+        return {
+          task,
+          run,
+        };
+      },
+    );
+
+  const snapshot =
+    snapshotOf(
+      result.run,
+    );
+
+  void claimAndLaunchAgent(
+    result.run.id,
+    snapshot.agents[0].id,
+  );
+
+  return {
+    task:
+      serializeTask(
+        result.task,
+      ),
+    run:
+      serializeRun(
+        result.run,
+      ),
   };
 }
 
@@ -1209,9 +1878,13 @@ export async function listTasks(): Promise<
       .select()
       .from(tasks)
       .orderBy(
-        desc(tasks.createdAt),
+        desc(
+          tasks.createdAt,
+        ),
       )
-  ).map(serializeTask);
+  ).map(
+    serializeTask,
+  );
 }
 
 /**
@@ -1225,9 +1898,13 @@ export async function listRuns(): Promise<
       .select()
       .from(runs)
       .orderBy(
-        desc(runs.createdAt),
+        desc(
+          runs.createdAt,
+        ),
       )
-  ).map(serializeRun);
+  ).map(
+    serializeRun,
+  );
 }
 
 /**
@@ -1237,45 +1914,64 @@ export async function getRunDetail(
   id: string,
 ): Promise<{
   run: Run;
-  task: Task | null;
-  executions: AgentExecution[];
+  task:
+    | Task
+    | null;
+  executions:
+    AgentExecution[];
   events: Awaited<
-    ReturnType<typeof listRunEvents>
+    ReturnType<
+      typeof listRunEvents
+    >
   >;
 } | null> {
-  const [run] = await db
-    .select()
-    .from(runs)
-    .where(eq(runs.id, id));
+  const [run] =
+    await db
+      .select()
+      .from(runs)
+      .where(
+        eq(
+          runs.id,
+          id,
+        ),
+      );
 
   if (!run) {
     return null;
   }
 
-  const rows = await db
-    .select()
-    .from(agentExecutions)
-    .where(
-      eq(
-        agentExecutions.runId,
-        id,
-      ),
-    )
-    .orderBy(
-      asc(
-        agentExecutions.createdAt,
-      ),
-    );
+  const rows =
+    await db
+      .select()
+      .from(
+        agentExecutions,
+      )
+      .where(
+        eq(
+          agentExecutions.runId,
+          id,
+        ),
+      )
+      .orderBy(
+        asc(
+          agentExecutions.createdAt,
+        ),
+      );
 
-  const { getExecution } =
+  const {
+    getExecution,
+  } =
     await import(
       "./agent-execution-service.js"
     );
 
   const executions = (
     await Promise.all(
-      rows.map((row) =>
-        getExecution(row.id),
+      rows.map(
+        (row) =>
+          getExecution(
+            row.id,
+          ),
       ),
     )
   ).filter(
@@ -1285,23 +1981,34 @@ export async function getRunDetail(
       value !== null,
   );
 
-  const [task] = run.taskId
-    ? await db
-        .select()
-        .from(tasks)
-        .where(
-          eq(tasks.id, run.taskId),
-        )
-    : [];
+  const [task] =
+    run.taskId
+      ? await db
+          .select()
+          .from(tasks)
+          .where(
+            eq(
+              tasks.id,
+              run.taskId,
+            ),
+          )
+      : [];
 
   return {
-    run: serializeRun(run),
+    run:
+      serializeRun(
+        run,
+      ),
     task: task
-      ? serializeTask(task)
+      ? serializeTask(
+          task,
+        )
       : null,
     executions,
     events:
-      await listRunEvents(id),
+      await listRunEvents(
+        id,
+      ),
   };
 }
 
@@ -1311,18 +2018,26 @@ export async function getRunDetail(
 export async function cancelRun(
   id: string,
 ): Promise<Run | null> {
-  const [run] = await db
-    .select()
-    .from(runs)
-    .where(eq(runs.id, id));
+  const [run] =
+    await db
+      .select()
+      .from(runs)
+      .where(
+        eq(
+          runs.id,
+          id,
+        ),
+      );
 
   if (!run) {
     return null;
   }
 
   if (
-    run.status !== "running" &&
-    run.status !== "pending"
+    run.status !==
+      "running" &&
+    run.status !==
+      "pending"
   ) {
     throw new WorkflowServiceError(
       "Only an active run can be cancelled",
@@ -1330,21 +2045,24 @@ export async function cancelRun(
     );
   }
 
-  const [execution] = await db
-    .select()
-    .from(agentExecutions)
-    .where(
-      eq(
-        agentExecutions.runId,
-        id,
-      ),
-    )
-    .orderBy(
-      desc(
-        agentExecutions.createdAt,
-      ),
-    )
-    .limit(1);
+  const [execution] =
+    await db
+      .select()
+      .from(
+        agentExecutions,
+      )
+      .where(
+        eq(
+          agentExecutions.runId,
+          id,
+        ),
+      )
+      .orderBy(
+        desc(
+          agentExecutions.createdAt,
+        ),
+      )
+      .limit(1);
 
   if (execution) {
     await cancelLiveExecution(
@@ -1352,13 +2070,18 @@ export async function cancelRun(
     );
 
     await db
-      .update(agentExecutions)
+      .update(
+        agentExecutions,
+      )
       .set({
-        status: "cancelled",
+        status:
+          "cancelled",
         failureReason:
           "Cancelled by operator",
-        completedAt: new Date(),
-        updatedAt: new Date(),
+        completedAt:
+          new Date(),
+        updatedAt:
+          new Date(),
       })
       .where(
         eq(
@@ -1376,13 +2099,21 @@ export async function cancelRun(
       undefined,
   );
 
-  const [updated] = await db
-    .select()
-    .from(runs)
-    .where(eq(runs.id, id));
+  const [updated] =
+    await db
+      .select()
+      .from(runs)
+      .where(
+        eq(
+          runs.id,
+          id,
+        ),
+      );
 
   return updated
-    ? serializeRun(updated)
+    ? serializeRun(
+        updated,
+      )
     : null;
 }
 
@@ -1393,18 +2124,26 @@ export async function retryLastExecution(
   id: string,
   override?: RetryRun,
 ): Promise<Run | null> {
-  const [run] = await db
-    .select()
-    .from(runs)
-    .where(eq(runs.id, id));
+  const [run] =
+    await db
+      .select()
+      .from(runs)
+      .where(
+        eq(
+          runs.id,
+          id,
+        ),
+      );
 
   if (!run) {
     return null;
   }
 
   if (
-    run.status !== "failed" &&
-    run.status !== "blocked"
+    run.status !==
+      "failed" &&
+    run.status !==
+      "blocked"
   ) {
     throw new WorkflowServiceError(
       "Only failed or blocked runs can be retried",
@@ -1412,30 +2151,36 @@ export async function retryLastExecution(
     );
   }
 
-  const [execution] = await db
-    .select()
-    .from(agentExecutions)
-    .where(
-      eq(
-        agentExecutions.runId,
-        id,
-      ),
-    )
-    .orderBy(
-      desc(
-        agentExecutions.createdAt,
-      ),
-    )
-    .limit(1);
+  const [execution] =
+    await db
+      .select()
+      .from(
+        agentExecutions,
+      )
+      .where(
+        eq(
+          agentExecutions.runId,
+          id,
+        ),
+      )
+      .orderBy(
+        desc(
+          agentExecutions.createdAt,
+        ),
+      )
+      .limit(1);
 
-  if (!execution?.agentId) {
+  if (
+    !execution?.agentId
+  ) {
     throw new WorkflowServiceError(
       "The final execution cannot be retried because its agent snapshot is unavailable",
       409,
     );
   }
 
-  const snapshot = snapshotOf(run);
+  const snapshot =
+    snapshotOf(run);
 
   if (
     !snapshot.agents.some(
@@ -1463,20 +2208,28 @@ export async function retryLastExecution(
   const updated =
     await db.transaction(
       async (tx) => {
-        const now = new Date();
+        const now =
+          new Date();
 
         const [retriedRun] =
           await tx
             .update(runs)
             .set({
-              status: "running",
-              currentAgentId: null,
-              terminalReason: null,
-              updatedAt: now,
+              status:
+                "running",
+              currentAgentId:
+                null,
+              terminalReason:
+                null,
+              updatedAt:
+                now,
             })
             .where(
               and(
-                eq(runs.id, id),
+                eq(
+                  runs.id,
+                  id,
+                ),
                 inArray(
                   runs.status,
                   [
@@ -1489,19 +2242,25 @@ export async function retryLastExecution(
             )
             .returning();
 
-        if (!retriedRun) {
+        if (
+          !retriedRun
+        ) {
           throw new WorkflowServiceError(
             "The run changed while the retry was being started",
             409,
           );
         }
 
-        if (retriedRun.taskId) {
+        if (
+          retriedRun.taskId
+        ) {
           await tx
             .update(tasks)
             .set({
-              status: "running",
-              updatedAt: now,
+              status:
+                "running",
+              updatedAt:
+                now,
             })
             .where(
               eq(
@@ -1512,7 +2271,9 @@ export async function retryLastExecution(
         }
 
         await tx
-          .insert(domainEvents)
+          .insert(
+            domainEvents,
+          )
           .values({
             type:
               "execution.retried",
@@ -1520,7 +2281,8 @@ export async function retryLastExecution(
               retriedRun.projectPath,
             taskId:
               retriedRun.taskId,
-            runId: retriedRun.id,
+            runId:
+              retriedRun.id,
             agentExecutionId:
               execution.id,
             data: {
@@ -1545,24 +2307,32 @@ export async function retryLastExecution(
     override,
   );
 
-  return serializeRun(updated);
+  return serializeRun(
+    updated,
+  );
 }
 
 /**
  * Blocks workflows left active by a previous server process without automatically resuming repository work.
  */
 export async function recoverInterruptedWorkflows(): Promise<void> {
-  const active = await db
-    .select()
-    .from(runs)
-    .where(
-      inArray(runs.status, [
-        "pending",
-        "running",
-      ]),
-    );
+  const active =
+    await db
+      .select()
+      .from(runs)
+      .where(
+        inArray(
+          runs.status,
+          [
+            "pending",
+            "running",
+          ],
+        ),
+      );
 
-  for (const run of active) {
+  for (
+    const run of active
+  ) {
     const transitioned =
       await updateTerminal(
         run,
@@ -1570,18 +2340,25 @@ export async function recoverInterruptedWorkflows(): Promise<void> {
         "Server restarted while this workflow was active; it was not resumed.",
       );
 
-    if (!transitioned) {
+    if (
+      !transitioned
+    ) {
       continue;
     }
 
     await db
-      .update(agentExecutions)
+      .update(
+        agentExecutions,
+      )
       .set({
-        status: "blocked",
+        status:
+          "blocked",
         failureReason:
           "Server restarted while worker state was unavailable.",
-        completedAt: new Date(),
-        updatedAt: new Date(),
+        completedAt:
+          new Date(),
+        updatedAt:
+          new Date(),
       })
       .where(
         and(

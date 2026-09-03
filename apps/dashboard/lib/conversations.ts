@@ -1,42 +1,57 @@
 import {
   conversationDetailSchema,
+  conversationListResponseSchema,
   conversationSchema,
   orchestratorSettingsSchema,
   postConversationMessageResponseSchema,
   type Conversation,
   type ConversationDetail,
+  type ConversationListResponse,
   type OrchestratorSettings,
-  type PostConversationMessageResponse,
 } from "@orc/shared";
 
 const SERVER_URL =
-  process.env.NEXT_PUBLIC_SERVER_URL ??
+  process.env
+    .NEXT_PUBLIC_SERVER_URL ??
   "http://localhost:4000";
 
-/** Performs one validated request against the conversation API. */
+/**
+ * Executes one JSON API request and validates the returned payload.
+ */
 async function request<T>(
   path: string,
-  options: RequestInit,
-  parse: (value: unknown) => T,
+  options:
+    RequestInit,
+  parse: (
+    value: unknown,
+  ) => T,
 ): Promise<T> {
-  const response = await fetch(
-    `${SERVER_URL}${path}`,
-    {
-      ...options,
-      headers: {
-        "content-type":
-          "application/json",
-        ...options.headers,
+  const response =
+    await fetch(
+      `${SERVER_URL}${path}`,
+      {
+        ...options,
+        headers: {
+          "content-type":
+            "application/json",
+          ...options.headers,
+        },
       },
-    },
-  );
+    );
 
   if (!response.ok) {
-    const body = (await response
-      .json()
-      .catch(() => null)) as {
-      error?: string;
-    } | null;
+    const body =
+      (await response
+        .json()
+        .catch(
+          () =>
+            null,
+        )) as
+        | {
+            error?:
+              string;
+          }
+        | null;
 
     throw new Error(
       body?.error ??
@@ -49,58 +64,100 @@ async function request<T>(
   );
 }
 
-/** Opens the latest persisted conversation for one filesystem-backed project. */
-export function openConversation(
+/**
+ * Lists persisted conversations for the selected project.
+ */
+export function listConversations(
+  projectPath: string,
+): Promise<ConversationListResponse> {
+  return request(
+    `/api/conversations?projectPath=${encodeURIComponent(projectPath)}`,
+    {},
+    conversationListResponseSchema.parse,
+  );
+}
+
+/**
+ * Creates a new persistent conversation for the selected project.
+ */
+export function createConversation(
   projectPath: string,
 ): Promise<Conversation> {
   return request(
     "/api/conversations",
     {
-      method: "POST",
-      body: JSON.stringify({
-        projectPath,
-      }),
+      method:
+        "POST",
+      body:
+        JSON.stringify({
+          projectPath,
+        }),
     },
     conversationSchema.parse,
   );
 }
 
-/** Loads one conversation and its authoritative persisted messages. */
+/**
+ * Loads one conversation and its persisted message history.
+ */
 export function getConversation(
   id: string,
 ): Promise<ConversationDetail> {
   return request(
     `/api/conversations/${id}`,
-    {
-      cache: "no-store",
-    },
+    {},
     conversationDetailSchema.parse,
   );
 }
 
-/** Sends one user message and returns the supervisor reply with updated linkage. */
+/**
+ * Posts one user message and returns the grounded persisted supervisor response.
+ */
 export function postMessage(
   id: string,
   content: string,
-): Promise<PostConversationMessageResponse> {
+) {
   return request(
     `/api/conversations/${id}/messages`,
     {
-      method: "POST",
-      body: JSON.stringify({
-        content,
-      }),
+      method:
+        "POST",
+      body:
+        JSON.stringify({
+          content,
+        }),
     },
     postConversationMessageResponseSchema.parse,
   );
 }
 
-/** Loads the separately configured supervisor harness, model, reasoning, and prompt. */
+/**
+ * Loads the persisted orchestrator harness and model configuration.
+ */
 export function getOrchestratorSettings(): Promise<OrchestratorSettings> {
   return request(
     "/api/orchestrator/settings",
+    {},
+    orchestratorSettingsSchema.parse,
+  );
+}
+
+/**
+ * Updates the persisted orchestrator harness and model configuration.
+ */
+export function updateOrchestratorSettings(
+  settings:
+    OrchestratorSettings,
+): Promise<OrchestratorSettings> {
+  return request(
+    "/api/orchestrator/settings",
     {
-      cache: "no-store",
+      method:
+        "PUT",
+      body:
+        JSON.stringify(
+          settings,
+        ),
     },
     orchestratorSettingsSchema.parse,
   );
