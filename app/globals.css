@@ -39,82 +39,165 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Design-system foundation tokens (docs/design-system.png) */
+  --color-bg-app: var(--bg-app);
+  --color-bg-sidebar: var(--bg-sidebar);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-card: var(--surface-card);
+  --color-surface-interactive: var(--surface-interactive);
+  --color-border-default: var(--border-default);
+  --color-border-strong: var(--border-strong);
+  --color-divider: var(--divider);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-link: var(--link);
+  --color-focus-ring: var(--focus-ring);
+  --color-brand-accent: var(--brand-accent);
+
+  /* Semantic status tokens */
+  --color-status-running: var(--status-running);
+  --color-status-success: var(--status-success);
+  --color-status-warning: var(--status-warning);
+  --color-status-error: var(--status-error);
+  --color-status-disabled: var(--status-disabled);
+  --color-status-neutral: var(--status-neutral);
+
+  /* Radius scale: fixed steps per design system (not proportional to a base --radius) */
+  --radius-none: 0px;
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  /* 2xl/3xl/4xl intentionally left as Tailwind defaults (full-pill radii used by badge.tsx) */
+
+  /* Shadow / elevation scale */
+  --shadow-none: none;
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.14), 0 4px 8px rgba(0, 0, 0, 0.08);
 }
 
 :root {
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.141 0.005 285.823);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.141 0.005 285.823);
-  --primary: oklch(0.21 0.006 285.885);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.967 0.001 286.375);
-  --secondary-foreground: oklch(0.21 0.006 285.885);
-  --muted: oklch(0.967 0.001 286.375);
-  --muted-foreground: oklch(0.552 0.016 285.938);
-  --accent: oklch(0.967 0.001 286.375);
-  --accent-foreground: oklch(0.21 0.006 285.885);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.92 0.004 286.32);
-  --input: oklch(0.92 0.004 286.32);
-  --ring: oklch(0.705 0.015 286.067);
+  /* Foundation tokens (light) */
+  --bg-app: #f8fafc;
+  --bg-sidebar: #f1f5f9;
+  --surface-elevated: #ffffff;
+  --surface-card: #ffffff;
+  --surface-interactive: #f8fafc;
+  --border-default: #e2e8f0;
+  --border-strong: #cbd5e1; /* approximated: illegible in source swatch */
+  --divider: #e5e7eb;
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --link: #2563eb;
+  --focus-ring: #7c3aed;
+  --brand-accent: #7c3aed;
+
+  /* Semantic status tokens (light) */
+  --status-running: #2563eb;
+  --status-success: #16a34a;
+  --status-warning: #d97706;
+  --status-error: #dc2626;
+  --status-disabled: #94a3b8;
+  --status-neutral: #64748b;
+
+  /* shadcn tokens, re-pointed at the foundation tokens above */
+  --background: var(--bg-app);
+  --foreground: var(--text-primary);
+  --card: var(--surface-card);
+  --card-foreground: var(--text-primary);
+  --popover: var(--surface-elevated);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--brand-accent);
+  --primary-foreground: #ffffff;
+  --secondary: var(--surface-interactive);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--surface-interactive);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--surface-interactive);
+  --accent-foreground: var(--text-primary);
+  --destructive: var(--status-error);
+  --border: var(--border-default);
+  --input: var(--border-default);
+  --ring: var(--focus-ring);
   --chart-1: oklch(0.871 0.006 286.286);
   --chart-2: oklch(0.552 0.016 285.938);
   --chart-3: oklch(0.442 0.017 285.786);
   --chart-4: oklch(0.37 0.013 285.805);
   --chart-5: oklch(0.274 0.006 286.033);
   --radius: 0.45rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.141 0.005 285.823);
-  --sidebar-primary: oklch(0.21 0.006 285.885);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.967 0.001 286.375);
-  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
-  --sidebar-border: oklch(0.92 0.004 286.32);
-  --sidebar-ring: oklch(0.705 0.015 286.067);
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.141 0.005 285.823);
+  --sidebar: var(--bg-sidebar);
+  --sidebar-foreground: var(--text-primary);
+  --sidebar-primary: var(--brand-accent);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--surface-interactive);
+  --sidebar-accent-foreground: var(--text-primary);
+  --sidebar-border: var(--border-default);
+  --sidebar-ring: var(--focus-ring);
 }
 
 .dark {
-  --background: oklch(0.141 0.005 285.823);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.21 0.006 285.885);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.21 0.006 285.885);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.92 0.004 286.32);
-  --primary-foreground: oklch(0.21 0.006 285.885);
-  --secondary: oklch(0.274 0.006 286.033);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.274 0.006 286.033);
-  --muted-foreground: oklch(0.705 0.015 286.067);
-  --accent: oklch(0.274 0.006 286.033);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.552 0.016 285.938);
+  /* Foundation tokens (dark) */
+  --bg-app: #0b0f14;
+  --bg-sidebar: #0f141b;
+  --surface-elevated: #111722;
+  --surface-card: #161c26;
+  --surface-interactive: #1c2230;
+  --border-default: #2a3342;
+  --border-strong: #3b4759; /* approximated: illegible in source swatch */
+  --divider: #232b38;
+  --text-primary: #e6e8f1;
+  --text-secondary: #c2cad6;
+  --text-muted: #8b93a3;
+  --link: #61aaff;
+  --focus-ring: #7c3aed;
+  --brand-accent: #7c3aed;
+
+  /* Semantic status tokens (dark) */
+  --status-running: #3b82f6;
+  --status-success: #22c55e;
+  --status-warning: #f59e0b;
+  --status-error: #ef4444;
+  --status-disabled: #687280;
+  --status-neutral: #94a3b8;
+
+  /* shadcn tokens, re-pointed at the foundation tokens above */
+  --background: var(--bg-app);
+  --foreground: var(--text-primary);
+  --card: var(--surface-card);
+  --card-foreground: var(--text-primary);
+  --popover: var(--surface-elevated);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--brand-accent);
+  --primary-foreground: #ffffff;
+  --secondary: var(--surface-interactive);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--surface-interactive);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--surface-interactive);
+  --accent-foreground: var(--text-primary);
+  --destructive: var(--status-error);
+  --border: var(--border-default);
+  --input: var(--border-default);
+  --ring: var(--focus-ring);
   --chart-1: oklch(0.871 0.006 286.286);
   --chart-2: oklch(0.552 0.016 285.938);
   --chart-3: oklch(0.442 0.017 285.786);
   --chart-4: oklch(0.37 0.013 285.805);
   --chart-5: oklch(0.274 0.006 286.033);
-  --sidebar: oklch(0.21 0.006 285.885);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.274 0.006 286.033);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.552 0.016 285.938);
+  --sidebar: var(--bg-sidebar);
+  --sidebar-foreground: var(--text-primary);
+  --sidebar-primary: var(--brand-accent);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--surface-interactive);
+  --sidebar-accent-foreground: var(--text-primary);
+  --sidebar-border: var(--border-default);
+  --sidebar-ring: var(--focus-ring);
 }
 
 @layer base {
@@ -125,7 +208,7 @@
     @apply bg-background text-foreground;
   }
   html {
-    @apply font-mono;
+    @apply font-sans;
   }
   button:not(:disabled), [role="button"]:not(:disabled) {
     cursor: pointer;

@@ -1,4 +1,4 @@
-import { Home } from "lucide-react";
+import { Bot, FolderKanban, LayoutDashboard, ListTodo, Play } from "lucide-react";
 
 import {
   Sidebar,
@@ -9,14 +9,19 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 
-const items = [
-  {
-    title: "Home",
-    url: "/",
-    icon: Home,
-  },
+const topItems = [
+  { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Projects", url: "/projects", icon: FolderKanban },
+];
+
+const taskItems = [
+  { title: "Runs", url: "/runs", icon: Play },
+  { title: "Agents", url: "/agents", icon: Bot },
 ];
 
 export function AppSidebar() {
@@ -24,10 +29,9 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Application</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {items.map((item) => (
+              {topItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     render={
@@ -39,6 +43,30 @@ export function AppSidebar() {
                   />
                 </SidebarMenuItem>
               ))}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  render={
+                    <a href="/tasks">
+                      <ListTodo />
+                      <span>Tasks</span>
+                    </a>
+                  }
+                />
+                <SidebarMenuSub>
+                  {taskItems.map((item) => (
+                    <SidebarMenuSubItem key={item.title}>
+                      <SidebarMenuSubButton
+                        render={
+                          <a href={item.url}>
+                            <item.icon />
+                            <span>{item.title}</span>
+                          </a>
+                        }
+                      />
+                    </SidebarMenuSubItem>
+                  ))}
+                </SidebarMenuSub>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
