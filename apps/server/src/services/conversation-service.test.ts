@@ -1,6 +1,4 @@
-import {
-  eq,
-} from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import {
   afterEach,
   beforeEach,
@@ -13,33 +11,23 @@ import {
 import type {
   OrchestratorTurn,
   Project,
-  RuntimeEvent,
 } from "@orc/shared";
+import type {
+  RuntimeEvent,
+} from "../runtime/index.js";
 
-const testState =
-  vi.hoisted(
-    () => ({
-      project:
-        null as
-          | Project
-          | null,
-      supervisorTurns:
-        [] as Array<
-          | OrchestratorTurn
-          | Error
-        >,
-      prompts:
-        [] as string[],
-      executeTool:
-        vi.fn(),
-    }),
-  );
+const testState = vi.hoisted(() => ({
+  project: null as Project | null,
+  supervisorTurns: [] as Array<
+    OrchestratorTurn | Error
+  >,
+  prompts: [] as string[],
+  executeTool: vi.fn(),
+}));
 
 vi.mock(
   "./project-discovery.js",
-  async (
-    importOriginal,
-  ) => {
+  async (importOriginal) => {
     const actual =
       await importOriginal<
         typeof import("./project-discovery.js")
@@ -51,19 +39,16 @@ vi.mock(
       /**
        * Returns the test project only when project discovery is configured as available.
        */
-      getProjectByPath:
-        vi.fn(
-          async (
-            _root:
-              string,
-            projectPath:
-              string,
-          ) =>
-            testState.project?.path ===
-            projectPath
-              ? testState.project
-              : null,
-        ),
+      getProjectByPath: vi.fn(
+        async (
+          _root: string,
+          projectPath: string,
+        ) =>
+          testState.project?.path ===
+          projectPath
+            ? testState.project
+            : null,
+      ),
     };
   },
 );
@@ -81,9 +66,7 @@ vi.mock(
 
 vi.mock(
   "../runtime/index.js",
-  async (
-    importOriginal,
-  ) => {
+  async (importOriginal) => {
     const actual =
       await importOriginal<
         typeof import("../runtime/index.js")
@@ -95,170 +78,131 @@ vi.mock(
       /**
        * Returns a minimal adapter that extracts the fake supervisor text event.
        */
-      getHarnessAdapter:
-        () => ({
-          extractMessageText:
-            (
-              event: Record<
-                string,
-                unknown
-              >,
-            ) =>
-              typeof event.text ===
-              "string"
-                ? event.text
-                : undefined,
-        }),
+      getHarnessAdapter: () => ({
+        extractMessageText: (
+          event: Record<string, unknown>,
+        ) =>
+          typeof event.text === "string"
+            ? event.text
+            : undefined,
+      }),
 
       /**
        * Emits one queued fake supervisor turn without launching an external CLI.
        */
-      startHarnessSession:
-        (
-          _input:
-            unknown,
-          prompt:
-            string,
-        ) => {
-          testState.prompts.push(
-            prompt,
-          );
+      startHarnessSession: (
+        _input: unknown,
+        prompt: string,
+      ) => {
+        testState.prompts.push(prompt);
 
-          const next =
-            testState.supervisorTurns.shift();
+        const next =
+          testState.supervisorTurns.shift();
 
-          return {
-            metadata: {
-              id:
-                crypto.randomUUID(),
-              pid:
-                null,
-              state:
-                next instanceof
-                Error
-                  ? "failed"
-                  : "exited",
-              exitCode:
-                next instanceof
-                Error
-                  ? null
-                  : 0,
-              signal:
-                null,
-              usage:
-                null,
-            },
+        return {
+          metadata: {
+            id: crypto.randomUUID(),
+            pid: null,
+            state:
+              next instanceof Error
+                ? "failed"
+                : "exited",
+            exitCode:
+              next instanceof Error
+                ? null
+                : 0,
+            signal: null,
+            usage: null,
+          },
 
-            /**
-             * Emits the fake provider response and final process event.
-             */
-            subscribe(
-              listener: (
-                event:
-                  RuntimeEvent,
-              ) => void,
-            ) {
-              if (
-                next instanceof
-                Error
-              ) {
-                listener({
-                  type:
-                    "diagnostic",
-                  sequence:
-                    1,
-                  diagnostic: {
-                    code:
-                      "launch_failed",
-                    message:
-                      next.message,
-                  },
-                });
-
-                return () =>
-                  undefined;
-              }
-
-              if (!next) {
-                throw new Error(
-                  "No queued supervisor turn",
-                );
-              }
-
+          /**
+           * Emits the fake provider response and final process event.
+           */
+          subscribe(
+            listener: (
+              event: RuntimeEvent,
+            ) => void,
+          ) {
+            if (next instanceof Error) {
               listener({
-                type:
-                  "provider",
-                sequence:
-                  1,
-                provider:
-                  "test",
-                event: {
-                  text:
-                    `<orc-supervisor>${JSON.stringify(next)}</orc-supervisor>`,
+                type: "diagnostic",
+                sequence: 1,
+                diagnostic: {
+                  code: "launch_failed",
+                  message: next.message,
                 },
               });
 
-              listener({
-                type:
-                  "exit",
-                sequence:
-                  2,
-                exitCode:
-                  0,
-              });
+              return () => undefined;
+            }
 
-              return () =>
-                undefined;
-            },
+            if (!next) {
+              throw new Error(
+                "No queued supervisor turn",
+              );
+            }
 
-            /**
-             * Does not support instructions in the fake supervisor session.
-             */
-            sendInstruction() {
-              return false;
-            },
+            listener({
+              type: "provider",
+              sequence: 1,
+              provider: "test",
+              event: {
+                text:
+                  `<orc-supervisor>${JSON.stringify(
+                    next,
+                  )}</orc-supervisor>`,
+              },
+            });
 
-            /**
-             * Does not resize the fake supervisor session.
-             */
-            resize() {
-              return false;
-            },
+            listener({
+              type: "exit",
+              sequence: 2,
+              exitCode: 0,
+            });
 
-            /**
-             * Stops the fake supervisor session.
-             */
-            stop() {},
-          };
-        },
+            return () => undefined;
+          },
+
+          /**
+           * Does not support instructions in the fake supervisor session.
+           */
+          sendInstruction() {
+            return false;
+          },
+
+          /**
+           * Does not resize the fake supervisor session.
+           */
+          resize() {
+            return false;
+          },
+
+          /**
+           * Stops the fake supervisor session.
+           */
+          stop() {},
+        };
+      },
     };
   },
 );
 
-const {
-  db,
-} =
-  await import(
-    "../db/client.js"
-  );
+const { db } =
+  await import("../db/client.js");
 
 const {
   conversationMessages,
   conversations,
-} =
-  await import(
-    "../db/schema.js"
-  );
+} = await import("../db/schema.js");
 
 const {
   ConversationServiceError,
   createConversation,
   getConversation,
   postConversationMessage,
-} =
-  await import(
-    "./conversation-service.js"
-  );
+} = await import(
+  "./conversation-service.js"
+);
 
 const createdConversationIds =
   new Set<string>();
@@ -268,23 +212,16 @@ const createdConversationIds =
  */
 function makeProject(): Project {
   return {
-    id:
-      "test-project",
-    name:
-      "test-project",
-    path:
-      "/tmp/orc-test-project",
-    branch:
-      "main",
-    gitState:
-      "clean",
+    id: "test-project",
+    name: "test-project",
+    path: "/tmp/orc-test-project",
+    branch: "main",
+    gitState: "clean",
     primaryFiles: [
       "package.json",
     ],
-    packageManager:
-      "pnpm",
-    stack:
-      "node",
+    packageManager: "pnpm",
+    stack: "node",
   };
 }
 
@@ -304,52 +241,38 @@ async function createTestConversation() {
   return conversation;
 }
 
-beforeEach(
-  () => {
-    testState.project =
-      makeProject();
+beforeEach(() => {
+  testState.project = makeProject();
+  testState.supervisorTurns.length = 0;
+  testState.prompts.length = 0;
+  testState.executeTool.mockReset();
+});
 
-    testState.supervisorTurns.length =
-      0;
+afterEach(async () => {
+  for (
+    const id of createdConversationIds
+  ) {
+    await db
+      .delete(conversationMessages)
+      .where(
+        eq(
+          conversationMessages.conversationId,
+          id,
+        ),
+      );
 
-    testState.prompts.length =
-      0;
+    await db
+      .delete(conversations)
+      .where(
+        eq(
+          conversations.id,
+          id,
+        ),
+      );
+  }
 
-    testState.executeTool.mockReset();
-  },
-);
-
-afterEach(
-  async () => {
-    for (
-      const id of createdConversationIds
-    ) {
-      await db
-        .delete(
-          conversationMessages,
-        )
-        .where(
-          eq(
-            conversationMessages.conversationId,
-            id,
-          ),
-        );
-
-      await db
-        .delete(
-          conversations,
-        )
-        .where(
-          eq(
-            conversations.id,
-            id,
-          ),
-        );
-    }
-
-    createdConversationIds.clear();
-  },
-);
+  createdConversationIds.clear();
+});
 
 describe(
   "conversation-service",
@@ -357,16 +280,14 @@ describe(
     it(
       "rejects conversation creation when the project is not currently discovered",
       async () => {
-        testState.project =
-          null;
+        testState.project = null;
 
         await expect(
           createConversation(
             "/tmp/not-discovered",
           ),
         ).rejects.toMatchObject({
-          statusCode:
-            404,
+          statusCode: 404,
         });
       },
     );
@@ -379,26 +300,24 @@ describe(
 
         testState.supervisorTurns.push(
           {
-            type:
-              "tool_call",
+            type: "tool_call",
             tool: {
-              name:
-                "get_project",
+              name: "get_project",
               arguments: {},
             },
           },
           {
-            type:
-              "final",
+            type: "final",
             response:
               "Project state is available.",
           },
         );
 
-        testState.executeTool.mockResolvedValue({
-          result:
-            testState.project,
-        });
+        testState.executeTool
+          .mockResolvedValue({
+            result:
+              testState.project,
+          });
 
         await postConversationMessage(
           conversation.id,
@@ -412,9 +331,7 @@ describe(
 
         expect(
           loaded?.messages.map(
-            (
-              message,
-            ) =>
+            (message) =>
               message.role,
           ),
         ).toEqual([
@@ -443,9 +360,7 @@ describe(
           crypto.randomUUID();
 
         await db
-          .update(
-            conversations,
-          )
+          .update(conversations)
           .set({
             taskId,
             runId,
@@ -459,32 +374,29 @@ describe(
 
         testState.supervisorTurns.push(
           {
-            type:
-              "tool_call",
+            type: "tool_call",
             tool: {
-              name:
-                "get_run",
+              name: "get_run",
               arguments: {},
             },
           },
           {
-            type:
-              "final",
+            type: "final",
             response:
               "The run is still linked.",
           },
         );
 
-        testState.executeTool.mockResolvedValue({
-          result: {
-            run: {
-              id:
-                runId,
-              status:
-                "running",
+        testState.executeTool
+          .mockResolvedValue({
+            result: {
+              run: {
+                id: runId,
+                status:
+                  "running",
+              },
             },
-          },
-        });
+          });
 
         await postConversationMessage(
           conversation.id,
@@ -497,11 +409,13 @@ describe(
           );
 
         expect(
-          loaded?.conversation.taskId,
+          loaded?.conversation
+            .taskId,
         ).toBe(taskId);
 
         expect(
-          loaded?.conversation.runId,
+          loaded?.conversation
+            .runId,
         ).toBe(runId);
       },
     );
@@ -519,36 +433,33 @@ describe(
 
         testState.supervisorTurns.push(
           {
-            type:
-              "tool_call",
+            type: "tool_call",
             tool: {
-              name:
-                "start_run",
+              name: "start_run",
               arguments: {
                 taskId,
               },
             },
           },
           {
-            type:
-              "final",
+            type: "final",
             response:
               "The run has started.",
           },
         );
 
-        testState.executeTool.mockResolvedValue({
-          result: {
-            run: {
-              id:
-                runId,
+        testState.executeTool
+          .mockResolvedValue({
+            result: {
+              run: {
+                id: runId,
+              },
             },
-          },
-          references: {
-            taskId,
-            runId,
-          },
-        });
+            references: {
+              taskId,
+              runId,
+            },
+          });
 
         await postConversationMessage(
           conversation.id,
@@ -561,11 +472,13 @@ describe(
           );
 
         expect(
-          loaded?.conversation.taskId,
+          loaded?.conversation
+            .taskId,
         ).toBe(taskId);
 
         expect(
-          loaded?.conversation.runId,
+          loaded?.conversation
+            .runId,
         ).toBe(runId);
       },
     );
@@ -577,8 +490,7 @@ describe(
           await createTestConversation();
 
         testState.supervisorTurns.push({
-          type:
-            "final",
+          type: "final",
           response:
             "The agent is testing.",
         });
@@ -599,9 +511,7 @@ describe(
 
         expect(
           loaded?.messages.map(
-            (
-              message,
-            ) =>
+            (message) =>
               message.role,
           ),
         ).toEqual([
@@ -621,34 +531,31 @@ describe(
 
         testState.supervisorTurns.push(
           {
-            type:
-              "tool_call",
+            type: "tool_call",
             tool: {
-              name:
-                "get_run",
+              name: "get_run",
               arguments: {
                 runId,
               },
             },
           },
           {
-            type:
-              "final",
+            type: "final",
             response:
               "The persisted run status is running.",
           },
         );
 
-        testState.executeTool.mockResolvedValue({
-          result: {
-            run: {
-              id:
-                runId,
-              status:
-                "running",
+        testState.executeTool
+          .mockResolvedValue({
+            result: {
+              run: {
+                id: runId,
+                status:
+                  "running",
+              },
             },
-          },
-        });
+          });
 
         await postConversationMessage(
           conversation.id,
@@ -685,8 +592,7 @@ describe(
             "Status?",
           ),
         ).rejects.toMatchObject({
-          statusCode:
-            502,
+          statusCode: 502,
         });
 
         const loaded =
@@ -696,9 +602,7 @@ describe(
 
         expect(
           loaded?.messages.map(
-            (
-              message,
-            ) =>
+            (message) =>
               message.role,
           ),
         ).toEqual([
