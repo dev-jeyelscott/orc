@@ -19,9 +19,7 @@ type MockResultStatus =
 const runtimeState = vi.hoisted(
   () => ({
     startedAgentIds: [] as string[],
-    resultResolver: ((
-      _agentId: string,
-    ) =>
+    resultResolver: (() =>
       "completed") as (
       agentId: string,
     ) => MockResultStatus,
