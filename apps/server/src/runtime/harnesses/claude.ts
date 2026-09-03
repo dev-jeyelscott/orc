@@ -112,6 +112,11 @@ export const claudeHarness: HarnessAdapter = {
       );
     }
 
+    const allowedTools = [
+      ...(input.agent.canWrite ? ["Edit", "Write", "NotebookEdit"] : []),
+      ...(input.agent.canRunCommands ? ["Bash"] : []),
+    ];
+
     return {
       command: "claude",
       args: [
@@ -124,6 +129,17 @@ export const claudeHarness: HarnessAdapter = {
           : ["--model", input.agent.model]),
         "--effort",
         input.agent.reasoning,
+        // Non-interactive runs have nothing attached to answer permission
+        // prompts, so anything outside the configured capabilities must be
+        // auto-denied instead of stalling the session waiting for approval.
+        "--permission-prompts",
+        "none",
+        // Passed as a single "--flag=value" token: --allowedTools takes a
+        // variadic list, so a separate argv element would swallow the
+        // trailing prompt argument as an additional tool name.
+        ...(allowedTools.length > 0
+          ? [`--allowedTools=${allowedTools.join(" ")}`]
+          : []),
         prompt,
       ],
       cwd: input.projectPath,

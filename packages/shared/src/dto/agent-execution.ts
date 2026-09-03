@@ -26,9 +26,7 @@ export const agentExecutionSchema = z.object({
   completedAt: z.string().datetime().nullable(),
   exitCode: z.number().int().nullable(),
   // resultStatus/resultPayload/repairAttempted are populated by the structured completion
-  // contract (Phase 6, see apps/server/src/services/agent-execution-service.ts and
-  // apps/server/src/runtime/prompt.ts). resultStatus/resultPayload remain null until a valid
-  // <orc-result> block is parsed (possibly after one repair attempt).
+  // contract. resultStatus/resultPayload remain null until a valid result is parsed.
   resultStatus: agentResultStatusSchema.nullable(),
   resultPayload: z.unknown().nullable(),
   tokenUsage: z.record(z.string(), z.unknown()).nullable(),
@@ -45,7 +43,7 @@ export type AgentExecution = z.infer<typeof agentExecutionSchema>;
 
 export const terminalChunkFrameSchema = z.object({
   type: z.literal("chunk"),
-  sequence: z.number().int(),
+  sequence: z.number().int().positive(),
   data: z.string(),
 });
 
@@ -66,7 +64,21 @@ export const terminalFrameSchema = z.discriminatedUnion("type", [
   terminalErrorFrameSchema,
 ]);
 
+export const terminalResizeFrameSchema = z
+  .object({
+    type: z.literal("resize"),
+    cols: z.number().int().min(2).max(500),
+    rows: z.number().int().min(1).max(200),
+  })
+  .strict();
+
+export const terminalClientFrameSchema = z.discriminatedUnion("type", [
+  terminalResizeFrameSchema,
+]);
+
 export type TerminalChunkFrame = z.infer<typeof terminalChunkFrameSchema>;
 export type TerminalCompleteFrame = z.infer<typeof terminalCompleteFrameSchema>;
 export type TerminalErrorFrame = z.infer<typeof terminalErrorFrameSchema>;
 export type TerminalFrame = z.infer<typeof terminalFrameSchema>;
+export type TerminalResizeFrame = z.infer<typeof terminalResizeFrameSchema>;
+export type TerminalClientFrame = z.infer<typeof terminalClientFrameSchema>;

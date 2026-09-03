@@ -66,15 +66,23 @@ export class InMemoryRuntimeSession implements RuntimeSession {
 
     try {
       const environment = { ...process.env };
-      const invocation = adapter.createInvocation(input, prompt, environment);
+      const invocation = adapter.createInvocation(
+        input,
+        prompt,
+        environment,
+      );
 
-      session.process = ptyFactory.spawn(invocation.command, invocation.args, {
-        cwd: invocation.cwd,
-        name: "xterm-256color",
-        cols: 120,
-        rows: 30,
-        env: { ...invocation.env },
-      });
+      session.process = ptyFactory.spawn(
+        invocation.command,
+        invocation.args,
+        {
+          cwd: invocation.cwd,
+          name: "xterm-256color",
+          cols: 120,
+          rows: 30,
+          env: { ...invocation.env },
+        },
+      );
 
       session.metadata.pid = session.process.pid;
       session.metadata.state = "running";
@@ -88,7 +96,8 @@ export class InMemoryRuntimeSession implements RuntimeSession {
         session.exited(exitCode, signal);
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message =
+        error instanceof Error ? error.message : String(error);
 
       const code = /ENOENT|not found/i.test(message)
         ? "cli_not_found"
@@ -121,16 +130,17 @@ export class InMemoryRuntimeSession implements RuntimeSession {
    */
   sendInstruction(instruction: string): boolean {
     if (
-      !this.process
-      || !this.adapter
-      || this.metadata.state !== "running"
-      || instruction.trim().length === 0
+      !this.process ||
+      !this.adapter ||
+      this.metadata.state !== "running" ||
+      instruction.trim().length === 0
     ) {
       return false;
     }
 
     try {
-      const input = this.adapter.formatInstructionInput?.(instruction);
+      const input =
+        this.adapter.formatInstructionInput?.(instruction);
 
       if (!input) {
         return false;
@@ -144,7 +154,9 @@ export class InMemoryRuntimeSession implements RuntimeSession {
         diagnostic: {
           code: "instruction_failed",
           message: `Could not send instruction to worker: ${
-            error instanceof Error ? error.message : String(error)
+            error instanceof Error
+              ? error.message
+              : String(error)
           }`,
         },
       });
@@ -153,11 +165,34 @@ export class InMemoryRuntimeSession implements RuntimeSession {
     }
   }
 
+  /** Resizes the active PTY without enabling interactive terminal input. */
+  resize(cols: number, rows: number): boolean {
+    if (
+      !this.process ||
+      !this.process.resize ||
+      this.metadata.state !== "running" ||
+      !Number.isInteger(cols) ||
+      !Number.isInteger(rows) ||
+      cols < 1 ||
+      rows < 1
+    ) {
+      return false;
+    }
+
+    try {
+      this.process.resize(cols, rows);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /** Requests SIGTERM first and falls back to SIGKILL after the bounded stop delay. */
   stop(): void {
     if (
-      !this.process
-      || (this.metadata.state !== "running" && this.metadata.state !== "stopping")
+      !this.process ||
+      (this.metadata.state !== "running" &&
+        this.metadata.state !== "stopping")
     ) {
       return;
     }
@@ -182,7 +217,9 @@ export class InMemoryRuntimeSession implements RuntimeSession {
         diagnostic: {
           code: "launch_failed",
           message: `Could not stop worker: ${
-            error instanceof Error ? error.message : String(error)
+            error instanceof Error
+              ? error.message
+              : String(error)
           }`,
         },
       });
@@ -247,13 +284,16 @@ export class InMemoryRuntimeSession implements RuntimeSession {
     this.providerLineBuffer = lines.pop() ?? "";
 
     for (const line of lines) {
-      for (const event of this.adapter?.translateOutput(line) ?? []) {
+      for (
+        const event of
+        this.adapter?.translateOutput(line) ?? []
+      ) {
         this.emit(event);
       }
     }
   }
 
-  /** Assigns strict event sequence numbers, updates usage metadata, and notifies subscribers. */
+  /** Assigns runtime-event sequence numbers and notifies runtime subscribers. */
   private emit(event: UnsequencedRuntimeEvent): void {
     const sequenced = {
       ...event,

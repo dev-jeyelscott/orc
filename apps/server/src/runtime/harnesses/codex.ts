@@ -94,6 +94,10 @@ export const codexHarness: HarnessAdapter = {
       );
     }
 
+    const sandboxMode = input.agent.canWrite || input.agent.canRunCommands
+      ? "workspace-write"
+      : "read-only";
+
     return {
       command: "codex",
       args: [
@@ -104,6 +108,8 @@ export const codexHarness: HarnessAdapter = {
           : ["--model", input.agent.model]),
         "--config",
         `model_reasoning_effort=${input.agent.reasoning}`,
+        "--sandbox",
+        sandboxMode,
         prompt,
       ],
       cwd: input.projectPath,

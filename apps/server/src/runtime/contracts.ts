@@ -19,7 +19,12 @@ export type StartWorkerInput = {
   instruction: string;
 };
 
-export type SessionState = "starting" | "running" | "stopping" | "exited" | "failed";
+export type SessionState =
+  | "starting"
+  | "running"
+  | "stopping"
+  | "exited"
+  | "failed";
 
 export type UsageMetadata = Record<string, unknown>;
 
@@ -39,8 +44,17 @@ export type RuntimeDiagnostic = {
 export type RuntimeEvent =
   | { type: "output"; sequence: number; data: string }
   | { type: "exit"; sequence: number; exitCode: number; signal?: number }
-  | { type: "diagnostic"; sequence: number; diagnostic: RuntimeDiagnostic }
-  | { type: "provider"; sequence: number; provider: string; event: Record<string, unknown> }
+  | {
+      type: "diagnostic";
+      sequence: number;
+      diagnostic: RuntimeDiagnostic;
+    }
+  | {
+      type: "provider";
+      sequence: number;
+      provider: string;
+      event: Record<string, unknown>;
+    }
   | { type: "usage"; sequence: number; usage: UsageMetadata };
 
 export type UnsequencedRuntimeEvent = RuntimeEvent extends infer Event
@@ -70,6 +84,9 @@ export type RuntimeSession = {
    */
   sendInstruction(instruction: string): boolean;
 
+  /** Resizes the current PTY when the active process supports terminal resizing. */
+  resize(cols: number, rows: number): boolean;
+
   /** Requests graceful process termination with the runtime-managed fallback behavior. */
   stop(): void;
 };
@@ -91,6 +108,9 @@ export type PtyProcess = {
   /** Writes raw input into the PTY when the spawned process supports stdin interaction. */
   write(data: string): void;
 
+  /** Resizes the PTY when supported by the underlying implementation. */
+  resize?(cols: number, rows: number): void;
+
   /** Sends a termination signal to the PTY process. */
   kill(signal?: string): void;
 };
@@ -105,7 +125,11 @@ export type PtySpawnOptions = {
 
 export type PtyFactory = {
   /** Spawns a PTY process using normalized runtime spawn options. */
-  spawn(command: string, args: string[], options: PtySpawnOptions): PtyProcess;
+  spawn(
+    command: string,
+    args: string[],
+    options: PtySpawnOptions,
+  ): PtyProcess;
 };
 
 export type HarnessInvocation = {
@@ -138,5 +162,7 @@ export type HarnessAdapter = {
    * Extracts assistant-authored message text from a provider event.
    * Provider field names remain isolated inside the adapter.
    */
-  extractMessageText?(event: Record<string, unknown>): string | undefined;
+  extractMessageText?(
+    event: Record<string, unknown>,
+  ): string | undefined;
 };

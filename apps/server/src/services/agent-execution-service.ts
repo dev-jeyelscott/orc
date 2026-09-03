@@ -1,10 +1,23 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, gt } from "drizzle-orm";
 import fs from "node:fs/promises";
 
-import { agentResultSchema, type AgentExecution, type AgentResult, type AgentResultStatus, type Run } from "@orc/shared";
+import {
+  agentResultSchema,
+  type AgentExecution,
+  type AgentResult,
+  type AgentResultStatus,
+  type Run,
+  type TerminalChunkFrame,
+  type TerminalCompleteFrame,
+} from "@orc/shared";
 
 import { db } from "../db/client.js";
-import { agentExecutions, agents, runs, terminalChunks } from "../db/schema.js";
+import {
+  agentExecutions,
+  agents,
+  runs,
+  terminalChunks,
+} from "../db/schema.js";
 import {
   composeRepairInstruction,
   getHarnessAdapter,
@@ -16,7 +29,11 @@ import {
 } from "../runtime/index.js";
 
 export class AgentExecutionServiceError extends Error {
-  constructor(message: string, readonly statusCode: number) {
+  /** Creates a service error carrying the HTTP status expected by route handlers. */
+  constructor(
+    message: string,
+    readonly statusCode: number,
+  ) {
     super(message);
   }
 }
@@ -37,6 +54,26 @@ export type ExecutionFinalization = {
   result: AgentResult | null;
 };
 
+type ExecutionTerminalFrame =
+  | TerminalChunkFrame
+  | TerminalCompleteFrame;
+
+type LiveExecutionState = {
+  session: RuntimeSession;
+  finalFrame: TerminalCompleteFrame | null;
+  subscribers: Set<
+    (frame: ExecutionTerminalFrame) => void
+  >;
+};
+
+const liveExecutions = new Map<string, LiveExecutionState>();
+const cancellationRequests = new Set<string>();
+const processSamples = new Map<
+  number,
+  { ticks: number; at: number }
+>();
+
+/** Serializes a run database row into the shared API contract. */
 function serializeRun(row: typeof runs.$inferSelect): Run {
   return {
     ...row,
@@ -49,85 +86,213 @@ function serializeRun(row: typeof runs.$inferSelect): Run {
   };
 }
 
-function serializeExecution(row: typeof agentExecutions.$inferSelect): AgentExecution {
+/** Serializes an execution database row into the shared API contract. */
+function serializeExecution(
+  row: typeof agentExecutions.$inferSelect,
+): AgentExecution {
   return {
     ...row,
-    startedAt: row.startedAt ? row.startedAt.toISOString() : null,
-    completedAt: row.completedAt ? row.completedAt.toISOString() : null,
-    tokenUsage: (row.tokenUsage as Record<string, unknown> | null) ?? null,
-    contextUsage: (row.contextUsage as Record<string, unknown> | null) ?? null,
+    startedAt: row.startedAt
+      ? row.startedAt.toISOString()
+      : null,
+    completedAt: row.completedAt
+      ? row.completedAt.toISOString()
+      : null,
+    tokenUsage:
+      (row.tokenUsage as Record<string, unknown> | null) ??
+      null,
+    contextUsage:
+      (row.contextUsage as Record<string, unknown> | null) ??
+      null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
 
+/** Converts known Postgres constraint errors into service-level failures. */
 function translateDatabaseError(error: unknown): never {
-  if (typeof error === "object" && error !== null && "code" in error) {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error
+  ) {
     const code = (error as { code?: string }).code;
-    if (code === "23503") throw new AgentExecutionServiceError("The referenced run or agent does not exist", 400);
-    if (code === "23514") throw new AgentExecutionServiceError("The run or execution data is invalid", 400);
+
+    if (code === "23503") {
+      throw new AgentExecutionServiceError(
+        "The referenced run or agent does not exist",
+        400,
+      );
+    }
+
+    if (code === "23514") {
+      throw new AgentExecutionServiceError(
+        "The run or execution data is invalid",
+        400,
+      );
+    }
   }
+
   throw error;
 }
 
+/** Publishes an execution-scoped terminal frame without exposing runtime-event sequencing. */
+function publishTerminalFrame(
+  state: LiveExecutionState,
+  frame: ExecutionTerminalFrame,
+): void {
+  if (frame.type === "complete") {
+    state.finalFrame = frame;
+  }
+
+  for (const listener of [...state.subscribers]) {
+    try {
+      listener(frame);
+    } catch (error) {
+      console.error(
+        "Failed to deliver live terminal frame:",
+        error,
+      );
+    }
+  }
+}
+
+/** Creates a minimal run row used by the runtime integration endpoints. */
 export async function createRun(projectPath: string): Promise<Run> {
   try {
-    const [run] = await db.insert(runs).values({ projectPath }).returning();
+    const [run] = await db
+      .insert(runs)
+      .values({ projectPath })
+      .returning();
+
     return serializeRun(run);
   } catch (error) {
     return translateDatabaseError(error);
   }
 }
 
-// Live sessions started by this process, keyed by agent execution id. The WS route attaches to
-// these instead of re-invoking startWorker(). Sessions are not removed after exit so a client
-// that connects shortly after completion can still read final in-memory metadata; the row in
-// Postgres remains authoritative once the process restarts.
-const liveSessions = new Map<string, RuntimeSession>();
-const cancellationRequests = new Set<string>();
-const processSamples = new Map<number, { ticks: number; at: number }>();
-
-export async function getLiveProcessMetrics(id: string): Promise<{ cpuPercent: number | null; memoryBytes: number | null }> {
+/** Reads live Linux process metrics when the execution still owns a running PID. */
+export async function getLiveProcessMetrics(
+  id: string,
+): Promise<{
+  cpuPercent: number | null;
+  memoryBytes: number | null;
+}> {
   const execution = await getExecution(id);
-  if (!execution?.pid || !["starting", "running"].includes(execution.status) || process.platform !== "linux") return { cpuPercent: null, memoryBytes: null };
+
+  if (
+    !execution?.pid ||
+    !["starting", "running"].includes(execution.status) ||
+    process.platform !== "linux"
+  ) {
+    return {
+      cpuPercent: null,
+      memoryBytes: null,
+    };
+  }
+
   try {
-    const [stat, status] = await Promise.all([fs.readFile(`/proc/${execution.pid}/stat`, "utf8"), fs.readFile(`/proc/${execution.pid}/status`, "utf8")]);
-    const fields = stat.trim().split(" "); const ticks = Number(fields[13]) + Number(fields[14]); const now = Date.now(); const previous = processSamples.get(execution.pid); processSamples.set(execution.pid, { ticks, at: now });
-    const rss = /VmRSS:\s+(\d+)\s+kB/.exec(status)?.[1]; const cpuPercent = previous && now > previous.at ? Math.max(0, ((ticks - previous.ticks) / 100) / ((now - previous.at) / 1000) * 100) : null;
-    return { cpuPercent, memoryBytes: rss ? Number(rss) * 1024 : null };
-  } catch { return { cpuPercent: null, memoryBytes: null }; }
+    const [stat, status] = await Promise.all([
+      fs.readFile(`/proc/${execution.pid}/stat`, "utf8"),
+      fs.readFile(`/proc/${execution.pid}/status`, "utf8"),
+    ]);
+
+    const fields = stat.trim().split(" ");
+    const ticks =
+      Number(fields[13]) + Number(fields[14]);
+    const now = Date.now();
+    const previous = processSamples.get(execution.pid);
+
+    processSamples.set(execution.pid, {
+      ticks,
+      at: now,
+    });
+
+    const rss = /VmRSS:\s+(\d+)\s+kB/.exec(status)?.[1];
+
+    const cpuPercent =
+      previous && now > previous.at
+        ? Math.max(
+            0,
+            ((ticks - previous.ticks) / 100 /
+              ((now - previous.at) / 1000)) *
+              100,
+          )
+        : null;
+
+    return {
+      cpuPercent,
+      memoryBytes: rss ? Number(rss) * 1024 : null,
+    };
+  } catch {
+    return {
+      cpuPercent: null,
+      memoryBytes: null,
+    };
+  }
 }
 
-export async function startAgentExecution(runId: string, agentId: string, instruction: string): Promise<AgentExecution> {
-  const [run] = await db.select().from(runs).where(eq(runs.id, runId));
-  if (!run) throw new AgentExecutionServiceError("The run does not exist", 404);
+/** Starts an execution from the current persisted agent configuration. */
+export async function startAgentExecution(
+  runId: string,
+  agentId: string,
+  instruction: string,
+): Promise<AgentExecution> {
+  const [run] = await db
+    .select()
+    .from(runs)
+    .where(eq(runs.id, runId));
 
-  const [agent] = await db.select().from(agents).where(eq(agents.id, agentId));
-  if (!agent || !agent.enabled) throw new AgentExecutionServiceError("The agent does not exist or is disabled", 404);
+  if (!run) {
+    throw new AgentExecutionServiceError(
+      "The run does not exist",
+      404,
+    );
+  }
 
-  return startSnapshotAgentExecution(run, {
-    id: agent.id,
-    name: agent.name,
-    role: agent.role,
-    layer: agent.layer,
-    executionOrder: agent.executionOrder,
-    harness: agent.harness,
-    model: agent.model,
-    reasoning: agent.reasoning,
-    systemPrompt: agent.systemPrompt,
-    canWrite: agent.canWrite,
-    canRunCommands: agent.canRunCommands,
-    canCommit: agent.canCommit,
-  }, instruction);
+  const [agent] = await db
+    .select()
+    .from(agents)
+    .where(eq(agents.id, agentId));
+
+  if (!agent || !agent.enabled) {
+    throw new AgentExecutionServiceError(
+      "The agent does not exist or is disabled",
+      404,
+    );
+  }
+
+  return startSnapshotAgentExecution(
+    run,
+    {
+      id: agent.id,
+      name: agent.name,
+      role: agent.role,
+      layer: agent.layer,
+      executionOrder: agent.executionOrder,
+      harness: agent.harness,
+      model: agent.model,
+      reasoning: agent.reasoning,
+      systemPrompt: agent.systemPrompt,
+      canWrite: agent.canWrite,
+      canRunCommands: agent.canRunCommands,
+      canCommit: agent.canCommit,
+    },
+    instruction,
+  );
 }
 
+/** Starts one execution from a run-owned agent configuration snapshot. */
 export async function startSnapshotAgentExecution(
   run: typeof runs.$inferSelect,
   agent: SnapshotAgent,
   instruction: string,
-  onFinalized?: (finalization: ExecutionFinalization) => Promise<void> | void,
+  onFinalized?: (
+    finalization: ExecutionFinalization,
+  ) => Promise<void> | void,
 ): Promise<AgentExecution> {
   let execution: typeof agentExecutions.$inferSelect;
+
   try {
     [execution] = await db
       .insert(agentExecutions)
@@ -150,51 +315,98 @@ export async function startSnapshotAgentExecution(
 
   const workerConfig: WorkerConfiguration = agent;
 
-  const session = startWorker({ projectPath: run.projectPath, agent: workerConfig, instruction });
+  const session = startWorker({
+    projectPath: run.projectPath,
+    agent: workerConfig,
+    instruction,
+  });
 
-  liveSessions.set(execution.id, session);
-  bridgeSessionToDatabase({ executionId: execution.id, projectPath: run.projectPath, agent: workerConfig, originalInstruction: instruction, session, onFinalized });
+  const liveState: LiveExecutionState = {
+    session,
+    finalFrame: null,
+    subscribers: new Set(),
+  };
+
+  liveExecutions.set(execution.id, liveState);
+
+  bridgeSessionToDatabase({
+    executionId: execution.id,
+    projectPath: run.projectPath,
+    agent: workerConfig,
+    originalInstruction: instruction,
+    session,
+    liveState,
+    onFinalized,
+  });
 
   return serializeExecution(execution);
 }
 
-// Structured completion result extraction/validation. Worker agents are one-shot CLI processes
-// (see AGENTS.md "Runtime and Harness Rules"), so the final assistant message text is
-// accumulated across `provider` RuntimeEvents for the current attempt and scanned for the
-// <orc-result>...</orc-result> contract once the process exits.
 type ResultOutcome =
   | { ok: true; result: AgentResult }
-  | { ok: false; reasons: string[]; excerpt: string };
+  | {
+      ok: false;
+      reasons: string[];
+      excerpt: string;
+    };
 
-function extractAndValidateResult(messageText: string, canCommit: boolean): ResultOutcome {
-  const startIndex = messageText.lastIndexOf(RESULT_BLOCK_START);
-  const endIndex = messageText.indexOf(RESULT_BLOCK_END, startIndex + RESULT_BLOCK_START.length);
+/** Extracts and validates the structured completion payload from provider-authored text. */
+function extractAndValidateResult(
+  messageText: string,
+  canCommit: boolean,
+): ResultOutcome {
+  const startIndex =
+    messageText.lastIndexOf(RESULT_BLOCK_START);
+
+  const endIndex = messageText.indexOf(
+    RESULT_BLOCK_END,
+    startIndex + RESULT_BLOCK_START.length,
+  );
+
   if (startIndex === -1 || endIndex === -1) {
     return {
       ok: false,
-      reasons: [`The final message did not contain a ${RESULT_BLOCK_START}...${RESULT_BLOCK_END} block.`],
+      reasons: [
+        `The final message did not contain a ${RESULT_BLOCK_START}...${RESULT_BLOCK_END} block.`,
+      ],
       excerpt: messageText.slice(-2000),
     };
   }
 
-  const raw = messageText.slice(startIndex + RESULT_BLOCK_START.length, endIndex).trim();
+  const raw = messageText
+    .slice(
+      startIndex + RESULT_BLOCK_START.length,
+      endIndex,
+    )
+    .trim();
 
   let parsedJson: unknown;
+
   try {
     parsedJson = JSON.parse(raw);
   } catch (error) {
     return {
       ok: false,
-      reasons: [`The ${RESULT_BLOCK_START} block was not valid JSON: ${error instanceof Error ? error.message : String(error)}`],
+      reasons: [
+        `The ${RESULT_BLOCK_START} block was not valid JSON: ${
+          error instanceof Error
+            ? error.message
+            : String(error)
+        }`,
+      ],
       excerpt: raw,
     };
   }
 
   const parsed = agentResultSchema.safeParse(parsedJson);
+
   if (!parsed.success) {
     return {
       ok: false,
-      reasons: parsed.error.issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`),
+      reasons: parsed.error.issues.map(
+        (issue) =>
+          `${issue.path.join(".") || "(root)"}: ${issue.message}`,
+      ),
       excerpt: raw,
     };
   }
@@ -202,20 +414,31 @@ function extractAndValidateResult(messageText: string, canCommit: boolean): Resu
   if (parsed.data.commit !== null && !canCommit) {
     return {
       ok: false,
-      reasons: ["The result reported a `commit` hash, but this agent is not permitted to commit (canCommit is false)."],
+      reasons: [
+        "The result reported a `commit` hash, but this agent is not permitted to commit (canCommit is false).",
+      ],
       excerpt: raw,
     };
   }
 
-  return { ok: true, result: parsed.data };
+  return {
+    ok: true,
+    result: parsed.data,
+  };
 }
 
-// Execution-level status reflects whether the process finished with a valid structured result,
-// not the nuanced outcome of that result -- `changes_requested` and similar outcomes are workflow
-// routing concerns (Phase 7) carried by `resultStatus`, not `agent_executions.status`.
-function executionStatusForResult(resultStatus: AgentResultStatus): "completed" | "blocked" | "failed" {
-  if (resultStatus === "failed") return "failed";
-  if (resultStatus === "blocked") return "blocked";
+/** Maps the structured worker result onto the execution lifecycle status. */
+function executionStatusForResult(
+  resultStatus: AgentResultStatus,
+): "completed" | "blocked" | "failed" {
+  if (resultStatus === "failed") {
+    return "failed";
+  }
+
+  if (resultStatus === "blocked") {
+    return "blocked";
+  }
+
   return "completed";
 }
 
@@ -225,168 +448,387 @@ type BridgeParams = {
   agent: WorkerConfiguration;
   originalInstruction: string;
   session: RuntimeSession;
-  onFinalized?: (finalization: ExecutionFinalization) => Promise<void> | void;
+  liveState: LiveExecutionState;
+  onFinalized?: (
+    finalization: ExecutionFinalization,
+  ) => Promise<void> | void;
 };
 
-// Persistence bridge between a live RuntimeSession and Postgres. Terminal output is written in
-// emission order via a simple promise chain (queued per execution) so `terminal_chunks` rows
-// stay ordered even though writes happen asynchronously. The same write queue and a
-// service-owned terminal sequence counter (independent from each session's own per-process
-// sequence numbering) are shared across the initial attempt and the single controlled repair
-// attempt so both write into the same `terminal_chunks` history for this execution.
-function bridgeSessionToDatabase(params: BridgeParams): void {
-  const { executionId, projectPath, agent, originalInstruction, onFinalized } = params;
+/**
+ * Bridges one logical agent execution to Postgres and the execution-scoped terminal stream.
+ * Terminal sequence numbers are allocated here and remain independent from RuntimeEvent.sequence.
+ */
+function bridgeSessionToDatabase(
+  params: BridgeParams,
+): void {
+  const {
+    executionId,
+    projectPath,
+    agent,
+    originalInstruction,
+    liveState,
+    onFinalized,
+  } = params;
+
   const adapter = getHarnessAdapter(agent.harness);
 
-  let writeQueue: Promise<unknown> = Promise.resolve();
+  let writeQueue: Promise<void> = Promise.resolve();
   let terminalSequence = 0;
   let finalizationSent = false;
 
-  const notifyFinalized = async (finalization: ExecutionFinalization) => {
-    if (finalizationSent) return;
-    finalizationSent = true;
-    await onFinalized?.(finalization);
-  };
+  /**
+   * Queues persistence work in strict execution order while allowing callers to observe
+   * whether their specific database write succeeded.
+   */
+  const enqueue = (
+    task: () => Promise<unknown>,
+  ): Promise<boolean> => {
+    const next = writeQueue.then(async () => {
+      try {
+        await task();
+        return true;
+      } catch (error) {
+        console.error(
+          `Failed to persist agent execution ${executionId}:`,
+          error,
+        );
+        return false;
+      }
+    });
 
-  // Returns the queued task's own settled promise (rather than leaving it fire-and-forget) so
-  // callers that need a write to be durable before proceeding -- e.g. persisting
-  // repair_attempted before starting the repair worker -- can `await enqueue(...)`.
-  const enqueue = (task: () => Promise<unknown>): Promise<void> => {
-    const next: Promise<void> = writeQueue.then(task).then(
-      () => undefined,
-      (error: unknown) => {
-        // A persistence failure must not crash the worker process or stop the session from
-        // continuing to run; surface it for operators via stderr instead.
-        console.error(`Failed to persist agent execution ${executionId}:`, error);
-      },
-    );
-    writeQueue = next;
+    writeQueue = next.then(() => undefined);
+
     return next;
   };
 
-  const finalize = (fields: Partial<typeof agentExecutions.$inferInsert>) =>
-    enqueue(() => db.update(agentExecutions).set({ ...fields, updatedAt: new Date() }).where(eq(agentExecutions.id, executionId)));
+  /**
+   * Removes finalized live execution state only after the current persistence queue settles.
+   */
+  const scheduleCleanup = (): void => {
+    const queueAtFinalization = writeQueue;
 
-  // finalizeAttempt itself only ever runs as an already-queued task (dispatched from the "exit"
-  // case below via `enqueue(() => finalizeAttempt(...))`), so its own writes must NOT be routed
-  // back through `enqueue`/`writeQueue` -- doing so would reassign `writeQueue` to
-  // `writeQueue.then(...)` while `writeQueue` is still the very promise wrapping this task's own
-  // execution, deadlocking the chain (the task can't resolve until its own nested write resolves,
-  // and that write can't run until the task resolves). Writing directly here is safe: nothing
-  // else enqueues further work for this attempt once "exit" fires (the accompanying
-  // "unexpected_exit"/"usage_unavailable" diagnostics are explicitly ignored below), and any
-  // events from a subsequently started repair session go through their own attach()/enqueue calls
-  // registered after this function returns.
-  async function persistExecutionFields(fields: Partial<typeof agentExecutions.$inferInsert>): Promise<void> {
-    try {
-      await db.update(agentExecutions).set({ ...fields, updatedAt: new Date() }).where(eq(agentExecutions.id, executionId));
-    } catch (error) {
-      console.error(`Failed to persist agent execution ${executionId}:`, error);
-    }
-  }
+    void queueAtFinalization.finally(() => {
+      if (liveExecutions.get(executionId) === liveState) {
+        liveExecutions.delete(executionId);
+      }
 
-  async function finalizeAttempt(exitCode: number, messageText: string, attempt: 1 | 2): Promise<void> {
-    if (cancellationRequests.has(executionId)) {
-      await persistExecutionFields({ status: "cancelled", resultStatus: null, failureReason: "Cancelled by operator", exitCode, completedAt: new Date() });
-      await notifyFinalized({ executionId, status: "cancelled", resultStatus: null, failureReason: "Cancelled by operator", result: null });
+      cancellationRequests.delete(executionId);
+
+      const pid = liveState.session.metadata.pid;
+
+      if (pid) {
+        processSamples.delete(pid);
+      }
+    });
+  };
+
+  /**
+   * Emits the execution-level completion frame only after final execution state is persisted.
+   */
+  const notifyFinalized = async (
+    finalization: ExecutionFinalization,
+    exitCode: number | null,
+  ): Promise<void> => {
+    if (finalizationSent) {
       return;
     }
-    const outcome = extractAndValidateResult(messageText, agent.canCommit);
+
+    finalizationSent = true;
+
+    publishTerminalFrame(liveState, {
+      type: "complete",
+      exitCode,
+      status: finalization.status,
+    });
+
+    try {
+      await onFinalized?.(finalization);
+    } catch (error) {
+      console.error(
+        `Failed to process execution finalization ${executionId}:`,
+        error,
+      );
+    } finally {
+      scheduleCleanup();
+    }
+  };
+
+  /** Queues a normal execution metadata update. */
+  const finalize = (
+    fields: Partial<typeof agentExecutions.$inferInsert>,
+  ): Promise<boolean> =>
+    enqueue(() =>
+      db
+        .update(agentExecutions)
+        .set({
+          ...fields,
+          updatedAt: new Date(),
+        })
+        .where(eq(agentExecutions.id, executionId)),
+    );
+
+  /**
+   * Persists fields directly while already executing inside the ordered write queue.
+   * Throwing here prevents false terminal completion when authoritative persistence fails.
+   */
+  async function persistExecutionFields(
+    fields: Partial<typeof agentExecutions.$inferInsert>,
+  ): Promise<void> {
+    await db
+      .update(agentExecutions)
+      .set({
+        ...fields,
+        updatedAt: new Date(),
+      })
+      .where(eq(agentExecutions.id, executionId));
+  }
+
+  /** Finalizes one PTY attempt or starts the single structured-result repair attempt. */
+  async function finalizeAttempt(
+    exitCode: number,
+    messageText: string,
+    attempt: 1 | 2,
+  ): Promise<void> {
+    if (cancellationRequests.has(executionId)) {
+      const finalization: ExecutionFinalization = {
+        executionId,
+        status: "cancelled",
+        resultStatus: null,
+        failureReason: "Cancelled by operator",
+        result: null,
+      };
+
+      await persistExecutionFields({
+        status: "cancelled",
+        resultStatus: null,
+        failureReason: finalization.failureReason,
+        exitCode,
+        completedAt: new Date(),
+      });
+
+      await notifyFinalized(finalization, exitCode);
+      return;
+    }
+
+    const outcome = extractAndValidateResult(
+      messageText,
+      agent.canCommit,
+    );
 
     if (outcome.ok) {
       const { result } = outcome;
+      const status = executionStatusForResult(
+        result.status,
+      );
+
+      const finalization: ExecutionFinalization = {
+        executionId,
+        status,
+        resultStatus: result.status,
+        failureReason: null,
+        result,
+      };
+
       await persistExecutionFields({
-        status: executionStatusForResult(result.status),
+        status,
         resultStatus: result.status,
         resultPayload: result,
-        commitHash: agent.canCommit ? result.commit : null,
+        commitHash: agent.canCommit
+          ? result.commit
+          : null,
         failureReason: null,
         exitCode,
         completedAt: new Date(),
       });
-      await notifyFinalized({ executionId, status: executionStatusForResult(result.status), resultStatus: result.status, failureReason: null, result });
+
+      await notifyFinalized(finalization, exitCode);
       return;
     }
 
     if (attempt === 1) {
-      // Persisted (and awaited) before starting the repair worker so a crash mid-repair does not
-      // leave repair_attempted=false, which would otherwise allow an unbounded retry loop.
-      await persistExecutionFields({ repairAttempted: true });
-      const repairInstruction = composeRepairInstruction(originalInstruction, outcome.excerpt, outcome.reasons);
-      const repairSession = startWorker({ projectPath, agent, instruction: repairInstruction });
-      liveSessions.set(executionId, repairSession);
+      await persistExecutionFields({
+        repairAttempted: true,
+      });
+
+      const repairInstruction = composeRepairInstruction(
+        originalInstruction,
+        outcome.excerpt,
+        outcome.reasons,
+      );
+
+      const previousPid = liveState.session.metadata.pid;
+
+      if (previousPid) {
+        processSamples.delete(previousPid);
+      }
+
+      const repairSession = startWorker({
+        projectPath,
+        agent,
+        instruction: repairInstruction,
+      });
+
+      liveState.session = repairSession;
+
       attach(repairSession, 2);
       return;
     }
 
+    const failureReason =
+      outcome.reasons[0] ??
+      "The repair attempt did not produce a valid structured result.";
+
+    const finalization: ExecutionFinalization = {
+      executionId,
+      status: "failed",
+      resultStatus: null,
+      failureReason,
+      result: null,
+    };
+
     await persistExecutionFields({
       status: "failed",
       resultStatus: null,
-      failureReason: outcome.reasons[0] ?? "The repair attempt did not produce a valid structured result.",
+      failureReason,
       exitCode,
       completedAt: new Date(),
     });
-    await notifyFinalized({ executionId, status: "failed", resultStatus: null, failureReason: outcome.reasons[0] ?? "The repair attempt did not produce a valid structured result.", result: null });
+
+    await notifyFinalized(finalization, exitCode);
   }
 
-  function attach(session: RuntimeSession, attempt: 1 | 2): void {
-    let runningRecorded = false;
+  /** Attaches one PTY attempt to the shared execution persistence and terminal stream. */
+  function attach(
+    session: RuntimeSession,
+    attempt: 1 | 2,
+  ): void {
     let messageText = "";
 
-    session.subscribe((event) => {
-      if (!runningRecorded && session.metadata.state !== "failed") {
-        runningRecorded = true;
-        enqueue(() =>
-          db
-            .update(agentExecutions)
-            .set({ status: "running", pid: session.metadata.pid, startedAt: new Date(), updatedAt: new Date() })
-            .where(eq(agentExecutions.id, executionId)),
-        );
-      }
+    if (session.metadata.pid !== null) {
+      const now = new Date();
 
+      void enqueue(() =>
+        db
+          .update(agentExecutions)
+          .set({
+            status: "running",
+            pid: session.metadata.pid,
+            ...(attempt === 1
+              ? { startedAt: now }
+              : {}),
+            updatedAt: now,
+          })
+          .where(eq(agentExecutions.id, executionId)),
+      );
+    }
+
+    session.subscribe((event) => {
       switch (event.type) {
         case "output": {
           const sequence = ++terminalSequence;
-          const { data } = event;
-          enqueue(() =>
-            db.insert(terminalChunks).values({ agentExecutionId: executionId, sequence, data }).onConflictDoNothing(),
-          );
+          const frame: TerminalChunkFrame = {
+            type: "chunk",
+            sequence,
+            data: event.data,
+          };
+
+          void enqueue(async () => {
+            await db.insert(terminalChunks).values({
+              agentExecutionId: executionId,
+              sequence,
+              data: event.data,
+            });
+
+            publishTerminalFrame(
+              liveState,
+              frame,
+            );
+          });
+
           break;
         }
+
         case "usage": {
           const { usage } = event;
-          // Harness adapters expose a provider usage object, but not every provider reports a
-          // context-window measurement. Preserve the reported token payload and leave context
-          // unavailable rather than presenting the same number as two different metrics.
-          enqueue(() =>
+
+          void enqueue(() =>
             db
               .update(agentExecutions)
-              .set({ tokenUsage: usage, updatedAt: new Date() })
-              .where(eq(agentExecutions.id, executionId)),
+              .set({
+                tokenUsage: usage,
+                updatedAt: new Date(),
+              })
+              .where(
+                eq(
+                  agentExecutions.id,
+                  executionId,
+                ),
+              ),
           );
+
           break;
         }
+
         case "provider": {
-          const text = adapter.extractMessageText?.(event.event);
-          if (text) messageText += text;
+          const text =
+            adapter.extractMessageText?.(
+              event.event,
+            );
+
+          if (text) {
+            messageText += text;
+          }
+
           break;
         }
+
         case "exit": {
-          const { exitCode } = event;
-          enqueue(() => finalizeAttempt(exitCode, messageText, attempt));
+          void enqueue(() =>
+            finalizeAttempt(
+              event.exitCode,
+              messageText,
+              attempt,
+            ),
+          );
+
           break;
         }
+
         case "diagnostic": {
-          // Missing usage telemetry is not a failure -- it is reported as unavailable, not
-          // fabricated, and must not overwrite a successful completion. "unexpected_exit" is
-          // superseded by the exit-driven result finalization above (it fires alongside "exit"
-          // for any non-zero exit code, but status is decided by finalizeAttempt so a nonzero
-          // exit doesn't blindly overwrite a valid structured result or race the repair flow).
-          // All other diagnostics represent launch-time failures where the process never
-          // produced an "exit" event, so they remain the sole source of failure status here.
-          if (event.diagnostic.code === "usage_unavailable" || event.diagnostic.code === "unexpected_exit") break;
-          const { message } = event.diagnostic;
-          void finalize({ status: "failed", resultStatus: null, failureReason: message }).then(() => notifyFinalized({ executionId, status: "failed", resultStatus: null, failureReason: message, result: null }));
+          if (
+            event.diagnostic.code ===
+              "usage_unavailable" ||
+            event.diagnostic.code ===
+              "unexpected_exit"
+          ) {
+            break;
+          }
+
+          const failureReason =
+            event.diagnostic.message;
+
+          void finalize({
+            status: "failed",
+            resultStatus: null,
+            failureReason,
+            completedAt: new Date(),
+          }).then(async (persisted) => {
+            if (!persisted) {
+              return;
+            }
+
+            await notifyFinalized(
+              {
+                executionId,
+                status: "failed",
+                resultStatus: null,
+                failureReason,
+                result: null,
+              },
+              null,
+            );
+          });
+
           break;
         }
       }
@@ -396,29 +838,119 @@ function bridgeSessionToDatabase(params: BridgeParams): void {
   attach(params.session, 1);
 }
 
-export async function cancelLiveExecution(id: string): Promise<boolean> {
-  const session = liveSessions.get(id);
-  if (!session || !["starting", "running", "stopping"].includes(session.metadata.state)) return false;
+/** Requests cancellation of the currently active PTY for an execution. */
+export async function cancelLiveExecution(
+  id: string,
+): Promise<boolean> {
+  const state = liveExecutions.get(id);
+
+  if (
+    !state ||
+    state.finalFrame ||
+    !["starting", "running", "stopping"].includes(
+      state.session.metadata.state,
+    )
+  ) {
+    return false;
+  }
+
   cancellationRequests.add(id);
-  session.stop();
+  state.session.stop();
+
   return true;
 }
 
-export async function getExecution(id: string): Promise<AgentExecution | null> {
-  const [row] = await db.select().from(agentExecutions).where(eq(agentExecutions.id, id));
+/** Resizes the PTY currently attached to a live execution. */
+export function resizeLiveExecution(
+  id: string,
+  cols: number,
+  rows: number,
+): boolean {
+  const state = liveExecutions.get(id);
+
+  if (!state || state.finalFrame) {
+    return false;
+  }
+
+  return state.session.resize(cols, rows);
+}
+
+/**
+ * Subscribes to durable live terminal frames for one execution.
+ * Historical terminal chunks remain PostgreSQL-backed and are not replayed here.
+ */
+export function subscribeToExecutionTerminal(
+  id: string,
+  listener: (
+    frame: ExecutionTerminalFrame,
+  ) => void,
+): (() => void) | undefined {
+  const state = liveExecutions.get(id);
+
+  if (!state) {
+    return undefined;
+  }
+
+  state.subscribers.add(listener);
+
+  if (state.finalFrame) {
+    try {
+      listener(state.finalFrame);
+    } catch (error) {
+      console.error(
+        "Failed to deliver final terminal frame:",
+        error,
+      );
+    }
+  }
+
+  return () => {
+    state.subscribers.delete(listener);
+  };
+}
+
+/** Returns the authoritative persisted execution record. */
+export async function getExecution(
+  id: string,
+): Promise<AgentExecution | null> {
+  const [row] = await db
+    .select()
+    .from(agentExecutions)
+    .where(eq(agentExecutions.id, id));
+
   return row ? serializeExecution(row) : null;
 }
 
-export type TerminalChunkRow = { sequence: number; data: string };
+export type TerminalChunkRow = {
+  sequence: number;
+  data: string;
+};
 
-export async function listTerminalChunks(id: string): Promise<TerminalChunkRow[]> {
+/** Returns persisted terminal chunks strictly newer than the supplied terminal cursor. */
+export async function listTerminalChunks(
+  id: string,
+  afterSequence = 0,
+): Promise<TerminalChunkRow[]> {
+  const cursor =
+    Number.isInteger(afterSequence) &&
+    afterSequence >= 0
+      ? afterSequence
+      : 0;
+
   return db
-    .select({ sequence: terminalChunks.sequence, data: terminalChunks.data })
+    .select({
+      sequence: terminalChunks.sequence,
+      data: terminalChunks.data,
+    })
     .from(terminalChunks)
-    .where(eq(terminalChunks.agentExecutionId, id))
+    .where(
+      and(
+        eq(
+          terminalChunks.agentExecutionId,
+          id,
+        ),
+        gt(terminalChunks.sequence, cursor),
+      ),
+    )
     .orderBy(asc(terminalChunks.sequence));
-}
-
-export function attachLiveSession(id: string): RuntimeSession | undefined {
-  return liveSessions.get(id);
 }
