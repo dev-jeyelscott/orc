@@ -1,60 +1,92 @@
 "use client";
 
-import {
-  useEffect,
-  useState,
-  type FormEvent,
-} from "react";
 import type {
   Conversation,
   ConversationMessage,
+  OrchestratorSettings,
   Project,
+  RunDetail,
 } from "@orc/shared";
-
 import {
-  Button,
-} from "@/components/ui/button";
+  AlertTriangleIcon,
+  BotIcon,
+} from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
+import type {
+  FormEvent,
+} from "react";
+
+import { OrchestratorContextStrip } from "@/components/orchestrator-context-strip";
+import { OrchestratorConversation } from "@/components/orchestrator-conversation";
+import {
+  OrchestratorObservability,
+  OrchestratorResultPreview,
+  OrchestratorTerminalPanel,
+} from "@/components/orchestrator-observability";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
-import {
-  Textarea,
-} from "@/components/ui/textarea";
 import {
   createConversation,
   getConversation,
+  getOrchestratorSettings,
   listConversations,
   postMessage,
 } from "@/lib/conversations";
 import {
-  getProjects,
-} from "@/lib/projects";
+  isRunActive,
+  selectActiveExecution,
+  selectLatestResultExecution,
+  selectTerminalExecution,
+} from "@/lib/orchestrator-presentation";
+import { getProjects } from "@/lib/projects";
+import {
+  cancelRun,
+  getRun,
+  retryRun,
+} from "@/lib/workflows";
 
-/**
- * Formats a persisted conversation timestamp for the compact thread selector.
- */
-function conversationLabel(
-  conversation: Conversation,
+type BusyAction =
+  | "loading"
+  | "project"
+  | "conversation"
+  | "new-conversation"
+  | "send"
+  | "start-task"
+  | "explain-status"
+  | "stop"
+  | "retry"
+  | null;
+
+/** Normalizes an unknown failure into a concise operator-facing error message. */
+function errorMessage(
+  error: unknown,
+  fallback: string,
 ): string {
-  const timestamp =
-    new Date(
-      conversation.updatedAt,
-    );
-
-  return `${timestamp.toLocaleString()}${conversation.runId ? " · run linked" : ""}`;
+  return error instanceof Error
+    ? error.message
+    : fallback;
 }
 
-/**
- * Renders project-scoped persistent orchestrator conversations.
- */
+/** Coordinates persisted conversations, workflow actions, run observability, and terminal/result selection. */
 export function OrchestratorChat() {
   const [
     projects,
     setProjects,
   ] = useState<Project[]>([]);
+
+  const [
+    workspaceError,
+    setWorkspaceError,
+  ] = useState<string | null>(
+    null,
+  );
 
   const [
     projectPath,
@@ -69,15 +101,10 @@ export function OrchestratorChat() {
   >([]);
 
   const [
-    selectedConversationId,
-    setSelectedConversationId,
-  ] = useState("");
-
-  const [
-    activeConversationId,
-    setActiveConversationId,
+    conversation,
+    setConversation,
   ] = useState<
-    string | null
+    Conversation | null
   >(null);
 
   const [
@@ -93,493 +120,869 @@ export function OrchestratorChat() {
   ] = useState("");
 
   const [
+    runDetail,
+    setRunDetail,
+  ] = useState<
+    RunDetail | null
+  >(null);
+
+  const [
+    runError,
+    setRunError,
+  ] = useState<string | null>(
+    null,
+  );
+
+  const [
+    settings,
+    setSettings,
+  ] = useState<
+    OrchestratorSettings | null
+  >(null);
+
+  const [
+    settingsError,
+    setSettingsError,
+  ] = useState<string | null>(
+    null,
+  );
+
+  const [
     error,
     setError,
-  ] = useState<
-    string | null
-  >(null);
+  ] = useState<string | null>(
+    null,
+  );
 
   const [
-    busy,
-    setBusy,
-  ] = useState(false);
+    busyAction,
+    setBusyAction,
+  ] = useState<BusyAction>(
+    "loading",
+  );
 
   const [
-    loadedProjectPath,
-    setLoadedProjectPath,
-  ] = useState<
-    string | null
-  >(null);
+    now,
+    setNow,
+  ] = useState(() =>
+    Date.now(),
+  );
 
-  const projectLoading =
-    Boolean(
-      projectPath &&
-      loadedProjectPath !==
-        projectPath,
-    );
+  const linkedRunId =
+    conversation?.runId ??
+    null;
 
-  const interactionBusy =
-    busy || projectLoading;
+  const linkedRunStatus =
+    linkedRunId &&
+    runDetail?.run.id ===
+      linkedRunId
+      ? runDetail.run.status
+      : null;
 
-  /**
-   * Loads filesystem-backed projects once when the chat workspace mounts.
-   */
-  useEffect(() => {
-    let cancelled = false;
-
-    void getProjects()
-      .then((value) => {
-        if (cancelled) {
-          return;
-        }
-
-        setProjects(
-          value.projects,
-        );
-
-        setProjectPath(
-          value.projects[0]
-            ?.path ?? "",
-        );
-      })
-      .catch(
-        (value: unknown) => {
-          if (cancelled) {
-            return;
-          }
-
-          setError(
-            value instanceof Error
-              ? value.message
-              : "Unable to load projects",
-          );
-        },
-      );
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  /**
-   * Refreshes project-scoped conversation choices when project selection changes.
-   */
-  useEffect(() => {
-    if (!projectPath) {
-      return;
-    }
-
-    let cancelled = false;
-
-    void listConversations(
-      projectPath,
-    )
-      .then((value) => {
-        if (cancelled) {
-          return;
-        }
-
-        setConversations(
-          value.conversations,
-        );
-
-        setSelectedConversationId(
-          value.conversations[0]
-            ?.id ?? "",
-        );
-
-        setLoadedProjectPath(
-          projectPath,
+  /** Loads one project's persisted conversation list and opens its newest conversation when available. */
+  const loadProject =
+    useCallback(
+      async (
+        nextProjectPath: string,
+      ): Promise<void> => {
+        setBusyAction(
+          "project",
         );
 
         setError(null);
-      })
-      .catch(
-        (value: unknown) => {
-          if (cancelled) {
+        setProjectPath(
+          nextProjectPath,
+        );
+        setConversation(null);
+        setMessages([]);
+        setRunDetail(null);
+        setRunError(null);
+
+        try {
+          const response =
+            await listConversations(
+              nextProjectPath,
+            );
+
+          setConversations(
+            response.conversations,
+          );
+
+          const first =
+            response.conversations.at(
+              0,
+            );
+
+          if (!first) {
             return;
           }
 
-          setLoadedProjectPath(
-            projectPath,
+          const detail =
+            await getConversation(
+              first.id,
+            );
+
+          setConversation(
+            detail.conversation,
           );
 
+          setMessages(
+            detail.messages,
+          );
+        } catch (value) {
+          setConversations([]);
+          setConversation(null);
+          setMessages([]);
+
           setError(
-            value instanceof Error
-              ? value.message
-              : "Unable to load conversations",
+            errorMessage(
+              value,
+              "Failed to load conversations.",
+            ),
+          );
+        } finally {
+          setBusyAction(null);
+        }
+      },
+      [],
+    );
+
+  useEffect(() => {
+    let disposed = false;
+
+    /** Loads current filesystem-backed projects and selects the first available repository. */
+    const initialize =
+      async (): Promise<void> => {
+        setBusyAction(
+          "loading",
+        );
+
+        try {
+          const response =
+            await getProjects();
+
+          if (disposed) {
+            return;
+          }
+
+          setProjects(
+            response.projects,
+          );
+
+          setWorkspaceError(
+            response.error,
+          );
+
+          const first =
+            response.projects.at(
+              0,
+            );
+
+          if (!first) {
+            setProjectPath("");
+            setBusyAction(null);
+            return;
+          }
+
+          await loadProject(
+            first.path,
+          );
+        } catch (value) {
+          if (disposed) {
+            return;
+          }
+
+          setError(
+            errorMessage(
+              value,
+              "Failed to load projects.",
+            ),
+          );
+
+          setBusyAction(null);
+        }
+      };
+
+    void initialize();
+
+    return () => {
+      disposed = true;
+    };
+  }, [loadProject]);
+
+  useEffect(() => {
+    let disposed = false;
+
+    /** Loads separately persisted supervisor configuration without treating it as worker execution data. */
+    const loadSettings =
+      async (): Promise<void> => {
+        try {
+          const value =
+            await getOrchestratorSettings();
+
+          if (!disposed) {
+            setSettings(
+              value,
+            );
+
+            setSettingsError(
+              null,
+            );
+          }
+        } catch (value) {
+          if (!disposed) {
+            setSettings(null);
+
+            setSettingsError(
+              errorMessage(
+                value,
+                "Orchestrator settings are unavailable.",
+              ),
+            );
+          }
+        }
+      };
+
+    void loadSettings();
+
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const timer =
+      window.setInterval(
+        () => {
+          setNow(
+            Date.now(),
           );
         },
+        1_000,
       );
 
     return () => {
-      cancelled = true;
+      window.clearInterval(
+        timer,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!linkedRunId) {
+      return;
+    }
+
+    let disposed = false;
+
+    /** Refreshes authoritative run detail used by every Orchestrator observability panel. */
+    const refresh =
+      async (): Promise<void> => {
+        try {
+          const detail =
+            await getRun(
+              linkedRunId,
+            );
+
+          if (!disposed) {
+            setRunDetail(
+              detail,
+            );
+
+            setRunError(
+              null,
+            );
+          }
+        } catch (value) {
+          if (!disposed) {
+            setRunError(
+              errorMessage(
+                value,
+                "Run state is unavailable.",
+              ),
+            );
+          }
+        }
+      };
+
+    void refresh();
+
+    const shouldPoll =
+      linkedRunStatus ===
+        null ||
+      isRunActive(
+        linkedRunStatus,
+      );
+
+    const timer =
+      shouldPoll
+        ? window.setInterval(
+            () => {
+              void refresh();
+            },
+            2_500,
+          )
+        : undefined;
+
+    return () => {
+      disposed = true;
+
+      if (timer) {
+        window.clearInterval(
+          timer,
+        );
+      }
     };
   }, [
-    projectPath,
+    linkedRunId,
+    linkedRunStatus,
   ]);
 
-  /**
-   * Changes the selected project and clears state owned by the previous project.
-   */
-  function changeProject(
-    nextProjectPath: string,
-  ) {
-    setProjectPath(
-      nextProjectPath,
-    );
-    setLoadedProjectPath(
-      null,
-    );
-    setActiveConversationId(
-      null,
-    );
-    setMessages([]);
-    setSelectedConversationId(
-      "",
-    );
-    setConversations([]);
-    setError(null);
-  }
-
-  /**
-   * Opens the currently selected persisted conversation and loads its messages.
-   */
-  async function openSelectedConversation() {
-    if (
-      !selectedConversationId
-    ) {
-      return;
-    }
-
-    setBusy(true);
-    setError(null);
-
-    try {
-      const data =
+  /** Refreshes one persisted conversation so optimistic message IDs are never fabricated client-side. */
+  const refreshConversation =
+    async (
+      conversationId: string,
+    ): Promise<Conversation> => {
+      const detail =
         await getConversation(
-          selectedConversationId,
+          conversationId,
         );
 
-      setActiveConversationId(
-        data.conversation.id,
+      setConversation(
+        detail.conversation,
       );
 
       setMessages(
-        data.messages,
-      );
-    } catch (value) {
-      setError(
-        value instanceof Error
-          ? value.message
-          : "Unable to open conversation",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /**
-   * Creates and immediately opens a new project-scoped conversation.
-   */
-  async function createNewConversation() {
-    if (!projectPath) {
-      return;
-    }
-
-    setBusy(true);
-    setError(null);
-
-    try {
-      const conversation =
-        await createConversation(
-          projectPath,
-        );
-
-      setConversations(
-        (current) => [
-          conversation,
-          ...current,
-        ],
+        detail.messages,
       );
 
-      setSelectedConversationId(
-        conversation.id,
+      setRunDetail(
+        (current) =>
+          current?.run.id ===
+          detail.conversation
+            .runId
+            ? current
+            : null,
       );
 
-      setActiveConversationId(
-        conversation.id,
-      );
+      return detail.conversation;
+    };
 
-      setMessages([]);
-    } catch (value) {
-      setError(
-        value instanceof Error
-          ? value.message
-          : "Unable to create conversation",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
+  /** Refreshes the conversation chooser after newly created messages change its persisted update order. */
+  const refreshConversationList =
+    async (): Promise<void> => {
+      if (!projectPath) {
+        return;
+      }
 
-  /**
-   * Sends one user message and appends the persisted grounded supervisor response.
-   */
-  async function submit(
-    event:
-      FormEvent<HTMLFormElement>,
-  ) {
-    event.preventDefault();
-
-    const trimmed =
-      content.trim();
-
-    if (
-      !activeConversationId ||
-      !trimmed
-    ) {
-      return;
-    }
-
-    setBusy(true);
-    setError(null);
-
-    try {
-      const result =
-        await postMessage(
-          activeConversationId,
-          trimmed,
-        );
-
-      setMessages(
-        (current) => [
-          ...current,
-          {
-            id:
-              crypto.randomUUID(),
-            conversationId:
-              activeConversationId,
-            role: "user",
-            content: trimmed,
-            createdAt:
-              new Date().toISOString(),
-          },
-          result.message,
-        ],
-      );
-
-      setContent("");
-
-      const refreshed =
+      const response =
         await listConversations(
           projectPath,
         );
 
       setConversations(
-        refreshed.conversations,
+        response.conversations,
       );
-    } catch (value) {
-      setError(
-        value instanceof Error
-          ? value.message
-          : "Unable to send message",
+    };
+
+  /** Opens one explicitly selected persisted conversation. */
+  const handleConversationChange =
+    async (
+      conversationId: string,
+    ): Promise<void> => {
+      if (
+        !conversationId ||
+        busyAction !== null
+      ) {
+        return;
+      }
+
+      setBusyAction(
+        "conversation",
       );
-    } finally {
-      setBusy(false);
-    }
-  }
+
+      setError(null);
+      setRunDetail(null);
+      setRunError(null);
+
+      try {
+        await refreshConversation(
+          conversationId,
+        );
+      } catch (value) {
+        setError(
+          errorMessage(
+            value,
+            "Failed to open conversation.",
+          ),
+        );
+      } finally {
+        setBusyAction(null);
+      }
+    };
+
+  /** Creates a new project-scoped persisted conversation and selects it. */
+  const handleNewConversation =
+    async (): Promise<void> => {
+      if (
+        !projectPath ||
+        busyAction !== null
+      ) {
+        return;
+      }
+
+      setBusyAction(
+        "new-conversation",
+      );
+
+      setError(null);
+
+      try {
+        const created =
+          await createConversation(
+            projectPath,
+          );
+
+        setConversation(
+          created,
+        );
+
+        setMessages([]);
+        setRunDetail(null);
+        setRunError(null);
+        setContent("");
+
+        const response =
+          await listConversations(
+            projectPath,
+          );
+
+        setConversations(
+          response.conversations,
+        );
+      } catch (value) {
+        setError(
+          errorMessage(
+            value,
+            "Failed to create conversation.",
+          ),
+        );
+      } finally {
+        setBusyAction(null);
+      }
+    };
+
+  /** Sends one supervisor instruction and then reloads authoritative persisted transcript state. */
+  const sendSupervisorMessage =
+    async (
+      message: string,
+      action: Exclude<
+        BusyAction,
+        | "loading"
+        | "project"
+        | "conversation"
+        | "new-conversation"
+        | "stop"
+        | "retry"
+        | null
+      >,
+      clearDraft: boolean,
+    ): Promise<void> => {
+      const trimmed =
+        message.trim();
+
+      if (
+        !conversation ||
+        !trimmed ||
+        busyAction !== null
+      ) {
+        return;
+      }
+
+      const conversationId =
+        conversation.id;
+
+      setBusyAction(
+        action,
+      );
+
+      setError(null);
+
+      try {
+        await postMessage(
+          conversationId,
+          trimmed,
+        );
+
+        await refreshConversation(
+          conversationId,
+        );
+
+        if (clearDraft) {
+          setContent("");
+        }
+
+        try {
+          await refreshConversationList();
+        } catch {
+          // The active persisted conversation remains authoritative even if the chooser refresh fails.
+        }
+      } catch (value) {
+        setError(
+          errorMessage(
+            value,
+            "The Orchestrator request failed.",
+          ),
+        );
+
+        try {
+          await refreshConversation(
+            conversationId,
+          );
+        } catch {
+          // Preserve the original mutation error when transcript recovery also fails.
+        }
+      } finally {
+        setBusyAction(null);
+      }
+    };
+
+  /** Handles the normal composer Send action. */
+  const handleSubmit =
+    (
+      event:
+        FormEvent<HTMLFormElement>,
+    ): void => {
+      event.preventDefault();
+
+      void sendSupervisorMessage(
+        content,
+        "send",
+        true,
+      );
+    };
+
+  /** Explicitly asks the supervisor to create and start the engineering task represented by the current draft. */
+  const handleStartTask =
+    (): void => {
+      if (!content.trim()) {
+        return;
+      }
+
+      void sendSupervisorMessage(
+        `Start this engineering task now:\n\n${content.trim()}`,
+        "start-task",
+        true,
+      );
+    };
+
+  /** Requests a grounded supervisor explanation of the current linked run. */
+  const handleExplainStatus =
+    (): void => {
+      void sendSupervisorMessage(
+        "Explain the current run status using only persisted and live system state.",
+        "explain-status",
+        false,
+      );
+    };
+
+  /** Cancels the linked active run through the existing workflow control API. */
+  const handleStop =
+    async (): Promise<void> => {
+      const runId =
+        conversation?.runId;
+
+      if (
+        !runId ||
+        busyAction !== null ||
+        !runDetail ||
+        !isRunActive(
+          runDetail.run.status,
+        )
+      ) {
+        return;
+      }
+
+      setBusyAction("stop");
+      setError(null);
+
+      try {
+        await cancelRun(
+          runId,
+        );
+
+        setRunDetail(
+          await getRun(
+            runId,
+          ),
+        );
+
+        setRunError(null);
+      } catch (value) {
+        setError(
+          errorMessage(
+            value,
+            "Failed to stop the run.",
+          ),
+        );
+      } finally {
+        setBusyAction(null);
+      }
+    };
+
+  /** Retries only the backend-supported final execution of a failed or blocked run. */
+  const handleRetry =
+    async (): Promise<void> => {
+      const runId =
+        conversation?.runId;
+
+      if (
+        !runId ||
+        busyAction !== null
+      ) {
+        return;
+      }
+
+      setBusyAction("retry");
+      setError(null);
+
+      try {
+        await retryRun(
+          runId,
+        );
+
+        setRunDetail(
+          await getRun(
+            runId,
+          ),
+        );
+
+        setRunError(null);
+      } catch (value) {
+        setError(
+          errorMessage(
+            value,
+            "Failed to retry the execution.",
+          ),
+        );
+      } finally {
+        setBusyAction(null);
+      }
+    };
+
+  const activeExecution =
+    selectActiveExecution(
+      runDetail,
+    );
+
+  const terminalExecution =
+    selectTerminalExecution(
+      runDetail,
+    );
+
+  const resultExecution =
+    selectLatestResultExecution(
+      runDetail,
+    );
 
   return (
-    <div className="flex max-w-4xl flex-col gap-5">
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            Orchestrator
-          </CardTitle>
-        </CardHeader>
+    <div className="flex min-w-0 flex-col gap-3">
+      <OrchestratorContextStrip
+        projects={projects}
+        projectPath={projectPath}
+        conversations={
+          conversations
+        }
+        conversation={
+          conversation
+        }
+        runDetail={runDetail}
+        activeExecution={
+          activeExecution
+        }
+        busyAction={
+          busyAction
+        }
+        now={now}
+        onProjectChange={(
+          value,
+        ) => {
+          if (
+            busyAction ===
+            null
+          ) {
+            void loadProject(
+              value,
+            );
+          }
+        }}
+        onConversationChange={(
+          value,
+        ) => {
+          void handleConversationChange(
+            value,
+          );
+        }}
+        onNewConversation={() => {
+          void handleNewConversation();
+        }}
+        onStop={() => {
+          void handleStop();
+        }}
+        onRetry={() => {
+          void handleRetry();
+        }}
+      />
 
-        <CardContent className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]">
-          <label
-            className="sr-only"
-            htmlFor="orchestrator-project"
-          >
-            Project
-          </label>
+      {workspaceError ? (
+        <div
+          role="status"
+          className="rounded-md border border-status-warning/30 bg-status-warning/5 px-3 py-2 text-xs text-status-warning"
+        >
+          {workspaceError}
+        </div>
+      ) : null}
 
-          <select
-            id="orchestrator-project"
-            value={projectPath}
-            onChange={(event) =>
-              changeProject(
-                event.target.value,
-              )
-            }
-            className="h-9 min-w-0 rounded border bg-transparent px-2 text-sm"
-            disabled={
-              interactionBusy
-            }
-          >
-            <option value="">
-              Select project
-            </option>
+      {error ? (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-md border border-status-error/30 bg-status-error/5 px-3 py-2 text-xs text-status-error"
+        >
+          <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
 
-            {projects.map(
-              (project) => (
-                <option
-                  key={project.id}
-                  value={project.path}
-                >
-                  {project.name}
-                </option>
-              ),
-            )}
-          </select>
+          <span>
+            {error}
+          </span>
+        </div>
+      ) : null}
 
-          <label
-            className="sr-only"
-            htmlFor="orchestrator-conversation"
-          >
-            Conversation
-          </label>
-
-          <select
-            id="orchestrator-conversation"
-            value={
-              selectedConversationId
-            }
-            onChange={(event) =>
-              setSelectedConversationId(
-                event.target.value,
-              )
-            }
-            className="h-9 min-w-0 rounded border bg-transparent px-2 text-sm"
-            disabled={
-              interactionBusy ||
-              !projectPath ||
-              conversations.length ===
-                0
-            }
-          >
-            <option value="">
-              {conversations.length ===
-              0
-                ? "No conversations"
-                : "Select conversation"}
-            </option>
-
-            {conversations.map(
-              (conversation) => (
-                <option
-                  key={
-                    conversation.id
-                  }
-                  value={
-                    conversation.id
-                  }
-                >
-                  {conversationLabel(
-                    conversation,
-                  )}
-                </option>
-              ),
-            )}
-          </select>
-
-          <Button
-            type="button"
-            onClick={() =>
-              void openSelectedConversation()
-            }
-            disabled={
-              interactionBusy ||
-              !selectedConversationId
-            }
-          >
-            Open
-          </Button>
-
-          <Button
-            type="button"
-            onClick={() =>
-              void createNewConversation()
-            }
-            disabled={
-              interactionBusy ||
-              !projectPath
-            }
-          >
-            New
-          </Button>
-        </CardContent>
-      </Card>
-
-      {activeConversationId && (
+      {projects.length ===
+        0 &&
+      busyAction === null ? (
         <Card>
-          <CardContent className="flex min-h-80 flex-col gap-4 py-5">
-            {messages.length ===
-              0 && (
-              <p className="text-sm text-text-muted">
-                Start a new task or ask the orchestrator about project and runtime state.
+          <CardContent className="flex min-h-72 items-center justify-center p-6 text-center">
+            <div className="max-w-sm">
+              <BotIcon className="mx-auto size-8 text-text-muted" />
+
+              <h2 className="mt-3 text-sm font-semibold text-text-primary">
+                No project available
+              </h2>
+
+              <p className="mt-1 text-xs leading-5 text-text-muted">
+                The Orchestrator requires a filesystem-discovered Git project before a conversation can be created.
               </p>
-            )}
-
-            {messages.map(
-              (message) => (
-                <div
-                  key={message.id}
-                  className={
-                    message.role ===
-                    "user"
-                      ? "self-end max-w-[80%] whitespace-pre-wrap rounded bg-primary p-3 text-primary-foreground"
-                      : "max-w-[80%] whitespace-pre-wrap rounded bg-muted p-3 text-text-primary"
-                  }
-                >
-                  {
-                    message.content
-                  }
-                </div>
-              ),
-            )}
-
-            <form
-              onSubmit={submit}
-              className="mt-auto flex gap-2"
-            >
-              <Textarea
-                value={content}
-                onChange={(event) =>
-                  setContent(
-                    event.target.value,
-                  )
-                }
-                placeholder="Describe the engineering task or ask for status…"
-                disabled={busy}
-              />
-
-              <Button
-                type="submit"
-                disabled={
-                  busy ||
-                  !content.trim()
-                }
-              >
-                {busy
-                  ? "Working…"
-                  : "Send"}
-              </Button>
-            </form>
+            </div>
           </CardContent>
         </Card>
-      )}
+      ) : !conversation ? (
+        <Card>
+          <CardContent className="flex min-h-72 items-center justify-center p-6 text-center">
+            <div className="max-w-sm">
+              <BotIcon className="mx-auto size-8 text-text-muted" />
 
-      {error && (
-        <p
-          role="alert"
-          className="text-sm text-status-error"
-        >
-          {error}
-        </p>
+              <h2 className="mt-3 text-sm font-semibold text-text-primary">
+                No conversation selected
+              </h2>
+
+              <p className="mt-1 text-xs leading-5 text-text-muted">
+                Create a persistent conversation for this project to start working with the supervisor.
+              </p>
+
+              <Button
+                className="mt-4"
+                type="button"
+                disabled={
+                  busyAction !==
+                    null ||
+                  !projectPath
+                }
+                onClick={() => {
+                  void handleNewConversation();
+                }}
+              >
+                New conversation
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div className="grid min-w-0 gap-3 2xl:grid-cols-[minmax(0,1.08fr)_minmax(560px,0.92fr)]">
+            <OrchestratorConversation
+              projectPath={
+                projectPath
+              }
+              conversation={
+                conversation
+              }
+              messages={
+                messages
+              }
+              content={
+                content
+              }
+              runStatus={
+                runDetail?.run
+                  .status ??
+                null
+              }
+              busyAction={
+                busyAction
+              }
+              onContentChange={
+                setContent
+              }
+              onSubmit={
+                handleSubmit
+              }
+              onStartTask={
+                handleStartTask
+              }
+              onExplainStatus={
+                handleExplainStatus
+              }
+              onStop={() => {
+                void handleStop();
+              }}
+              onRetry={() => {
+                void handleRetry();
+              }}
+            />
+
+            <OrchestratorObservability
+              runDetail={
+                runDetail
+              }
+              runError={
+                runError
+              }
+              activeExecution={
+                activeExecution
+              }
+              settings={
+                settings
+              }
+              settingsError={
+                settingsError
+              }
+              now={now}
+            />
+          </div>
+
+          <div className="grid min-w-0 gap-3 xl:grid-cols-2">
+            <OrchestratorTerminalPanel
+              execution={
+                terminalExecution
+              }
+            />
+
+            <OrchestratorResultPreview
+              execution={
+                resultExecution
+              }
+            />
+          </div>
+        </>
       )}
     </div>
   );

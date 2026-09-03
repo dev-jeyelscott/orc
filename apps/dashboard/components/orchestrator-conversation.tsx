@@ -26,6 +26,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  Message,
+  MessageAvatar,
+  MessageContent,
+  MessageHeader,
+} from "@/components/ui/message";
+import {
   MessageScroller,
   MessageScrollerButton,
   MessageScrollerContent,
@@ -38,7 +44,6 @@ import {
   formatConversationTime,
   isRunActive,
   isRunRetryable,
-  pairConversationMessages,
 } from "@/lib/orchestrator-presentation";
 import {
   compactPath,
@@ -65,101 +70,88 @@ interface OrchestratorConversationProps {
   onRetry: () => void;
 }
 
-/** Renders one authoritative persisted message as an independent User or Orchestrator card. */
-function ConversationMessageCard({
+/** Renders one persisted conversation message using normal chat-style left/right alignment. */
+function ConversationMessageRow({
   message,
-  sender,
-  className,
 }: {
   message: ConversationMessage;
-  sender: "user" | "assistant";
-  className?: string;
 }) {
-  const user =
-    sender === "user";
+  const isUser =
+    message.role === "user";
 
   return (
-    <article
-      className={cn(
-        "min-w-0 rounded-lg border border-border-default p-3",
-        user
-          ? "bg-surface-interactive"
-          : "bg-surface-elevated",
-        className,
-      )}
+    <Message
+      align={
+        isUser
+          ? "end"
+          : "start"
+      }
+      className="items-end gap-2"
     >
-      <header className="mb-2 flex items-center gap-2">
+      <MessageAvatar
+        className={cn(
+          "size-7 border",
+          isUser
+            ? "border-brand-accent/40 bg-brand-accent text-primary-foreground"
+            : "border-border-default bg-surface-interactive text-brand-accent",
+        )}
+      >
+        {isUser ? (
+          <UserIcon className="size-3.5" />
+        ) : (
+          <BotIcon className="size-3.5" />
+        )}
+      </MessageAvatar>
+
+      <MessageContent
+        className={cn(
+          "max-w-[88%] sm:max-w-[82%] lg:max-w-[78%]",
+          isUser
+            ? "items-end"
+            : "items-start",
+        )}
+      >
+        <MessageHeader
+          className={cn(
+            "mb-1 gap-2 px-1 text-[10px]",
+            isUser &&
+              "justify-end",
+          )}
+        >
+          <span className="font-semibold text-text-secondary">
+            {isUser
+              ? "You"
+              : "Orchestrator"}
+          </span>
+
+          <time
+            dateTime={
+              message.createdAt
+            }
+            className="text-text-muted"
+          >
+            {formatConversationTime(
+              message.createdAt,
+            )}
+          </time>
+        </MessageHeader>
+
         <div
           className={cn(
-            "flex size-6 shrink-0 items-center justify-center rounded-full",
-            user
-              ? "bg-brand-accent text-primary-foreground"
-              : "border border-brand-accent/40 bg-brand-accent/10 text-brand-accent",
+            "w-fit max-w-full whitespace-pre-wrap break-words rounded-xl border px-3 py-2 text-xs leading-5",
+            isUser
+              ? "border-brand-accent/40 bg-brand-accent text-primary-foreground"
+              : "border-border-default bg-surface-interactive text-text-secondary",
           )}
-          aria-hidden
         >
-          {user ? (
-            <UserIcon className="size-3.5" />
-          ) : (
-            <BotIcon className="size-3.5" />
-          )}
+          {message.content}
         </div>
-
-        <span className="text-[11px] font-semibold text-text-primary">
-          {user
-            ? "User"
-            : "Orchestrator"}
-        </span>
-
-        <time
-          dateTime={message.createdAt}
-          className="ms-auto whitespace-nowrap text-[10px] text-text-muted"
-        >
-          {formatConversationTime(
-            message.createdAt,
-          )}
-        </time>
-      </header>
-
-      <div className="whitespace-pre-wrap break-words text-xs leading-5 text-text-secondary">
-        {message.content}
-      </div>
-    </article>
+      </MessageContent>
+    </Message>
   );
 }
 
-/** Renders one deterministic chronological exchange as two columns on desktop and one column on smaller screens. */
-function ConversationExchangeRow({
-  user,
-  assistant,
-}: {
-  user: ConversationMessage | null;
-  assistant: ConversationMessage | null;
-}) {
-  return (
-    <div className="grid min-w-0 gap-2 lg:grid-cols-2 lg:gap-3">
-      {user ? (
-        <ConversationMessageCard
-          message={user}
-          sender="user"
-        />
-      ) : null}
-
-      {assistant ? (
-        <ConversationMessageCard
-          message={assistant}
-          sender="assistant"
-          className={cn(
-            !user &&
-              "lg:col-start-2",
-          )}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-/** Renders the paired persisted conversation, composer, and supported workflow controls. */
+/** Renders the chronological persisted transcript, composer, and supported workflow controls. */
 export function OrchestratorConversation({
   projectPath,
   conversation,
@@ -189,11 +181,6 @@ export function OrchestratorConversation({
       runStatus,
     );
 
-  const exchanges =
-    pairConversationMessages(
-      messages,
-    );
-
   return (
     <Card className="flex min-h-[620px] min-w-0 flex-col overflow-hidden 2xl:h-[700px]">
       <CardHeader className="border-b border-divider px-4 py-3">
@@ -204,7 +191,7 @@ export function OrchestratorConversation({
             </CardTitle>
 
             <p className="mt-1 text-[11px] text-text-muted">
-              User and Orchestrator exchanges
+              Orchestrator left, you right
             </p>
           </div>
 
@@ -224,7 +211,7 @@ export function OrchestratorConversation({
             <MessageScroller>
               <MessageScrollerViewport>
                 <MessageScrollerContent
-                  className="gap-3 p-3"
+                  className="gap-3 p-3 sm:p-4"
                   aria-busy={
                     busyAction ===
                       "send" ||
@@ -234,28 +221,25 @@ export function OrchestratorConversation({
                       "explain-status"
                   }
                 >
-                  {exchanges.length ? (
-                    exchanges.map(
-                      (exchange) => (
+                  {messages.length ? (
+                    messages.map(
+                      (message) => (
                         <MessageScrollerItem
                           key={
-                            exchange.id
+                            message.id
                           }
                           messageId={
-                            exchange.id
+                            message.id
                           }
                           scrollAnchor={
-                            exchange.user !==
-                            null
+                            message.role ===
+                            "user"
                           }
                           className="py-0.5"
                         >
-                          <ConversationExchangeRow
-                            user={
-                              exchange.user
-                            }
-                            assistant={
-                              exchange.assistant
+                          <ConversationMessageRow
+                            message={
+                              message
                             }
                           />
                         </MessageScrollerItem>
