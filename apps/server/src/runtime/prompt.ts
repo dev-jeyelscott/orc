@@ -7,10 +7,10 @@ export const RESULT_BLOCK_END = "</orc-result>";
 
 const RESULT_CONTRACT = [
   "Structured completion contract:",
-  `As the very last content of your final message, emit a single JSON object wrapped exactly in ${RESULT_BLOCK_START} and ${RESULT_BLOCK_END} delimiters, with nothing else between them. The JSON object must match this shape:`,
-  '{"status":"completed"|"approved"|"changes_requested"|"blocked"|"failed","summary":"string","details":{},"findings":["string"],"filesChanged":["string"],"commandsRun":["string"],"validation":{},"commit":"string or null"}',
-  "Field notes: `summary` is required and must be non-empty. `details`, `findings`, `filesChanged`, `commandsRun`, and `validation` may be empty but must be present as their respective empty value if you have nothing to report. `commit` must be the Git commit hash you created, or null if you did not create a commit.",
-  `Do not include any text, code fences, or commentary between ${RESULT_BLOCK_START} and ${RESULT_BLOCK_END} other than that single JSON object.`,
+  `As the very last content of your final message, emit exactly one JSON object wrapped in ${RESULT_BLOCK_START} and ${RESULT_BLOCK_END}. The closing ${RESULT_BLOCK_END} tag must be the final non-whitespace content of the message. The JSON object must match this shape:`,
+  '{"status":"completed"|"approved"|"changes_requested"|"blocked"|"failed","summary":"string","details":{},"findings":["string"],"filesChanged":["string"],"commandsRun":["string"],"validation":{},"commit":"hex Git commit hash or null"}',
+  "Field notes: `summary` is required and must be non-empty. `details`, `findings`, `filesChanged`, `commandsRun`, and `validation` may be empty but should be present as their respective empty value if you have nothing to report. `commit` must be a Git commit hash attributable to this logical execution, or null if no commit was created.",
+  `Do not include code fences or commentary inside ${RESULT_BLOCK_START} and ${RESULT_BLOCK_END}. Do not emit a second result block.`,
 ].join("\n");
 
 const SAFE_COMMAND_GUIDANCE = [
@@ -80,6 +80,12 @@ export function composeHandoffNote(
     `Previous summary: ${result.summary}`,
   ];
 
+  if (Object.keys(result.details).length) {
+    lines.push(
+      `Details: ${JSON.stringify(result.details)}`,
+    );
+  }
+
   if (result.findings.length) {
     lines.push(
       "Findings:",
@@ -89,7 +95,15 @@ export function composeHandoffNote(
 
   if (result.filesChanged.length) {
     lines.push(
-      `Files changed: ${result.filesChanged.join(", ")}`,
+      "Files changed:",
+      ...result.filesChanged.map((file) => `- ${file}`),
+    );
+  }
+
+  if (result.commandsRun.length) {
+    lines.push(
+      "Commands run:",
+      ...result.commandsRun.map((command) => `- ${command}`),
     );
   }
 
@@ -99,29 +113,35 @@ export function composeHandoffNote(
     );
   }
 
+  if (result.commit) {
+    lines.push(`Commit: ${result.commit}`);
+  }
+
   return lines.join("\n");
 }
 
-/** Composes the single controlled structured-result repair instruction. */
+/** Composes the single side-effect-free structured-result repair instruction. */
 export function composeRepairInstruction(
   originalInstruction: string,
   invalidOutputExcerpt: string,
   validationErrors: string[],
 ): string {
   return [
-    "Your previous response did not include a valid structured completion result.",
+    "Your only job is to repair the previous structured completion result.",
+    "Do not execute or repeat the original task. Do not inspect the repository, modify/create/delete files, run terminal commands, or create Git commits. Do not perform any side effects.",
+    "Use only the supplied previous-output excerpt and validation errors. Do not invent new implementation work. You may preserve an existing commit hash from the original execution if it was already reported, but do not create a new commit.",
     "",
-    "Original task instruction:",
+    "Original task instruction, for context only:",
     originalInstruction,
     "",
-    "Problems found with your previous result:",
+    "Problems found with the previous result:",
     ...validationErrors.map((error) => `- ${error}`),
     "",
-    "Excerpt of your previous output for reference:",
+    "Previous output excerpt:",
     invalidOutputExcerpt,
     "",
     RESULT_CONTRACT,
     "",
-    `Re-emit only the corrected ${RESULT_BLOCK_START}...${RESULT_BLOCK_END} block as the last content of your final message. Do not repeat unrelated prior output.`,
+    `Emit only the corrected ${RESULT_BLOCK_START}...${RESULT_BLOCK_END} block. The closing ${RESULT_BLOCK_END} tag must be the final non-whitespace content.`,
   ].join("\n");
 }

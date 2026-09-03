@@ -3,6 +3,7 @@ import { z } from "zod";
 import { agentExecutionStatusSchema } from "../enums/agent-execution-status.js";
 import { agentResultStatusSchema } from "../enums/agent-result-status.js";
 import { harnessSchema } from "../enums/harness.js";
+import { agentResultSchema } from "./agent-result.js";
 
 export const startAgentExecutionSchema = z.object({
   agentId: z.string().uuid(),
@@ -28,7 +29,7 @@ export const agentExecutionSchema = z.object({
   // resultStatus/resultPayload/repairAttempted are populated by the structured completion
   // contract. resultStatus/resultPayload remain null until a valid result is parsed.
   resultStatus: agentResultStatusSchema.nullable(),
-  resultPayload: z.unknown().nullable(),
+  resultPayload: agentResultSchema.nullable(),
   tokenUsage: z.record(z.string(), z.unknown()).nullable(),
   contextUsage: z.record(z.string(), z.unknown()).nullable(),
   commitHash: z.string().nullable(),

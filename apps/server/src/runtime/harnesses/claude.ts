@@ -48,44 +48,10 @@ function providerEvents(data: string): UnsequencedRuntimeEvent[] {
   });
 }
 
-/**
- * Extracts assistant-authored text from Claude assistant or final result events.
- *
- * Verified provider shapes:
- * assistant.message.content[].text
- * result.result
- */
+/** Extracts Claude's final result text from the terminal result event. */
 function extractMessageText(
   event: Record<string, unknown>,
 ): string | undefined {
-  if (event.type === "assistant") {
-    const message = event.message as { content?: unknown } | undefined;
-    const blocks = Array.isArray(message?.content)
-      ? message.content
-      : [];
-
-    const text = blocks
-      .filter(
-        (
-          block,
-        ): block is {
-          type: string;
-          text: string;
-        } => {
-          return (
-            typeof block === "object"
-            && block !== null
-            && (block as { type?: unknown }).type === "text"
-            && typeof (block as { text?: unknown }).text === "string"
-          );
-        },
-      )
-      .map((block) => block.text)
-      .join("");
-
-    return text.length > 0 ? text : undefined;
-  }
-
   if (
     event.type === "result"
     && typeof event.result === "string"

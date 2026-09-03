@@ -12,24 +12,72 @@ describe("agentResultSchema", () => {
       filesChanged: ["apps/server/src/index.ts"],
       commandsRun: ["pnpm test"],
       validation: { tests: "pass" },
-      commit: "abc1234",
+      commit: "abcdef1",
     };
+
     const result = agentResultSchema.parse(payload);
+
     expect(result).toEqual(payload);
   });
 
   it("rejects unknown status values", () => {
-    const result = agentResultSchema.safeParse({ status: "done", summary: "Finished." });
+    const result = agentResultSchema.safeParse({
+      status: "done",
+      summary: "Finished.",
+    });
+
     expect(result.success).toBe(false);
   });
 
   it("rejects a missing or empty summary", () => {
-    expect(agentResultSchema.safeParse({ status: "completed" }).success).toBe(false);
-    expect(agentResultSchema.safeParse({ status: "completed", summary: "   " }).success).toBe(false);
+    expect(
+      agentResultSchema.safeParse({
+        status: "completed",
+      }).success,
+    ).toBe(false);
+
+    expect(
+      agentResultSchema.safeParse({
+        status: "completed",
+        summary: "   ",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects unknown or misspelled contract fields", () => {
+    const result = agentResultSchema.safeParse({
+      status: "completed",
+      summary: "Finished.",
+      files_changed: ["src/index.ts"],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects non-hash commit metadata", () => {
+    expect(
+      agentResultSchema.safeParse({
+        status: "completed",
+        summary: "Finished.",
+        commit: "not-a-commit",
+      }).success,
+    ).toBe(false);
+
+    expect(
+      agentResultSchema.safeParse({
+        status: "completed",
+        summary: "Finished.",
+        commit: "",
+      }).success,
+    ).toBe(false);
   });
 
   it("applies defaults for optional fields", () => {
-    const result = agentResultSchema.parse({ status: "blocked", summary: "Needs operator input." });
+    const result = agentResultSchema.parse({
+      status: "blocked",
+      summary: "Needs operator input.",
+    });
+
     expect(result).toEqual({
       status: "blocked",
       summary: "Needs operator input.",

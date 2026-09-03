@@ -1,5 +1,7 @@
-import { and, asc, eq, gt } from "drizzle-orm";
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
+
+import { and, asc, eq, gt } from "drizzle-orm";
 
 import {
   agentResultSchema,
@@ -23,10 +25,14 @@ import {
   getHarnessAdapter,
   RESULT_BLOCK_END,
   RESULT_BLOCK_START,
+  startHarnessSession,
   startWorker,
   type RuntimeSession,
   type WorkerConfiguration,
 } from "../runtime/index.js";
+
+const COMMIT_VERIFY_TIMEOUT_MS = 5_000;
+const COMMIT_VERIFY_MAX_BUFFER = 64 * 1024;
 
 export class AgentExecutionServiceError extends Error {
   /** Creates a service error carrying the HTTP status expected by route handlers. */
@@ -66,6 +72,14 @@ type LiveExecutionState = {
   >;
 };
 
+type ResultOutcome =
+  | { ok: true; result: AgentResult }
+  | {
+      ok: false;
+      reasons: string[];
+      excerpt: string;
+    };
+
 const liveExecutions = new Map<string, LiveExecutionState>();
 const cancellationRequests = new Set<string>();
 const processSamples = new Map<
@@ -86,12 +100,50 @@ function serializeRun(row: typeof runs.$inferSelect): Run {
   };
 }
 
+/** Validates persisted result JSON before exposing it through the shared execution DTO. */
+function parsePersistedResult(
+  row: typeof agentExecutions.$inferSelect,
+): AgentResult | null {
+  if (row.resultPayload === null) {
+    if (row.resultStatus !== null) {
+      throw new AgentExecutionServiceError(
+        `Execution ${row.id} has a result status without a structured result payload`,
+        500,
+      );
+    }
+
+    return null;
+  }
+
+  const parsed = agentResultSchema.safeParse(row.resultPayload);
+
+  if (!parsed.success) {
+    throw new AgentExecutionServiceError(
+      `Execution ${row.id} contains an invalid persisted structured result`,
+      500,
+    );
+  }
+
+  if (
+    row.resultStatus === null ||
+    row.resultStatus !== parsed.data.status
+  ) {
+    throw new AgentExecutionServiceError(
+      `Execution ${row.id} has inconsistent persisted result status`,
+      500,
+    );
+  }
+
+  return parsed.data;
+}
+
 /** Serializes an execution database row into the shared API contract. */
 function serializeExecution(
   row: typeof agentExecutions.$inferSelect,
 ): AgentExecution {
   return {
     ...row,
+    resultPayload: parsePersistedResult(row),
     startedAt: row.startedAt
       ? row.startedAt.toISOString()
       : null,
@@ -155,6 +207,233 @@ function publishTerminalFrame(
       );
     }
   }
+}
+
+/** Counts exact delimiter occurrences without interpreting provider-authored text. */
+function countOccurrences(
+  value: string,
+  token: string,
+): number {
+  let count = 0;
+  let index = 0;
+
+  while (index < value.length) {
+    const found = value.indexOf(token, index);
+
+    if (found === -1) {
+      break;
+    }
+
+    count += 1;
+    index = found + token.length;
+  }
+
+  return count;
+}
+
+/** Resolves a reported hexadecimal commit hash to the canonical commit object in the project. */
+function resolveCommitHash(
+  projectPath: string,
+  reportedHash: string,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "git",
+      [
+        "-C",
+        projectPath,
+        "rev-parse",
+        "--verify",
+        `${reportedHash}^{commit}`,
+      ],
+      {
+        encoding: "utf8",
+        timeout: COMMIT_VERIFY_TIMEOUT_MS,
+        maxBuffer: COMMIT_VERIFY_MAX_BUFFER,
+      },
+      (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        const canonicalHash = stdout.trim();
+
+        if (!/^[0-9a-fA-F]{40,64}$/.test(canonicalHash)) {
+          reject(new Error("Git returned an invalid canonical commit hash"));
+          return;
+        }
+
+        resolve(canonicalHash.toLowerCase());
+      },
+    );
+  });
+}
+
+/** Extracts, validates, and normalizes the one final structured completion payload. */
+async function extractAndValidateResult(
+  messageText: string,
+  canCommit: boolean,
+  projectPath: string,
+): Promise<ResultOutcome> {
+  const finalMessage = messageText.trim();
+  const startCount = countOccurrences(
+    finalMessage,
+    RESULT_BLOCK_START,
+  );
+  const endCount = countOccurrences(
+    finalMessage,
+    RESULT_BLOCK_END,
+  );
+
+  if (startCount !== 1 || endCount !== 1) {
+    return {
+      ok: false,
+      reasons: [
+        `The final assistant completion must contain exactly one ${RESULT_BLOCK_START}...${RESULT_BLOCK_END} block.`,
+      ],
+      excerpt: finalMessage.slice(-2000),
+    };
+  }
+
+  const startIndex = finalMessage.indexOf(RESULT_BLOCK_START);
+  const endIndex = finalMessage.indexOf(
+    RESULT_BLOCK_END,
+    startIndex + RESULT_BLOCK_START.length,
+  );
+
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+    return {
+      ok: false,
+      reasons: [
+        `The final assistant completion did not contain a well-formed ${RESULT_BLOCK_START}...${RESULT_BLOCK_END} block.`,
+      ],
+      excerpt: finalMessage.slice(-2000),
+    };
+  }
+
+  const trailingContent = finalMessage
+    .slice(endIndex + RESULT_BLOCK_END.length)
+    .trim();
+
+  if (trailingContent.length > 0) {
+    return {
+      ok: false,
+      reasons: [
+        `The closing ${RESULT_BLOCK_END} tag must be the final non-whitespace content of the final assistant completion.`,
+      ],
+      excerpt: finalMessage.slice(-2000),
+    };
+  }
+
+  const raw = finalMessage
+    .slice(
+      startIndex + RESULT_BLOCK_START.length,
+      endIndex,
+    )
+    .trim();
+
+  let parsedJson: unknown;
+
+  try {
+    parsedJson = JSON.parse(raw);
+  } catch (error) {
+    return {
+      ok: false,
+      reasons: [
+        `The ${RESULT_BLOCK_START} block was not valid JSON: ${
+          error instanceof Error
+            ? error.message
+            : String(error)
+        }`,
+      ],
+      excerpt: raw,
+    };
+  }
+
+  const parsed = agentResultSchema.safeParse(parsedJson);
+
+  if (!parsed.success) {
+    return {
+      ok: false,
+      reasons: parsed.error.issues.map(
+        (issue) =>
+          `${issue.path.join(".") || "(root)"}: ${issue.message}`,
+      ),
+      excerpt: raw,
+    };
+  }
+
+  if (parsed.data.commit !== null && !canCommit) {
+    return {
+      ok: false,
+      reasons: [
+        "The result reported a `commit` hash, but this agent is not permitted to commit (canCommit is false).",
+      ],
+      excerpt: raw,
+    };
+  }
+
+  if (parsed.data.commit !== null) {
+    try {
+      const canonicalCommit = await resolveCommitHash(
+        projectPath,
+        parsed.data.commit,
+      );
+
+      return {
+        ok: true,
+        result: {
+          ...parsed.data,
+          commit: canonicalCommit,
+        },
+      };
+    } catch {
+      return {
+        ok: false,
+        reasons: [
+          `The reported commit ${parsed.data.commit} does not resolve to a Git commit in the selected repository.`,
+        ],
+        excerpt: raw,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    result: parsed.data,
+  };
+}
+
+/** Maps the structured worker result onto the execution lifecycle status. */
+function executionStatusForResult(
+  resultStatus: AgentResultStatus,
+): "completed" | "blocked" | "failed" {
+  if (resultStatus === "failed") {
+    return "failed";
+  }
+
+  if (resultStatus === "blocked") {
+    return "blocked";
+  }
+
+  return "completed";
+}
+
+/** Returns the process-level failure reason that overrides any agent-authored result. */
+function processFailureReason(
+  exitCode: number,
+  signal?: number,
+): string | null {
+  if (typeof signal === "number" && signal !== 0) {
+    return `Worker terminated by signal ${signal}.`;
+  }
+
+  if (exitCode !== 0) {
+    return `Worker exited with code ${exitCode}.`;
+  }
+
+  return null;
 }
 
 /** Creates a minimal run row used by the runtime integration endpoints. */
@@ -342,106 +621,6 @@ export async function startSnapshotAgentExecution(
   return serializeExecution(execution);
 }
 
-type ResultOutcome =
-  | { ok: true; result: AgentResult }
-  | {
-      ok: false;
-      reasons: string[];
-      excerpt: string;
-    };
-
-/** Extracts and validates the structured completion payload from provider-authored text. */
-function extractAndValidateResult(
-  messageText: string,
-  canCommit: boolean,
-): ResultOutcome {
-  const startIndex =
-    messageText.lastIndexOf(RESULT_BLOCK_START);
-
-  const endIndex = messageText.indexOf(
-    RESULT_BLOCK_END,
-    startIndex + RESULT_BLOCK_START.length,
-  );
-
-  if (startIndex === -1 || endIndex === -1) {
-    return {
-      ok: false,
-      reasons: [
-        `The final message did not contain a ${RESULT_BLOCK_START}...${RESULT_BLOCK_END} block.`,
-      ],
-      excerpt: messageText.slice(-2000),
-    };
-  }
-
-  const raw = messageText
-    .slice(
-      startIndex + RESULT_BLOCK_START.length,
-      endIndex,
-    )
-    .trim();
-
-  let parsedJson: unknown;
-
-  try {
-    parsedJson = JSON.parse(raw);
-  } catch (error) {
-    return {
-      ok: false,
-      reasons: [
-        `The ${RESULT_BLOCK_START} block was not valid JSON: ${
-          error instanceof Error
-            ? error.message
-            : String(error)
-        }`,
-      ],
-      excerpt: raw,
-    };
-  }
-
-  const parsed = agentResultSchema.safeParse(parsedJson);
-
-  if (!parsed.success) {
-    return {
-      ok: false,
-      reasons: parsed.error.issues.map(
-        (issue) =>
-          `${issue.path.join(".") || "(root)"}: ${issue.message}`,
-      ),
-      excerpt: raw,
-    };
-  }
-
-  if (parsed.data.commit !== null && !canCommit) {
-    return {
-      ok: false,
-      reasons: [
-        "The result reported a `commit` hash, but this agent is not permitted to commit (canCommit is false).",
-      ],
-      excerpt: raw,
-    };
-  }
-
-  return {
-    ok: true,
-    result: parsed.data,
-  };
-}
-
-/** Maps the structured worker result onto the execution lifecycle status. */
-function executionStatusForResult(
-  resultStatus: AgentResultStatus,
-): "completed" | "blocked" | "failed" {
-  if (resultStatus === "failed") {
-    return "failed";
-  }
-
-  if (resultStatus === "blocked") {
-    return "blocked";
-  }
-
-  return "completed";
-}
-
 type BridgeParams = {
   executionId: string;
   projectPath: string;
@@ -501,9 +680,7 @@ function bridgeSessionToDatabase(
     return next;
   };
 
-  /**
-   * Removes finalized live execution state only after the current persistence queue settles.
-   */
+  /** Removes finalized live execution state after the ordered persistence queue settles. */
   const scheduleCleanup = (): void => {
     const queueAtFinalization = writeQueue;
 
@@ -522,9 +699,7 @@ function bridgeSessionToDatabase(
     });
   };
 
-  /**
-   * Emits the execution-level completion frame only after final execution state is persisted.
-   */
+  /** Emits the execution-level completion frame only after final execution state is persisted. */
   const notifyFinalized = async (
     finalization: ExecutionFinalization,
     exitCode: number | null,
@@ -567,10 +742,7 @@ function bridgeSessionToDatabase(
         .where(eq(agentExecutions.id, executionId)),
     );
 
-  /**
-   * Persists fields directly while already executing inside the ordered write queue.
-   * Throwing here prevents false terminal completion when authoritative persistence fails.
-   */
+  /** Persists fields directly while already executing inside the ordered write queue. */
   async function persistExecutionFields(
     fields: Partial<typeof agentExecutions.$inferInsert>,
   ): Promise<void> {
@@ -583,12 +755,47 @@ function bridgeSessionToDatabase(
       .where(eq(agentExecutions.id, executionId));
   }
 
-  /** Finalizes one PTY attempt or starts the single structured-result repair attempt. */
+  /** Persists an authoritative process failure without inspecting or repairing result content. */
+  async function failForProcessTermination(
+    exitCode: number,
+    signal?: number,
+  ): Promise<void> {
+    const failureReason =
+      processFailureReason(exitCode, signal) ??
+      "Worker process terminated unexpectedly.";
+
+    const finalization: ExecutionFinalization = {
+      executionId,
+      status: "failed",
+      resultStatus: null,
+      failureReason,
+      result: null,
+    };
+
+    await persistExecutionFields({
+      status: "failed",
+      resultStatus: null,
+      resultPayload: null,
+      commitHash: null,
+      failureReason,
+      exitCode,
+      completedAt: new Date(),
+    });
+
+    await notifyFinalized(finalization, exitCode);
+  }
+
+  /** Finalizes one successful PTY attempt or starts the single structured-result repair attempt. */
   async function finalizeAttempt(
     exitCode: number,
-    messageText: string,
+    signal: number | undefined,
+    finalMessageText: string,
     attempt: 1 | 2,
   ): Promise<void> {
+    if (finalizationSent) {
+      return;
+    }
+
     if (cancellationRequests.has(executionId)) {
       const finalization: ExecutionFinalization = {
         executionId,
@@ -601,6 +808,8 @@ function bridgeSessionToDatabase(
       await persistExecutionFields({
         status: "cancelled",
         resultStatus: null,
+        resultPayload: null,
+        commitHash: null,
         failureReason: finalization.failureReason,
         exitCode,
         completedAt: new Date(),
@@ -610,9 +819,15 @@ function bridgeSessionToDatabase(
       return;
     }
 
-    const outcome = extractAndValidateResult(
-      messageText,
+    if (processFailureReason(exitCode, signal)) {
+      await failForProcessTermination(exitCode, signal);
+      return;
+    }
+
+    const outcome = await extractAndValidateResult(
+      finalMessageText,
       agent.canCommit,
+      projectPath,
     );
 
     if (outcome.ok) {
@@ -633,9 +848,7 @@ function bridgeSessionToDatabase(
         status,
         resultStatus: result.status,
         resultPayload: result,
-        commitHash: agent.canCommit
-          ? result.commit
-          : null,
+        commitHash: result.commit,
         failureReason: null,
         exitCode,
         completedAt: new Date(),
@@ -662,11 +875,21 @@ function bridgeSessionToDatabase(
         processSamples.delete(previousPid);
       }
 
-      const repairSession = startWorker({
-        projectPath,
-        agent,
-        instruction: repairInstruction,
-      });
+      const repairAgent: WorkerConfiguration = {
+        ...agent,
+        canWrite: false,
+        canRunCommands: false,
+        canCommit: false,
+      };
+
+      const repairSession = startHarnessSession(
+        {
+          projectPath,
+          agent: repairAgent,
+          instruction: repairInstruction,
+        },
+        repairInstruction,
+      );
 
       liveState.session = repairSession;
 
@@ -689,6 +912,8 @@ function bridgeSessionToDatabase(
     await persistExecutionFields({
       status: "failed",
       resultStatus: null,
+      resultPayload: null,
+      commitHash: null,
       failureReason,
       exitCode,
       completedAt: new Date(),
@@ -702,7 +927,7 @@ function bridgeSessionToDatabase(
     session: RuntimeSession,
     attempt: 1 | 2,
   ): void {
-    let messageText = "";
+    let finalMessageText = "";
 
     if (session.metadata.pid !== null) {
       const now = new Date();
@@ -776,7 +1001,7 @@ function bridgeSessionToDatabase(
             );
 
           if (text) {
-            messageText += text;
+            finalMessageText = text;
           }
 
           break;
@@ -786,7 +1011,8 @@ function bridgeSessionToDatabase(
           void enqueue(() =>
             finalizeAttempt(
               event.exitCode,
-              messageText,
+              event.signal,
+              finalMessageText,
               attempt,
             ),
           );
@@ -810,6 +1036,8 @@ function bridgeSessionToDatabase(
           void finalize({
             status: "failed",
             resultStatus: null,
+            resultPayload: null,
+            commitHash: null,
             failureReason,
             completedAt: new Date(),
           }).then(async (persisted) => {

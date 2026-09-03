@@ -157,6 +157,39 @@ describe("harness adapters", () => {
     expect(getHarnessAdapter("codex")).toBe(codexHarness);
   });
 
+  it("extracts only completed/final assistant content for contract validation", () => {
+    expect(
+      claudeHarness.extractMessageText?.({
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "text",
+              text: "Intermediate assistant content",
+            },
+          ],
+        },
+      }),
+    ).toBeUndefined();
+
+    expect(
+      claudeHarness.extractMessageText?.({
+        type: "result",
+        result: "Claude final completion",
+      }),
+    ).toBe("Claude final completion");
+
+    expect(
+      codexHarness.extractMessageText?.({
+        type: "item.completed",
+        item: {
+          type: "agent_message",
+          text: "Codex completed message",
+        },
+      }),
+    ).toBe("Codex completed message");
+  });
+
   it("fails explicitly for unsupported Claude effort configuration", () => {
     expect(() => {
       claudeHarness.createInvocation(
