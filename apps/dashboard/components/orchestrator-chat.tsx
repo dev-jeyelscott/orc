@@ -212,6 +212,14 @@ export function OrchestratorChat() {
   );
 
   const [
+    pendingMessage,
+    setPendingMessage,
+  ] = useState<{
+    content: string;
+    createdAt: string;
+  } | null>(null);
+
+  const [
     now,
     setNow,
   ] = useState(() =>
@@ -655,6 +663,15 @@ export function OrchestratorChat() {
       const conversationId =
         conversation.id;
 
+      setPendingMessage({
+        content: trimmed,
+        createdAt: new Date().toISOString(),
+      });
+
+      if (clearDraft) {
+        setContent("");
+      }
+
       setBusyAction(
         action,
       );
@@ -670,10 +687,6 @@ export function OrchestratorChat() {
         await refreshConversation(
           conversationId,
         );
-
-        if (clearDraft) {
-          setContent("");
-        }
 
         try {
           await refreshConversationList();
@@ -697,6 +710,7 @@ export function OrchestratorChat() {
         }
       } finally {
         setBusyAction(null);
+        setPendingMessage(null);
       }
     };
 
@@ -974,6 +988,9 @@ export function OrchestratorChat() {
                   busyAction={
                     busyAction
                   }
+                  pendingMessage={
+                    pendingMessage
+                  }
                   onContentChange={
                     setContent
                   }
@@ -1085,6 +1102,9 @@ export function OrchestratorChat() {
             }
             busyAction={
               busyAction
+            }
+            pendingMessage={
+              pendingMessage
             }
             onContentChange={
               setContent

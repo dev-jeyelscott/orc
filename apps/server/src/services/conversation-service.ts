@@ -45,7 +45,7 @@ const DEFAULT_ORCHESTRATOR_SETTINGS: OrchestratorSettings =
     model:
       "default",
     reasoning:
-      "medium",
+      "low",
     systemPrompt:
       "You supervise engineering workflows. Use only supplied system state and never invent execution progress.",
   };
@@ -602,6 +602,64 @@ ${content}`;
 }
 
 /**
+ * Preloads authoritative project, task, and run state into the supervisor context
+ * to avoid unnecessary tool-call round trips for simple messages.
+ */
+async function preloadSupervisorContext(
+  conversation:
+    Conversation,
+  toolResults:
+    ToolHistoryItem[],
+): Promise<void> {
+  const preloadCalls: OrchestratorToolCall[] =
+    [
+      {
+        name: "get_project",
+        arguments: {},
+      },
+    ];
+
+  if (
+    conversation.taskId
+  ) {
+    preloadCalls.push({
+      name: "get_task",
+      arguments: {},
+    });
+  }
+
+  if (
+    conversation.runId
+  ) {
+    preloadCalls.push({
+      name: "get_run",
+      arguments: {},
+    });
+  }
+
+  for (
+    const tool of preloadCalls
+  ) {
+    try {
+      const execution =
+        await executeOrchestratorTool(
+          conversation,
+          tool,
+        );
+
+      toolResults.push({
+        tool,
+        result:
+          execution.result,
+      });
+    } catch {
+      // Preloading is a latency optimization only; the bounded tool loop can still
+      // request this state itself if a stale task/run reference makes it unavailable.
+    }
+  }
+}
+
+/**
  * Persists current task/run references after a successful orchestrator control action.
  */
 async function persistConversationReferences(
@@ -689,6 +747,19 @@ export async function postConversationMessage(
   const toolResults:
     ToolHistoryItem[] =
     [];
+
+  const initialConversation: Conversation =
+    {
+      ...found.conversation,
+      projectPath,
+      taskId,
+      runId,
+    };
+
+  await preloadSupervisorContext(
+    initialConversation,
+    toolResults,
+  );
 
   for (
     let round = 0;

@@ -59,6 +59,7 @@ interface OrchestratorConversationProps {
   content: string;
   runStatus: Run["status"] | null;
   busyAction: string | null;
+  pendingMessage: { content: string; createdAt: string } | null;
   className?: string;
   onContentChange: (content: string) => void;
   onSubmit: (
@@ -186,6 +187,47 @@ function ConversationExchangeRow({
   );
 }
 
+/** Renders an optimistic user message that has not yet been persisted. */
+function PendingUserMessage({
+  message,
+}: {
+  message: { content: string; createdAt: string };
+}) {
+  return (
+    <Message
+      align="end"
+      className="items-start gap-2.5 opacity-60"
+    >
+      <MessageAvatar
+        className={cn(
+          "mt-5 size-7 self-start border",
+          "border-brand-accent/40 bg-brand-accent/15 text-brand-accent",
+        )}
+      >
+        <UserIcon className="size-3.5" />
+      </MessageAvatar>
+
+      <MessageContent
+        className="max-w-[84%] sm:max-w-[78%] lg:max-w-[72%] items-end"
+      >
+        <MessageHeader className="mb-1.5 gap-2 px-1 text-[10px] justify-end">
+          <span className="font-medium text-text-secondary">
+            You
+          </span>
+
+          <span className="text-text-muted">
+            Sending…
+          </span>
+        </MessageHeader>
+
+        <div className="w-fit max-w-full whitespace-pre-wrap break-words rounded-xl border border-brand-accent/40 bg-brand-accent px-3.5 py-2.5 text-xs leading-5 shadow-xs text-primary-foreground">
+          {message.content}
+        </div>
+      </MessageContent>
+    </Message>
+  );
+}
+
 /** Renders the approved chat-focused conversation experience and its supported supervisor actions. */
 export function OrchestratorConversation({
   projectPath,
@@ -194,6 +236,7 @@ export function OrchestratorConversation({
   content,
   runStatus,
   busyAction,
+  pendingMessage,
   className,
   onContentChange,
   onSubmit,
@@ -347,6 +390,19 @@ export function OrchestratorConversation({
                       </div>
                     </MessageScrollerItem>
                   )}
+
+                  {conversation &&
+                  pendingMessage ? (
+                    <MessageScrollerItem
+                      messageId="pending-user-message"
+                    >
+                      <PendingUserMessage
+                        message={
+                          pendingMessage
+                        }
+                      />
+                    </MessageScrollerItem>
+                  ) : null}
 
                   {conversation &&
                   supervisorBusy ? (
