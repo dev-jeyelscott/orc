@@ -2,6 +2,7 @@ import {
   asc,
   desc,
   eq,
+  inArray,
   isNotNull,
   sql,
 } from "drizzle-orm";
@@ -41,18 +42,19 @@ type PersistedTask =
 type PersistedRun =
   typeof runs.$inferSelect;
 
+type EligibilityExecution = {
+  resultStatus:
+    AgentResultStatus | null;
+  completedAt:
+    Date | null;
+};
+
 export type AutoModeEligibilitySnapshot =
   | {
       runStatus:
         Run["status"];
       latestExecution:
-        | {
-            resultStatus:
-              AgentResultStatus | null;
-            completedAt:
-              Date | null;
-          }
-        | null;
+        EligibilityExecution | null;
     }
   | null;
 
@@ -77,15 +79,20 @@ export type AutoModeNotionAdapter =
 
 type StartExistingTask =
   (
-    id: string,
+    id:
+      string,
   ) => Promise<unknown | null>;
+
+type CanClaimTask =
+  () => Promise<boolean>;
 
 export type AutoModeCycleDependencies = {
   getSettings?:
     () => Promise<SystemSettings>;
   evaluateEligibility?:
     (
-      now?: Date,
+      now?:
+        Date,
     ) => Promise<AutoModeEligibility>;
   isEnabled?:
     () => Promise<boolean>;
@@ -178,6 +185,9 @@ export async function updateSystemSettings(
   input:
     UpdateSystemSettings,
 ): Promise<SystemSettings> {
+  const now =
+    new Date();
+
   const [updated] =
     await db
       .insert(
@@ -189,7 +199,7 @@ export async function updateSystemSettings(
         autoModeEnabled:
           input.autoModeEnabled,
         updatedAt:
-          new Date(),
+          now,
       })
       .onConflictDoUpdate({
         target:
@@ -198,7 +208,7 @@ export async function updateSystemSettings(
           autoModeEnabled:
             input.autoModeEnabled,
           updatedAt:
-            new Date(),
+            now,
         },
       })
       .returning();
@@ -312,7 +322,54 @@ export function resolveAutoModeEligibility(
 }
 
 /**
- * Finds the task whose persisted run or worker-execution activity occurred most recently.
+ * Finds any currently active workflow before historical approval state is considered.
+ */
+async function getActiveRunSnapshot(): Promise<AutoModeEligibilitySnapshot> {
+  const [activeRun] =
+    await db
+      .select({
+        status:
+          runs.status,
+      })
+      .from(runs)
+      .where(
+        inArray(
+          runs.status,
+          [
+            "pending",
+            "running",
+          ],
+        ),
+      )
+      .orderBy(
+        desc(
+          runs.updatedAt,
+        ),
+        desc(
+          runs.createdAt,
+        ),
+        desc(
+          runs.id,
+        ),
+      )
+      .limit(1);
+
+  if (
+    !activeRun
+  ) {
+    return null;
+  }
+
+  return {
+    runStatus:
+      activeRun.status,
+    latestExecution:
+      null,
+  };
+}
+
+/**
+ * Finds the task whose persisted workflow activity was updated most recently.
  */
 async function getMostRecentlyExecutedTaskId(): Promise<string | null> {
   const [activity] =
@@ -322,13 +379,6 @@ async function getMostRecentlyExecutedTaskId(): Promise<string | null> {
           runs.taskId,
       })
       .from(runs)
-      .leftJoin(
-        agentExecutions,
-        eq(
-          agentExecutions.runId,
-          runs.id,
-        ),
-      )
       .where(
         isNotNull(
           runs.taskId,
@@ -336,7 +386,7 @@ async function getMostRecentlyExecutedTaskId(): Promise<string | null> {
       )
       .orderBy(
         desc(
-          sql`coalesce(${agentExecutions.createdAt}, ${runs.createdAt})`,
+          runs.updatedAt,
         ),
         desc(
           runs.createdAt,
@@ -392,17 +442,7 @@ async function getLatestRunForTask(
 async function getLatestExecutionForRun(
   runId:
     string,
-): Promise<
-  AutoModeEligibilitySnapshot extends
-    infer _Snapshot
-    ? {
-        resultStatus:
-          AgentResultStatus | null;
-        completedAt:
-          Date | null;
-      } | null
-    : never
-> {
+): Promise<EligibilityExecution | null> {
   const [execution] =
     await db
       .select({
@@ -437,9 +477,18 @@ async function getLatestExecutionForRun(
 }
 
 /**
- * Builds the exact persisted snapshot used by the eligibility gate.
+ * Builds the persisted snapshot used by the eligibility gate, with active workflows taking precedence over history.
  */
 async function getAutoModeEligibilitySnapshot(): Promise<AutoModeEligibilitySnapshot> {
+  const activeRun =
+    await getActiveRunSnapshot();
+
+  if (
+    activeRun
+  ) {
+    return activeRun;
+  }
+
   const taskId =
     await getMostRecentlyExecutedTaskId();
 
@@ -494,7 +543,7 @@ async function isAutoModeEnabled(): Promise<boolean> {
 }
 
 /**
- * Returns the small operator-facing automation state derived from persisted settings and workflow history.
+ * Returns the operator-facing automation state derived only from persisted settings and workflow history.
  */
 export async function getAutomationStatus(): Promise<AutomationStatus> {
   const settings =
@@ -585,7 +634,7 @@ async function findNotionTaskByExternalId(
 }
 
 /**
- * Persists one validated Notion candidate before any remote claim update and returns whether this cycle inserted it.
+ * Persists one validated Notion candidate before any remote claim update and reports whether this cycle inserted it.
  */
 async function persistNotionCandidate(
   candidate:
@@ -658,7 +707,7 @@ async function persistNotionCandidate(
 }
 
 /**
- * Maps durable local terminal or active state back to the constrained Notion Status values.
+ * Maps durable local workflow state back to one supported Notion task status.
  */
 function notionStatusForLocalState(
   status:
@@ -695,7 +744,7 @@ function notionStatusForLocalState(
 }
 
 /**
- * Updates a persisted local Notion task to In Progress remotely, rechecks Auto Mode, then starts the existing task.
+ * Updates one persisted Notion task to In Progress and starts it only while the durable gate still allows intake.
  */
 async function claimPersistedNotionTask(
   task:
@@ -704,8 +753,8 @@ async function claimPersistedNotionTask(
     AutoModeNotionAdapter,
   startExistingTask:
     StartExistingTask,
-  readEnabled:
-    () => Promise<boolean>,
+  canClaim:
+    CanClaimTask,
 ): Promise<void> {
   if (
     !task.externalId
@@ -716,7 +765,7 @@ async function claimPersistedNotionTask(
   }
 
   if (
-    !await readEnabled()
+    !await canClaim()
   ) {
     return;
   }
@@ -727,7 +776,7 @@ async function claimPersistedNotionTask(
   );
 
   if (
-    !await readEnabled()
+    !await canClaim()
   ) {
     return;
   }
@@ -738,7 +787,7 @@ async function claimPersistedNotionTask(
 }
 
 /**
- * Reconciles a duplicate Notion page identity against the already persisted local task instead of creating another task.
+ * Reconciles a duplicate Notion page identity against the existing local task instead of creating another task.
  */
 async function reconcileExistingNotionTask(
   task:
@@ -747,6 +796,8 @@ async function reconcileExistingNotionTask(
     AutoModeNotionAdapter,
   startExistingTask:
     StartExistingTask,
+  canClaim:
+    CanClaimTask,
   readEnabled:
     () => Promise<boolean>,
 ): Promise<void> {
@@ -772,8 +823,15 @@ async function reconcileExistingNotionTask(
       task,
       adapter,
       startExistingTask,
-      readEnabled,
+      canClaim,
     );
+
+    return;
+  }
+
+  if (
+    !await readEnabled()
+  ) {
     return;
   }
 
@@ -813,6 +871,21 @@ export async function runAutoModeCycle(
     dependencies.startExistingTask ??
     startTask;
 
+  /**
+   * Rechecks the persisted switch and eligibility gate immediately before any remote claim or local start.
+   */
+  async function canClaim(): Promise<boolean> {
+    if (
+      !await readEnabled()
+    ) {
+      return false;
+    }
+
+    return (
+      await evaluateEligibility()
+    ).eligible;
+  }
+
   const settings =
     await readSettings();
 
@@ -834,26 +907,36 @@ export async function runAutoModeCycle(
   const recoverable =
     await findRecoverablePendingNotionTask();
 
-  const adapter =
-    createAdapter();
-
   if (
     recoverable
   ) {
+    if (
+      !await canClaim()
+    ) {
+      return;
+    }
+
+    const adapter =
+      createAdapter();
+
     await claimPersistedNotionTask(
       recoverable,
       adapter,
       startExistingTask,
-      readEnabled,
+      canClaim,
     );
+
     return;
   }
 
   if (
-    !await readEnabled()
+    !await canClaim()
   ) {
     return;
   }
+
+  const adapter =
+    createAdapter();
 
   const candidate =
     await adapter.getNextReadyTask();
@@ -865,7 +948,7 @@ export async function runAutoModeCycle(
   }
 
   if (
-    !await readEnabled()
+    !await canClaim()
   ) {
     return;
   }
@@ -882,8 +965,10 @@ export async function runAutoModeCycle(
       persisted.task,
       adapter,
       startExistingTask,
+      canClaim,
       readEnabled,
     );
+
     return;
   }
 
@@ -891,6 +976,6 @@ export async function runAutoModeCycle(
     persisted.task,
     adapter,
     startExistingTask,
-    readEnabled,
+    canClaim,
   );
 }

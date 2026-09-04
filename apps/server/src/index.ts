@@ -18,7 +18,7 @@ import {
 } from "./services/workflow-service.js";
 
 /**
- * Recovers persisted workflow state, starts the Auto Mode scheduler, then serves the Fastify application.
+ * Recovers persisted workflow state, binds the server, then starts Auto Mode intake and polling.
  */
 async function main() {
   await recoverInterruptedWorkflows();
@@ -44,14 +44,14 @@ async function main() {
     },
   );
 
-  scheduler.start();
-
   await app.listen({
     port:
       env.SERVER_PORT,
     host:
       "0.0.0.0",
   });
+
+  scheduler.start();
 
   logger.info(
     `Server listening on port ${env.SERVER_PORT}`,
