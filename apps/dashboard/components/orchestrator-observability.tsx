@@ -54,6 +54,16 @@ interface OrchestratorObservabilityProps {
   now: number;
 }
 
+type AgentMetrics = {
+  cpuPercent: number | null;
+  memoryBytes: number | null;
+};
+
+type AgentMetricsState = {
+  executionId: string;
+  metrics: AgentMetrics;
+};
+
 /** Formats process memory telemetry without inventing a capacity or percentage. */
 function formatBytes(
   value: number | null,
@@ -142,29 +152,31 @@ function truncateText(
   )}...`;
 }
 
-/** Polls process metrics only while the selected execution can have live process telemetry. */
+/** Polls process metrics only while the selected execution can expose live process telemetry. */
 function useAgentMetrics(
   execution: AgentExecution | null,
 ) {
+  const liveExecutionId =
+    execution &&
+    [
+      "starting",
+      "running",
+    ].includes(
+      execution.status,
+    )
+      ? execution.id
+      : null;
+
   const [
-    metrics,
-    setMetrics,
-  ] = useState<{
-    cpuPercent: number | null;
-    memoryBytes: number | null;
-  } | null>(null);
+    metricsState,
+    setMetricsState,
+  ] =
+    useState<AgentMetricsState | null>(
+      null,
+    );
 
   useEffect(() => {
-    if (
-      !execution ||
-      ![
-        "starting",
-        "running",
-      ].includes(
-        execution.status,
-      )
-    ) {
-      setMetrics(null);
+    if (!liveExecutionId) {
       return;
     }
 
@@ -176,21 +188,28 @@ function useAgentMetrics(
         try {
           const next =
             await getAgentExecutionMetrics(
-              execution.id,
+              liveExecutionId,
             );
 
           if (!disposed) {
-            setMetrics(
-              next,
-            );
+            setMetricsState({
+              executionId:
+                liveExecutionId,
+              metrics:
+                next,
+            });
           }
         } catch {
           if (!disposed) {
-            setMetrics({
-              cpuPercent:
-                null,
-              memoryBytes:
-                null,
+            setMetricsState({
+              executionId:
+                liveExecutionId,
+              metrics: {
+                cpuPercent:
+                  null,
+                memoryBytes:
+                  null,
+              },
             });
           }
         }
@@ -214,11 +233,14 @@ function useAgentMetrics(
       );
     };
   }, [
-    execution?.id,
-    execution?.status,
+    liveExecutionId,
   ]);
 
-  return metrics;
+  return metricsState
+    ?.executionId ===
+    liveExecutionId
+    ? metricsState.metrics
+    : null;
 }
 
 /** Renders one compact definition-list field. */

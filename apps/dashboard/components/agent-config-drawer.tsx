@@ -7,7 +7,6 @@ import {
   XIcon,
 } from "lucide-react";
 import {
-  useEffect,
   useMemo,
   useState,
   type CSSProperties,
@@ -200,7 +199,9 @@ export function AgentConfigDrawer({
     useState<CreateAgent>(
       () =>
         createDraft(
-          agent,
+          mode === "edit"
+            ? agent
+            : null,
         ),
     );
 
@@ -217,27 +218,6 @@ export function AgentConfigDrawer({
     useState<string | null>(
       null,
     );
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    setDraft(
-      createDraft(
-        mode === "edit"
-          ? agent
-          : null,
-      ),
-    );
-
-    setError(null);
-  }, [
-    open,
-    mode,
-    agent?.id,
-    agent?.updatedAt,
-  ]);
 
   const selectedHarness =
     (

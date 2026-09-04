@@ -128,6 +128,11 @@ type BadgeVariant =
   | "error"
   | "neutral";
 
+type DetailErrorState = {
+  runId: string;
+  message: string;
+};
+
 /**
  * Converts an unknown request failure into an operator-readable message.
  */
@@ -340,7 +345,7 @@ export function RunsList() {
   >(null);
 
   const [
-    detail,
+    detailState,
     setDetail,
   ] = useState<
     RunMonitoringDetail | null
@@ -378,11 +383,6 @@ export function RunsList() {
   ] = useState(true);
 
   const [
-    detailLoading,
-    setDetailLoading,
-  ] = useState(false);
-
-  const [
     refreshing,
     setRefreshing,
   ] = useState(false);
@@ -395,10 +395,10 @@ export function RunsList() {
   >(null);
 
   const [
-    detailError,
-    setDetailError,
+    detailErrorState,
+    setDetailErrorState,
   ] = useState<
-    string | null
+    DetailErrorState | null
   >(null);
 
   const [
@@ -449,19 +449,18 @@ export function RunsList() {
         runsAbortRef.current =
           controller;
 
-        if (initial) {
-          setInitialLoading(
-            true,
-          );
-        } else {
-          setRefreshing(true);
-        }
-
         try {
           const value =
             await getRunMonitoringRuns(
               controller.signal,
             );
+
+          if (
+            controller.signal
+              .aborted
+          ) {
+            return;
+          }
 
           setRuns(value);
           setRunsError(null);
@@ -502,16 +501,11 @@ export function RunsList() {
           }
         } finally {
           if (
+            initial &&
             runsAbortRef.current ===
-            controller
+              controller
           ) {
-            if (initial) {
-              setInitialLoading(
-                false,
-              );
-            }
-
-            setRefreshing(
+            setInitialLoading(
               false,
             );
           }
@@ -527,7 +521,6 @@ export function RunsList() {
     useCallback(
       async (
         runId: string,
-        initial = false,
       ) => {
         detailAbortRef.current?.abort();
 
@@ -537,12 +530,6 @@ export function RunsList() {
         detailAbortRef.current =
           controller;
 
-        if (initial) {
-          setDetailLoading(
-            true,
-          );
-        }
-
         try {
           const value =
             await getRunMonitoringDetail(
@@ -550,28 +537,30 @@ export function RunsList() {
               controller.signal,
             );
 
+          if (
+            controller.signal
+              .aborted
+          ) {
+            return;
+          }
+
           setDetail(value);
-          setDetailError(null);
+          setDetailErrorState(
+            null,
+          );
         } catch (error) {
           if (
             !isAbortError(
               error,
             )
           ) {
-            setDetailError(
-              errorMessage(
-                error,
-              ),
-            );
-          }
-        } finally {
-          if (
-            detailAbortRef.current ===
-            controller
-          ) {
-            setDetailLoading(
-              false,
-            );
+            setDetailErrorState({
+              runId,
+              message:
+                errorMessage(
+                  error,
+                ),
+            });
           }
         }
       },
@@ -589,15 +578,17 @@ export function RunsList() {
 
   useEffect(() => {
     if (!selectedRunId) {
-      setDetail(null);
-      setDetailError(null);
+      detailAbortRef.current?.abort();
       return;
     }
 
     void loadDetail(
       selectedRunId,
-      true,
     );
+
+    return () => {
+      detailAbortRef.current?.abort();
+    };
   }, [
     loadDetail,
     selectedRunId,
@@ -624,7 +615,6 @@ export function RunsList() {
       if (selectedRunId) {
         void loadDetail(
           selectedRunId,
-          false,
         );
       }
     };
@@ -669,6 +659,25 @@ export function RunsList() {
     loadRuns,
     selectedRunId,
   ]);
+
+  const detail =
+    detailState?.run.id ===
+      selectedRunId
+      ? detailState
+      : null;
+
+  const detailError =
+    detailErrorState?.runId ===
+      selectedRunId
+      ? detailErrorState.message
+      : null;
+
+  const detailLoading =
+    Boolean(
+      selectedRunId,
+    ) &&
+    !detail &&
+    !detailError;
 
   const scopedRuns =
     useMemo(
@@ -737,15 +746,20 @@ export function RunsList() {
   const refreshSelected =
     useCallback(
       async () => {
-        await Promise.all([
-          loadRuns(false),
-          selectedRunId
-            ? loadDetail(
-                selectedRunId,
-                false,
-              )
-            : Promise.resolve(),
-        ]);
+        setRefreshing(true);
+
+        try {
+          await Promise.all([
+            loadRuns(false),
+            selectedRunId
+              ? loadDetail(
+                  selectedRunId,
+                )
+              : Promise.resolve(),
+          ]);
+        } finally {
+          setRefreshing(false);
+        }
       },
       [
         loadDetail,
@@ -783,7 +797,6 @@ export function RunsList() {
             loadRuns(false),
             loadDetail(
               selectedRunId,
-              false,
             ),
           ]);
         } catch (error) {
@@ -829,7 +842,6 @@ export function RunsList() {
             loadRuns(false),
             loadDetail(
               selectedRunId,
-              false,
             ),
           ]);
         } catch (error) {
@@ -2051,51 +2063,21 @@ function ExecutionsTable({
             <table className="w-full min-w-[1180px] border-collapse text-left text-[11px]">
               <thead>
                 <tr className="border-y border-divider bg-surface-interactive/40 text-text-muted">
-                  <th className="px-3 py-2 font-medium">
-                    Agent
-                  </th>
-                  <th className="px-3 py-2 font-medium">
-                    Layer / Order
-                  </th>
-                  <th className="px-3 py-2 font-medium">
-                    Harness
-                  </th>
-                  <th className="px-3 py-2 font-medium">
-                    Model
-                  </th>
-                  <th className="px-3 py-2 font-medium">
-                    Reasoning
-                  </th>
-                  <th className="px-3 py-2 font-medium">
-                    Status
-                  </th>
-                  <th className="px-3 py-2 font-medium">
-                    Result
-                  </th>
-                  <th className="px-3 py-2 font-medium">
-                    PID
-                  </th>
-                  <th className="px-3 py-2 font-medium">
-                    Started
-                  </th>
-                  <th className="px-3 py-2 font-medium">
-                    Completed
-                  </th>
-                  <th className="px-3 py-2 font-medium">
-                    Exit
-                  </th>
-                  <th className="px-3 py-2 font-medium">
-                    Tokens
-                  </th>
-                  <th className="px-3 py-2 font-medium">
-                    Context
-                  </th>
-                  <th className="px-3 py-2 font-medium">
-                    Commit
-                  </th>
-                  <th className="px-3 py-2 font-medium">
-                    Repair
-                  </th>
+                  <th className="px-3 py-2 font-medium">Agent</th>
+                  <th className="px-3 py-2 font-medium">Layer / Order</th>
+                  <th className="px-3 py-2 font-medium">Harness</th>
+                  <th className="px-3 py-2 font-medium">Model</th>
+                  <th className="px-3 py-2 font-medium">Reasoning</th>
+                  <th className="px-3 py-2 font-medium">Status</th>
+                  <th className="px-3 py-2 font-medium">Result</th>
+                  <th className="px-3 py-2 font-medium">PID</th>
+                  <th className="px-3 py-2 font-medium">Started</th>
+                  <th className="px-3 py-2 font-medium">Completed</th>
+                  <th className="px-3 py-2 font-medium">Exit</th>
+                  <th className="px-3 py-2 font-medium">Tokens</th>
+                  <th className="px-3 py-2 font-medium">Context</th>
+                  <th className="px-3 py-2 font-medium">Commit</th>
+                  <th className="px-3 py-2 font-medium">Repair</th>
                 </tr>
               </thead>
 

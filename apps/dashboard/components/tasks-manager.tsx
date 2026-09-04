@@ -63,6 +63,11 @@ const activeRunStatuses =
     "running",
   ]);
 
+type RunDetailErrorState = {
+  runId: string;
+  message: string;
+};
+
 /** Converts an unknown request failure into a stable Tasks-page message. */
 function getErrorMessage(
   error: unknown,
@@ -166,15 +171,10 @@ export function TasksManager() {
     );
 
   const [
-    runDetailLoading,
-    setRunDetailLoading,
-  ] = useState(false);
-
-  const [
-    runDetailError,
-    setRunDetailError,
+    runDetailErrorState,
+    setRunDetailErrorState,
   ] =
-    useState<string | null>(
+    useState<RunDetailErrorState | null>(
       null,
     );
 
@@ -284,14 +284,21 @@ export function TasksManager() {
     let cancelled =
       false;
 
-    void Promise.all([
-      loadProjects(),
-      loadWork(),
-    ]).finally(() => {
+    /**
+     * Loads the initial project and work collections before clearing the page-level loading state.
+     */
+    async function initialize() {
+      await Promise.all([
+        loadProjects(),
+        loadWork(),
+      ]);
+
       if (!cancelled) {
         setLoading(false);
       }
-    });
+    }
+
+    void initialize();
 
     return () => {
       cancelled = true;
@@ -382,20 +389,26 @@ export function TasksManager() {
       ? latestRunDetail
       : null;
 
+  const runDetailError =
+    runDetailErrorState
+      ?.runId ===
+      latestRunId
+      ? runDetailErrorState
+          .message
+      : null;
+
+  const runDetailLoading =
+    Boolean(
+      latestRunId,
+    ) &&
+    !visibleRunDetail &&
+    !runDetailError;
+
   useEffect(() => {
     if (
       !latestRunId ||
       !latestRunStatus
     ) {
-      setLatestRunDetail(
-        null,
-      );
-      setRunDetailLoading(
-        false,
-      );
-      setRunDetailError(
-        null,
-      );
       return;
     }
 
@@ -404,10 +417,6 @@ export function TasksManager() {
 
     /** Refreshes only the selected task's latest run and merges authoritative state back into page-level summaries. */
     async function loadSelectedRunDetail() {
-      setRunDetailLoading(
-        true,
-      );
-
       try {
         const detail =
           await getRun(
@@ -422,7 +431,7 @@ export function TasksManager() {
           detail,
         );
 
-        setRunDetailError(
+        setRunDetailErrorState(
           null,
         );
 
@@ -454,33 +463,18 @@ export function TasksManager() {
         }
       } catch (error) {
         if (!cancelled) {
-          setRunDetailError(
-            getErrorMessage(
-              error,
-              "Unable to load the latest run",
-            ),
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setRunDetailLoading(
-            false,
-          );
+          setRunDetailErrorState({
+            runId:
+              latestRunId,
+            message:
+              getErrorMessage(
+                error,
+                "Unable to load the latest run",
+              ),
+          });
         }
       }
     }
-
-    setLatestRunDetail(
-      (current) =>
-        current?.run.id ===
-        latestRunId
-          ? current
-          : null,
-    );
-
-    setRunDetailError(
-      null,
-    );
 
     void loadSelectedRunDetail();
 
@@ -504,6 +498,7 @@ export function TasksManager() {
 
     return () => {
       cancelled = true;
+
       window.clearInterval(
         timer,
       );
@@ -517,12 +512,14 @@ export function TasksManager() {
   async function refreshAll() {
     setIsRefreshing(true);
 
-    await Promise.all([
-      loadProjects(),
-      loadWork(),
-    ]);
-
-    setIsRefreshing(false);
+    try {
+      await Promise.all([
+        loadProjects(),
+        loadWork(),
+      ]);
+    } finally {
+      setIsRefreshing(false);
+    }
   }
 
   /** Adds the newly created immediate-start task to local state before a background reconciliation request. */

@@ -100,6 +100,18 @@ type ProcessMetrics = {
     number | null;
 };
 
+type LiveMetricsState = {
+  executionId: string;
+  metrics: ProcessMetrics;
+};
+
+type ObservabilityErrorState = {
+  agentId: string;
+  range:
+    AgentMonitoringRange;
+  message: string;
+};
+
 /**
  * Converts unknown request failures into a concise operator-facing message.
  */
@@ -154,10 +166,10 @@ export function AgentsManager() {
     );
 
   const [
-    liveMetrics,
-    setLiveMetrics,
+    liveMetricsState,
+    setLiveMetricsState,
   ] =
-    useState<ProcessMetrics | null>(
+    useState<LiveMetricsState | null>(
       null,
     );
 
@@ -196,12 +208,6 @@ export function AgentsManager() {
     useState(true);
 
   const [
-    observabilityLoading,
-    setObservabilityLoading,
-  ] =
-    useState(false);
-
-  const [
     error,
     setError,
   ] =
@@ -210,10 +216,10 @@ export function AgentsManager() {
     );
 
   const [
-    observabilityError,
-    setObservabilityError,
+    observabilityErrorState,
+    setObservabilityErrorState,
   ] =
-    useState<string | null>(
+    useState<ObservabilityErrorState | null>(
       null,
     );
 
@@ -230,6 +236,12 @@ export function AgentsManager() {
     useState<
       "create" | "edit"
     >("create");
+
+  const [
+    drawerSession,
+    setDrawerSession,
+  ] =
+    useState(0);
 
   const overviewAbort =
     useRef<AbortController | null>(
@@ -254,8 +266,6 @@ export function AgentsManager() {
 
         overviewAbort.current =
           controller;
-
-        setLoading(true);
 
         try {
           const next =
@@ -346,14 +356,6 @@ export function AgentsManager() {
 
   useEffect(() => {
     if (!selectedAgentId) {
-      setObservability(
-        null,
-      );
-
-      setObservabilityError(
-        null,
-      );
-
       return;
     }
 
@@ -378,14 +380,10 @@ export function AgentsManager() {
       controller =
         new AbortController();
 
-      setObservabilityLoading(
-        true,
-      );
-
       try {
         const next =
           await getAgentObservability(
-            selectedAgentId!,
+            selectedAgentId,
             range,
             controller.signal,
           );
@@ -402,7 +400,7 @@ export function AgentsManager() {
           next,
         );
 
-        setObservabilityError(
+        setObservabilityErrorState(
           null,
         );
 
@@ -423,24 +421,18 @@ export function AgentsManager() {
             caught,
           )
         ) {
-          setObservabilityError(
-            errorMessage(
-              caught,
-            ),
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setObservabilityLoading(
-            false,
-          );
+          setObservabilityErrorState({
+            agentId:
+              selectedAgentId,
+            range,
+            message:
+              errorMessage(
+                caught,
+              ),
+          });
         }
       }
     }
-
-    setObservability(
-      null,
-    );
 
     void loadSelectedObservability();
 
@@ -460,17 +452,39 @@ export function AgentsManager() {
     range,
   ]);
 
+  const visibleObservability =
+    observability?.agentId ===
+      selectedAgentId &&
+    observability.range ===
+      range
+      ? observability
+      : null;
+
+  const visibleObservabilityError =
+    observabilityErrorState
+      ?.agentId ===
+      selectedAgentId &&
+    observabilityErrorState
+      ?.range ===
+      range
+      ? observabilityErrorState
+          .message
+      : null;
+
+  const observabilityLoading =
+    Boolean(
+      selectedAgentId,
+    ) &&
+    !visibleObservability &&
+    !visibleObservabilityError;
+
+  const activeExecutionId =
+    visibleObservability
+      ?.activeExecution
+      ?.id ?? null;
+
   useEffect(() => {
-    const executionId =
-      observability
-        ?.activeExecution
-        ?.id;
-
-    if (!executionId) {
-      setLiveMetrics(
-        null,
-      );
-
+    if (!activeExecutionId) {
       return;
     }
 
@@ -484,21 +498,28 @@ export function AgentsManager() {
       try {
         const next =
           await getAgentExecutionMetrics(
-            executionId,
+            activeExecutionId,
           );
 
         if (!cancelled) {
-          setLiveMetrics(
-            next,
-          );
+          setLiveMetricsState({
+            executionId:
+              activeExecutionId,
+            metrics:
+              next,
+          });
         }
       } catch {
         if (!cancelled) {
-          setLiveMetrics({
-            cpuPercent:
-              null,
-            memoryBytes:
-              null,
+          setLiveMetricsState({
+            executionId:
+              activeExecutionId,
+            metrics: {
+              cpuPercent:
+                null,
+              memoryBytes:
+                null,
+            },
           });
         }
       }
@@ -521,14 +542,23 @@ export function AgentsManager() {
       );
     };
   }, [
-    observability
-      ?.activeExecution
-      ?.id,
+    activeExecutionId,
   ]);
 
+  const liveMetrics =
+    liveMetricsState
+      ?.executionId ===
+      activeExecutionId
+      ? liveMetricsState.metrics
+      : null;
+
   const agents =
-    overview?.agents ??
-    [];
+    useMemo(
+      () =>
+        overview?.agents ??
+        [],
+      [overview?.agents],
+    );
 
   const selectedAgent =
     agents.find(
@@ -601,18 +631,23 @@ export function AgentsManager() {
   }
 
   /**
-   * Opens the create-agent drawer without altering current selection.
+   * Opens a fresh create-agent drawer session without altering the current agent selection.
    */
   function openCreateDrawer() {
     setDrawerMode(
       "create",
     );
 
+    setDrawerSession(
+      (current) =>
+        current + 1,
+    );
+
     setDrawerOpen(true);
   }
 
   /**
-   * Opens the selected-agent edit drawer when a valid agent remains selected.
+   * Opens a fresh edit drawer session for the currently selected persisted agent.
    */
   function openEditDrawer() {
     if (!selectedAgent) {
@@ -621,6 +656,11 @@ export function AgentsManager() {
 
     setDrawerMode(
       "edit",
+    );
+
+    setDrawerSession(
+      (current) =>
+        current + 1,
     );
 
     setDrawerOpen(true);
@@ -633,6 +673,8 @@ export function AgentsManager() {
     preferredAgentId:
       string | null,
   ) {
+    setLoading(true);
+
     await loadOverview(
       range,
       preferredAgentId ??
@@ -771,8 +813,11 @@ export function AgentsManager() {
               value,
             ) => {
               if (
-                value
+                value &&
+                value !== range
               ) {
+                setLoading(true);
+
                 setRange(
                   value as AgentMonitoringRange,
                 );
@@ -812,11 +857,13 @@ export function AgentsManager() {
             type="button"
             size="icon-sm"
             variant="outline"
-            onClick={() =>
+            onClick={() => {
+              setLoading(true);
+
               void loadOverview(
                 range,
-              )
-            }
+              );
+            }}
             disabled={
               loading
             }
@@ -994,13 +1041,13 @@ export function AgentsManager() {
                   agents
                 }
                 observability={
-                  observability
+                  visibleObservability
                 }
                 loading={
                   observabilityLoading
                 }
                 error={
-                  observabilityError
+                  visibleObservabilityError
                 }
                 range={
                   range
@@ -1046,6 +1093,13 @@ export function AgentsManager() {
           </section>
 
           <AgentConfigDrawer
+            key={`${drawerSession}:${drawerMode}:${
+              drawerMode ===
+              "edit"
+                ? selectedAgent?.id ??
+                  "none"
+                : "create"
+            }`}
             open={
               drawerOpen
             }

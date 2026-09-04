@@ -7,7 +7,6 @@ import {
   XIcon,
 } from "lucide-react";
 import {
-  useEffect,
   useState,
   type CSSProperties,
   type FormEvent,
@@ -117,28 +116,19 @@ export function TaskCreateDrawer({
     setSubmitting,
   ] = useState(false);
 
-  useEffect(() => {
-    setProjectId(
-      (current) => {
-        if (
-          projects.some(
-            (project) =>
-              project.id ===
-              current,
-          )
-        ) {
-          return current;
-        }
-
-        return (
-          projects[0]?.id ?? ""
-        );
-      },
-    );
-  }, [projects]);
+  const selectedProjectId =
+    projects.some(
+      (project) =>
+        project.id ===
+        projectId,
+    )
+      ? projectId
+      : projects[0]?.id ??
+        "";
 
   const formComplete =
-    projectId.length > 0 &&
+    selectedProjectId.length >
+      0 &&
     title.trim().length > 0 &&
     instruction
       .trim()
@@ -150,7 +140,7 @@ export function TaskCreateDrawer({
     projects.length === 0 ||
     !formComplete;
 
-  /** Clears editable task content while retaining the valid selected repository. */
+  /** Clears editable task content while retaining the current valid repository selection. */
   function clearDraft() {
     setTitle("");
     setInstruction("");
@@ -184,7 +174,8 @@ export function TaskCreateDrawer({
     try {
       const created =
         await createTask({
-          projectId,
+          projectId:
+            selectedProjectId,
           title:
             title.trim(),
           instruction:
@@ -327,7 +318,7 @@ export function TaskCreateDrawer({
 
                 <Select
                   value={
-                    projectId ||
+                    selectedProjectId ||
                     null
                   }
                   onValueChange={(
@@ -347,7 +338,7 @@ export function TaskCreateDrawer({
                       submitting
                     }
                     aria-invalid={
-                      projectId.length ===
+                      selectedProjectId.length ===
                         0 &&
                       projects.length >
                         0
