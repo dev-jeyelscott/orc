@@ -83,19 +83,21 @@ const envSchema =
     NOTION_API_VERSION:
       z.literal(
         "2026-03-11",
-      ).optional(),
+      ).default(
+        "2026-03-11",
+      ),
     NOTION_POLL_INTERVAL_SECONDS:
       z.coerce
         .number()
         .int()
         .positive()
-        .optional(),
+        .default(30),
     NOTION_POST_APPROVAL_DELAY_SECONDS:
       z.coerce
         .number()
         .int()
         .nonnegative()
-        .optional(),
+        .default(5),
   })
     .superRefine(
       (
@@ -103,17 +105,10 @@ const envSchema =
         context,
       ) => {
         const notionConfigured =
-          [
-            value.NOTION_API_KEY,
-            value.NOTION_DATA_SOURCE_ID,
-            value.NOTION_API_VERSION,
-            value.NOTION_POLL_INTERVAL_SECONDS,
-            value.NOTION_POST_APPROVAL_DELAY_SECONDS,
-          ].some(
-            (item) =>
-              item !==
-              undefined,
-          );
+          value.NOTION_API_KEY !==
+            undefined ||
+          value.NOTION_DATA_SOURCE_ID !==
+            undefined;
 
         if (
           !notionConfigured
@@ -129,18 +124,6 @@ const envSchema =
           [
             "NOTION_DATA_SOURCE_ID",
             value.NOTION_DATA_SOURCE_ID,
-          ],
-          [
-            "NOTION_API_VERSION",
-            value.NOTION_API_VERSION,
-          ],
-          [
-            "NOTION_POLL_INTERVAL_SECONDS",
-            value.NOTION_POLL_INTERVAL_SECONDS,
-          ],
-          [
-            "NOTION_POST_APPROVAL_DELAY_SECONDS",
-            value.NOTION_POST_APPROVAL_DELAY_SECONDS,
           ],
         ] as const;
 

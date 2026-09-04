@@ -1,31 +1,64 @@
 import cors from "@fastify/cors";
 import Fastify from "fastify";
 
-import { loggerOptions } from "./logger.js";
-import { agentExecutionRoutes } from "./routes/agent-executions.js";
-import { agentMonitoringRoutes } from "./routes/agent-monitoring.js";
-import { agentRoutes } from "./routes/agents.js";
-import { conversationRoutes } from "./routes/conversations.js";
-import { dashboardRoutes } from "./routes/dashboard.js";
-import { eventRoutes } from "./routes/events.js";
-import { healthRoutes } from "./routes/health.js";
-import { projectRoutes } from "./routes/projects.js";
-import { workflowRoutes } from "./routes/workflows.js";
-import { registerWebSocket } from "./ws/index.js";
+import {
+  loggerOptions,
+} from "./logger.js";
+import {
+  agentExecutionRoutes,
+} from "./routes/agent-executions.js";
+import {
+  agentMonitoringRoutes,
+} from "./routes/agent-monitoring.js";
+import {
+  agentRoutes,
+} from "./routes/agents.js";
+import {
+  autoModeRoutes,
+} from "./routes/auto-mode.js";
+import {
+  conversationRoutes,
+} from "./routes/conversations.js";
+import {
+  dashboardRoutes,
+} from "./routes/dashboard.js";
+import {
+  eventRoutes,
+} from "./routes/events.js";
+import {
+  healthRoutes,
+} from "./routes/health.js";
+import {
+  projectRoutes,
+} from "./routes/projects.js";
+import {
+  workflowRoutes,
+} from "./routes/workflows.js";
+import {
+  registerWebSocket,
+} from "./ws/index.js";
 
 /**
  * Constructs and registers the complete Fastify application.
  */
 export async function buildApp() {
-  const app = Fastify({
-    logger: loggerOptions,
-  });
+  const app =
+    Fastify({
+      logger:
+        loggerOptions,
+    });
 
-  await app.register(cors, {
-    origin: true,
-  });
+  await app.register(
+    cors,
+    {
+      origin:
+        true,
+    },
+  );
 
-  await registerWebSocket(app);
+  await registerWebSocket(
+    app,
+  );
 
   await app.register(
     healthRoutes,
@@ -49,6 +82,10 @@ export async function buildApp() {
 
   await app.register(
     workflowRoutes,
+  );
+
+  await app.register(
+    autoModeRoutes,
   );
 
   await app.register(

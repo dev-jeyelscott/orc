@@ -1,49 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import {
-  PlayIcon,
-  PlusIcon,
-  RefreshCwIcon,
-} from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
-import type {
-  Project,
-  Run,
-  RunDetail,
-  Task,
-  TaskWithRun,
-} from "@orc/shared";
+import { PlayIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { Project, Run, RunDetail, Task, TaskWithRun } from "@orc/shared";
 
-import {
-  TaskCreateDrawer,
-} from "@/components/task-create-drawer";
-import {
-  TaskDetailPanel,
-} from "@/components/task-detail-panel";
-import {
-  TaskObservabilityPanel,
-} from "@/components/task-observability-panel";
-import {
-  TaskQueue,
-} from "@/components/task-queue";
-import {
-  Badge,
-} from "@/components/ui/badge";
-import {
-  Button,
-} from "@/components/ui/button";
-import {
-  Spinner,
-} from "@/components/ui/spinner";
-import {
-  getProjects,
-} from "@/lib/projects";
+import { TaskCreateDrawer } from "@/components/task-create-drawer";
+import { TaskDetailPanel } from "@/components/task-detail-panel";
+import { TaskObservabilityPanel } from "@/components/task-observability-panel";
+import { TaskQueue } from "@/components/task-queue";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
+import { getProjects } from "@/lib/projects";
 import {
   formatStatusLabel,
   getLifecycleBadgeVariant,
@@ -56,12 +25,29 @@ import {
   getTasks,
   retryRun,
 } from "@/lib/workflows";
+import type {
+  AutomationStatus,
+  Project,
+  Run,
+  RunDetail,
+  Task,
+  TaskWithRun,
+} from "@orc/shared";
 
-const activeRunStatuses =
-  new Set<Run["status"]>([
-    "pending",
-    "running",
-  ]);
+import { Switch } from "@/components/ui/switch";
+
+import {
+  cancelRun,
+  getAutomationStatus,
+  getAutoModeSettings,
+  getRun,
+  getRuns,
+  getTasks,
+  retryRun,
+  updateAutoModeSettings,
+} from "@/lib/workflows";
+
+const activeRunStatuses = new Set<Run["status"]>(["pending", "running"]);
 
 type RunDetailErrorState = {
   runId: string;
@@ -69,229 +55,181 @@ type RunDetailErrorState = {
 };
 
 /** Converts an unknown request failure into a stable Tasks-page message. */
-function getErrorMessage(
-  error: unknown,
-  fallback: string,
-): string {
-  return error instanceof Error
-    ? error.message
-    : fallback;
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
 }
 
 /** Orders related runs newest first even if a future API stops returning them in creation order. */
-function compareRunsNewestFirst(
-  left: Run,
-  right: Run,
-): number {
+function compareRunsNewestFirst(left: Run, right: Run): number {
   return (
-    new Date(
-      right.createdAt,
-    ).getTime() -
-    new Date(
-      left.createdAt,
-    ).getTime()
+    new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
   );
+}
+
+/**
+ * Converts backend automation state into the compact operator-facing label.
+ */
+function formatAutomationState(state: AutomationStatus["state"]): string {
+  if (state === "waiting_approval") {
+    return "Waiting approval";
+  }
+
+  if (state === "cooldown") {
+    return "Cooldown";
+  }
+
+  if (state === "running") {
+    return "Running";
+  }
+
+  if (state === "ready") {
+    return "Ready";
+  }
+
+  return "Off";
+}
+
+/**
+ * Maps backend automation state onto the existing semantic badge variants.
+ */
+function getAutomationBadgeVariant(
+  state: AutomationStatus["state"],
+): "running" | "success" | "warning" | "neutral" {
+  if (state === "running") {
+    return "running";
+  }
+
+  if (state === "ready") {
+    return "success";
+  }
+
+  if (state === "waiting_approval" || state === "cooldown") {
+    return "warning";
+  }
+
+  return "neutral";
 }
 
 /** Owns Tasks command-center state while delegating queue, detail, drawer, and observability rendering. */
 export function TasksManager() {
-  const [
-    projects,
-    setProjects,
-  ] = useState<Project[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
 
-  const [
-    tasks,
-    setTasks,
-  ] = useState<Task[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
 
-  const [
-    runs,
-    setRuns,
-  ] = useState<Run[]>([]);
+  const [runs, setRuns] = useState<Run[]>([]);
 
-  const [
-    selectedTaskId,
-    setSelectedTaskId,
-  ] =
-    useState<string | null>(
-      null,
-    );
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
-  const [
-    query,
-    setQuery,
-  ] = useState("");
+  const [query, setQuery] = useState("");
 
-  const [
-    createOpen,
-    setCreateOpen,
-  ] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
 
-  const [
-    loading,
-    setLoading,
-  ] = useState(true);
+  const [loading, setLoading] = useState(true);
 
-  const [
-    isRefreshing,
-    setIsRefreshing,
-  ] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const [
-    workError,
-    setWorkError,
-  ] =
-    useState<string | null>(
-      null,
-    );
+  const [workError, setWorkError] = useState<string | null>(null);
 
-  const [
-    projectError,
-    setProjectError,
-  ] =
-    useState<string | null>(
-      null,
-    );
+  const [projectError, setProjectError] = useState<string | null>(null);
 
-  const [
-    busyRunId,
-    setBusyRunId,
-  ] =
-    useState<string | null>(
-      null,
-    );
+  const [busyRunId, setBusyRunId] = useState<string | null>(null);
 
-  const [
-    latestRunDetail,
-    setLatestRunDetail,
-  ] =
-    useState<RunDetail | null>(
-      null,
-    );
+  const [latestRunDetail, setLatestRunDetail] = useState<RunDetail | null>(
+    null,
+  );
 
-  const [
-    runDetailErrorState,
-    setRunDetailErrorState,
-  ] =
-    useState<RunDetailErrorState | null>(
-      null,
-    );
+  const [autoModeEnabled, setAutoModeEnabled] = useState(false);
+
+  const [automationStatus, setAutomationStatus] = useState<AutomationStatus>({
+    state: "off",
+    nextEligibleAt: null,
+  });
+
+  const [automationLoading, setAutomationLoading] = useState(true);
+
+  const [automationUpdating, setAutomationUpdating] = useState(false);
+
+  const [automationError, setAutomationError] = useState<string | null>(null);
+
+  const [runDetailErrorState, setRunDetailErrorState] =
+    useState<RunDetailErrorState | null>(null);
 
   /** Loads filesystem-backed project metadata without making project discovery failure hide task history. */
-  const loadProjects =
-    useCallback(
-      async () => {
-        try {
-          const result =
-            await getProjects();
+  const loadProjects = useCallback(async () => {
+    try {
+      const result = await getProjects();
 
-          setProjects(
-            result.projects,
-          );
+      setProjects(result.projects);
 
-          setProjectError(
-            result.error,
-          );
-        } catch (error) {
-          setProjectError(
-            getErrorMessage(
-              error,
-              "Unable to load discovered projects",
-            ),
-          );
-        }
-      },
-      [],
-    );
+      setProjectError(result.error);
+    } catch (error) {
+      setProjectError(
+        getErrorMessage(error, "Unable to load discovered projects"),
+      );
+    }
+  }, []);
 
   /** Loads task and run lists together because queue selection and related-run resolution depend on both collections. */
-  const loadWork =
-    useCallback(
-      async () => {
-        try {
-          const [
-            nextTasks,
-            nextRuns,
-          ] =
-            await Promise.all(
-              [
-                getTasks(),
-                getRuns(),
-              ],
-            );
+  const loadWork = useCallback(async () => {
+    try {
+      const [nextTasks, nextRuns] = await Promise.all([getTasks(), getRuns()]);
 
-          setTasks(
-            nextTasks,
-          );
+      setTasks(nextTasks);
 
-          setRuns(
-            nextRuns,
-          );
+      setRuns(nextRuns);
 
-          setWorkError(null);
+      setWorkError(null);
 
-          setSelectedTaskId(
-            (current) => {
-              if (
-                current &&
-                nextTasks.some(
-                  (task) =>
-                    task.id ===
-                    current,
-                )
-              ) {
-                return current;
-              }
-
-              const activeRun =
-                nextRuns.find(
-                  (run) =>
-                    activeRunStatuses.has(
-                      run.status,
-                    ),
-                );
-
-              const runningTask =
-                nextTasks.find(
-                  (task) =>
-                    task.status ===
-                    "running",
-                );
-
-              return (
-                activeRun?.taskId ??
-                runningTask?.id ??
-                nextTasks[0]
-                  ?.id ??
-                null
-              );
-            },
-          );
-        } catch (error) {
-          setWorkError(
-            getErrorMessage(
-              error,
-              "Unable to load tasks and runs",
-            ),
-          );
+      setSelectedTaskId((current) => {
+        if (current && nextTasks.some((task) => task.id === current)) {
+          return current;
         }
-      },
-      [],
-    );
+
+        const activeRun = nextRuns.find((run) =>
+          activeRunStatuses.has(run.status),
+        );
+
+        const runningTask = nextTasks.find((task) => task.status === "running");
+
+        return activeRun?.taskId ?? runningTask?.id ?? nextTasks[0]?.id ?? null;
+      });
+    } catch (error) {
+      setWorkError(getErrorMessage(error, "Unable to load tasks and runs"));
+    }
+  }, []);
+
+  /**
+   * Loads persisted Auto Mode state and the server-derived operator status without duplicating scheduler logic in the browser.
+   */
+  const loadAutomation = useCallback(async () => {
+    try {
+      const [settings, status] = await Promise.all([
+        getAutoModeSettings(),
+        getAutomationStatus(),
+      ]);
+
+      setAutoModeEnabled(settings.autoModeEnabled);
+
+      setAutomationStatus(status);
+
+      setAutomationError(null);
+    } catch (error) {
+      setAutomationError(
+        getErrorMessage(error, "Unable to load Auto Mode status"),
+      );
+    } finally {
+      setAutomationLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled =
-      false;
+    let cancelled = false;
 
     /**
      * Loads the initial project and work collections before clearing the page-level loading state.
      */
     async function initialize() {
-      await Promise.all([
-        loadProjects(),
-        loadWork(),
-      ]);
+      await Promise.all([loadProjects(), loadWork(), loadAutomation()]);
 
       if (!cancelled) {
         setLoading(false);
@@ -303,174 +241,104 @@ export function TasksManager() {
     return () => {
       cancelled = true;
     };
-  }, [
-    loadProjects,
-    loadWork,
-  ]);
+  }, [loadProjects, loadWork]);
 
-  const activeRun =
-    useMemo(
-      () =>
-        runs.find(
-          (run) =>
-            activeRunStatuses.has(
-              run.status,
-            ),
-        ) ?? null,
-      [runs],
-    );
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void loadAutomation();
+    }, 5_000);
 
-  const selectedTask =
-    useMemo(
-      () =>
-        tasks.find(
-          (task) =>
-            task.id ===
-            selectedTaskId,
-        ) ?? null,
-      [
-        tasks,
-        selectedTaskId,
-      ],
-    );
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [loadAutomation]);
 
-  const selectedProject =
-    useMemo(
-      () =>
-        selectedTask
-          ? projects.find(
-              (project) =>
-                project.path ===
-                selectedTask.projectPath,
-            ) ?? null
-          : null,
-      [
-        projects,
-        selectedTask,
-      ],
-    );
+  const activeRun = useMemo(
+    () => runs.find((run) => activeRunStatuses.has(run.status)) ?? null,
+    [runs],
+  );
 
-  const selectedRuns =
-    useMemo(
-      () =>
-        selectedTask
-          ? runs
-              .filter(
-                (run) =>
-                  run.taskId ===
-                  selectedTask.id,
-              )
-              .slice()
-              .sort(
-                compareRunsNewestFirst,
-              )
-          : [],
-      [
-        runs,
-        selectedTask,
-      ],
-    );
+  const selectedTask = useMemo(
+    () => tasks.find((task) => task.id === selectedTaskId) ?? null,
+    [tasks, selectedTaskId],
+  );
 
-  const latestRun =
-    selectedRuns[0] ??
-    null;
+  const selectedProject = useMemo(
+    () =>
+      selectedTask
+        ? (projects.find(
+            (project) => project.path === selectedTask.projectPath,
+          ) ?? null)
+        : null,
+    [projects, selectedTask],
+  );
 
-  const latestRunId =
-    latestRun?.id ??
-    null;
+  const selectedRuns = useMemo(
+    () =>
+      selectedTask
+        ? runs
+            .filter((run) => run.taskId === selectedTask.id)
+            .slice()
+            .sort(compareRunsNewestFirst)
+        : [],
+    [runs, selectedTask],
+  );
 
-  const latestRunStatus =
-    latestRun?.status ??
-    null;
+  const latestRun = selectedRuns[0] ?? null;
+
+  const latestRunId = latestRun?.id ?? null;
+
+  const latestRunStatus = latestRun?.status ?? null;
 
   const visibleRunDetail =
-    latestRunDetail?.run
-      .id === latestRunId
-      ? latestRunDetail
-      : null;
+    latestRunDetail?.run.id === latestRunId ? latestRunDetail : null;
 
   const runDetailError =
-    runDetailErrorState
-      ?.runId ===
-      latestRunId
-      ? runDetailErrorState
-          .message
+    runDetailErrorState?.runId === latestRunId
+      ? runDetailErrorState.message
       : null;
 
   const runDetailLoading =
-    Boolean(
-      latestRunId,
-    ) &&
-    !visibleRunDetail &&
-    !runDetailError;
+    Boolean(latestRunId) && !visibleRunDetail && !runDetailError;
 
   useEffect(() => {
-    if (
-      !latestRunId ||
-      !latestRunStatus
-    ) {
+    if (!latestRunId || !latestRunStatus) {
       return;
     }
 
-    let cancelled =
-      false;
+    let cancelled = false;
 
     /** Refreshes only the selected task's latest run and merges authoritative state back into page-level summaries. */
     async function loadSelectedRunDetail() {
       try {
-        const detail =
-          await getRun(
-            latestRunId,
-          );
+        const detail = await getRun(latestRunId);
 
         if (cancelled) {
           return;
         }
 
-        setLatestRunDetail(
-          detail,
+        setLatestRunDetail(detail);
+
+        setRunDetailErrorState(null);
+
+        setRuns((current) =>
+          current.map((run) => (run.id === detail.run.id ? detail.run : run)),
         );
 
-        setRunDetailErrorState(
-          null,
-        );
-
-        setRuns(
-          (current) =>
-            current.map(
-              (run) =>
-                run.id ===
-                detail.run.id
-                  ? detail.run
-                  : run,
-            ),
-        );
-
-        const refreshedTask =
-          detail.task;
+        const refreshedTask = detail.task;
 
         if (refreshedTask) {
-          setTasks(
-            (current) =>
-              current.map(
-                (task) =>
-                  task.id ===
-                  refreshedTask.id
-                    ? refreshedTask
-                    : task,
-              ),
+          setTasks((current) =>
+            current.map((task) =>
+              task.id === refreshedTask.id ? refreshedTask : task,
+            ),
           );
         }
       } catch (error) {
         if (!cancelled) {
           setRunDetailErrorState({
-            runId:
-              latestRunId,
-            message:
-              getErrorMessage(
-                error,
-                "Unable to load the latest run",
-              ),
+            runId: latestRunId,
+            message: getErrorMessage(error, "Unable to load the latest run"),
           });
         }
       }
@@ -478,79 +346,47 @@ export function TasksManager() {
 
     void loadSelectedRunDetail();
 
-    if (
-      !activeRunStatuses.has(
-        latestRunStatus,
-      )
-    ) {
+    if (!activeRunStatuses.has(latestRunStatus)) {
       return () => {
         cancelled = true;
       };
     }
 
-    const timer =
-      window.setInterval(
-        () => {
-          void loadSelectedRunDetail();
-        },
-        2_000,
-      );
+    const timer = window.setInterval(() => {
+      void loadSelectedRunDetail();
+    }, 2_000);
 
     return () => {
       cancelled = true;
 
-      window.clearInterval(
-        timer,
-      );
+      window.clearInterval(timer);
     };
-  }, [
-    latestRunId,
-    latestRunStatus,
-  ]);
+  };, [latestRunId, latestRunStatus]);
 
   /** Refreshes all page-level data while the selected-run effect remains responsible for deep observability. */
   async function refreshAll() {
     setIsRefreshing(true);
 
     try {
-      await Promise.all([
-        loadProjects(),
-        loadWork(),
-      ]);
+      await Promise.all([loadProjects(), loadWork(), loadAutomation()]);
     } finally {
       setIsRefreshing(false);
     }
   }
 
   /** Adds the newly created immediate-start task to local state before a background reconciliation request. */
-  function handleCreated(
-    created: TaskWithRun,
-  ) {
-    setTasks(
-      (current) => [
-        created.task,
-        ...current.filter(
-          (task) =>
-            task.id !==
-            created.task.id,
-        ),
-      ],
-    );
+  function handleCreated(created: TaskWithRun) {
+    setTasks((current) => [
+      created.task,
+      ...current.filter((task) => task.id !== created.task.id),
+    ]);
 
-    setRuns(
-      (current) => [
-        created.run,
-        ...current.filter(
-          (run) =>
-            run.id !==
-            created.run.id,
-        ),
-      ],
-    );
+    setRuns((current) => [
+      created.run,
+      ...current.filter((run) => run.id !== created.run.id),
+    ]);
 
-    setSelectedTaskId(
-      created.task.id,
-    );
+    setSelectedTaskId(created.task.id);
 
     setWorkError(null);
 
@@ -558,56 +394,34 @@ export function TasksManager() {
   }
 
   /** Cancels an active related run after explicit operator confirmation and refreshes authoritative task/run state. */
-  async function cancelRelatedRun(
-    runId: string,
-  ) {
-    if (
-      !window.confirm(
-        "Cancel this active workflow?",
-      )
-    ) {
+  async function cancelRelatedRun(runId: string) {
+    if (!window.confirm("Cancel this active workflow?")) {
       return;
     }
 
     setBusyRunId(runId);
 
     try {
-      await cancelRun(
-        runId,
-      );
+      await cancelRun(runId);
 
       await loadWork();
     } catch (error) {
-      setWorkError(
-        getErrorMessage(
-          error,
-          "Unable to cancel run",
-        ),
-      );
+      setWorkError(getErrorMessage(error, "Unable to cancel run"));
     } finally {
       setBusyRunId(null);
     }
   }
 
   /** Retries the final execution only for backend-supported failed or blocked runs. */
-  async function retryRelatedRun(
-    runId: string,
-  ) {
+  async function retryRelatedRun(runId: string) {
     setBusyRunId(runId);
 
     try {
-      await retryRun(
-        runId,
-      );
+      await retryRun(runId);
 
       await loadWork();
     } catch (error) {
-      setWorkError(
-        getErrorMessage(
-          error,
-          "Unable to retry run",
-        ),
-      );
+      setWorkError(getErrorMessage(error, "Unable to retry run"));
     } finally {
       setBusyRunId(null);
     }
@@ -622,41 +436,57 @@ export function TasksManager() {
           </h1>
 
           <p className="mt-1 text-sm text-text-muted">
-            Start and monitor
-            orchestrated work
-            across discovered
-            repositories.
+            Start and monitor orchestrated work across discovered repositories.
           </p>
         </div>
 
+                  <div className="flex h-9 items-center gap-2 rounded-lg border border-border-default bg-surface-elevated px-3 shadow-xs">
+            <span className="text-sm font-medium text-text-primary">
+              Auto Mode
+            </span>
+
+            <Badge
+              variant={getAutomationBadgeVariant(
+                automationStatus.state,
+              )}
+            >
+              {formatAutomationState(
+                automationStatus.state,
+              )}
+            </Badge>
+
+            <Switch
+              size="sm"
+              checked={
+                autoModeEnabled
+              }
+              onCheckedChange={(
+                checked,
+              ) =>
+                void handleAutoModeChange(
+                  checked,
+                )
+              }
+              disabled={
+                automationLoading ||
+                automationUpdating
+              }
+              aria-label="Toggle Auto Mode"
+            />
+          </div>
         <div className="flex flex-wrap items-center gap-2">
           {activeRun ? (
             <Button
               variant="outline"
               size="sm"
-              render={
-                <Link
-                  href={`/runs/${activeRun.id}`}
-                />
-              }
+              render={<Link href={`/runs/${activeRun.id}`} />}
             >
               <PlayIcon />
 
-              <span className="font-mono">
-                Run{" "}
-                {shortId(
-                  activeRun.id,
-                )}
-              </span>
+              <span className="font-mono">Run {shortId(activeRun.id)}</span>
 
-              <Badge
-                variant={getLifecycleBadgeVariant(
-                  activeRun.status,
-                )}
-              >
-                {formatStatusLabel(
-                  activeRun.status,
-                )}
+              <Badge variant={getLifecycleBadgeVariant(activeRun.status)}>
+                {formatStatusLabel(activeRun.status)}
               </Badge>
             </Button>
           ) : null}
@@ -664,13 +494,8 @@ export function TasksManager() {
           <Button
             type="button"
             variant="outline"
-            onClick={() =>
-              void refreshAll()
-            }
-            disabled={
-              loading ||
-              isRefreshing
-            }
+            onClick={() => void refreshAll()}
+            disabled={loading || isRefreshing}
           >
             <RefreshCwIcon
               className={
@@ -680,21 +505,11 @@ export function TasksManager() {
               }
               aria-hidden="true"
             />
-
             Refresh
           </Button>
 
-          <Button
-            type="button"
-            onClick={() =>
-              setCreateOpen(
-                true,
-              )
-            }
-          >
-            <PlusIcon
-              aria-hidden="true"
-            />
+          <Button type="button" onClick={() => setCreateOpen(true)}>
+            <PlusIcon aria-hidden="true" />
             New Task
           </Button>
         </div>
@@ -709,14 +524,11 @@ export function TasksManager() {
         </div>
       ) : null}
 
-      {loading &&
-      tasks.length === 0 ? (
+      {loading && tasks.length === 0 ? (
         <section className="flex min-h-[34rem] items-center justify-center rounded-lg border border-border-default bg-surface-elevated shadow-xs">
           <div className="flex items-center gap-2 text-sm text-text-muted">
             <Spinner className="size-4" />
-
-            Loading tasks and
-            runs...
+            Loading tasks and runs...
           </div>
         </section>
       ) : (
@@ -724,62 +536,30 @@ export function TasksManager() {
           <TaskQueue
             tasks={tasks}
             runs={runs}
-            selectedTaskId={
-              selectedTaskId
-            }
+            selectedTaskId={selectedTaskId}
             query={query}
-            onQueryChange={
-              setQuery
-            }
-            onSelect={
-              setSelectedTaskId
-            }
+            onQueryChange={setQuery}
+            onSelect={setSelectedTaskId}
           />
 
           <TaskDetailPanel
-            task={
-              selectedTask
-            }
-            project={
-              selectedProject
-            }
-            runs={
-              selectedRuns
-            }
-            latestRunDetail={
-              visibleRunDetail
-            }
-            runDetailLoading={
-              runDetailLoading
-            }
-            runDetailError={
-              runDetailError
-            }
-            busyRunId={
-              busyRunId
-            }
-            onCancelRun={
-              cancelRelatedRun
-            }
-            onRetryRun={
-              retryRelatedRun
-            }
+            task={selectedTask}
+            project={selectedProject}
+            runs={selectedRuns}
+            latestRunDetail={visibleRunDetail}
+            runDetailLoading={runDetailLoading}
+            runDetailError={runDetailError}
+            busyRunId={busyRunId}
+            onCancelRun={cancelRelatedRun}
+            onRetryRun={retryRelatedRun}
           />
 
           <div className="min-w-0 lg:col-span-2 2xl:col-span-1">
             <TaskObservabilityPanel
-              latestRunId={
-                latestRunId
-              }
-              detail={
-                visibleRunDetail
-              }
-              loading={
-                runDetailLoading
-              }
-              error={
-                runDetailError
-              }
+              latestRunId={latestRunId}
+              detail={visibleRunDetail}
+              loading={runDetailLoading}
+              error={runDetailError}
             />
           </div>
         </div>
@@ -787,21 +567,11 @@ export function TasksManager() {
 
       <TaskCreateDrawer
         open={createOpen}
-        onOpenChange={
-          setCreateOpen
-        }
-        projects={
-          projects
-        }
-        projectError={
-          projectError
-        }
-        activeRun={
-          activeRun
-        }
-        onCreated={
-          handleCreated
-        }
+        onOpenChange={setCreateOpen}
+        projects={projects}
+        projectError={projectError}
+        activeRun={activeRun}
+        onCreated={handleCreated}
       />
     </div>
   );

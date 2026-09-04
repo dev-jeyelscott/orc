@@ -1,18 +1,23 @@
 import {
+  automationStatusResponseSchema,
   runDetailSchema,
   runListResponseSchema,
   runMonitoringDetailSchema,
   runMonitoringListResponseSchema,
+  systemSettingsResponseSchema,
   taskListResponseSchema,
   taskWithRunSchema,
+  type AutomationStatus,
   type CreateTask,
   type RetryRun,
   type Run,
   type RunDetail,
   type RunMonitoringDetail,
   type RunMonitoringSummary,
+  type SystemSettings,
   type Task,
   type TaskWithRun,
+  type UpdateSystemSettings,
 } from "@orc/shared";
 
 const SERVER_URL =
@@ -23,32 +28,42 @@ const SERVER_URL =
  * Performs one validated workflow request and normalizes backend error responses.
  */
 async function request<T>(
-  path: string,
-  options: RequestInit,
-  parse: (
-    value: unknown,
-  ) => T,
+  path:
+    string,
+  options:
+    RequestInit,
+  parse:
+    (
+      value:
+        unknown,
+    ) => T,
 ): Promise<T> {
-  const response = await fetch(
-    `${SERVER_URL}${path}`,
-    {
-      ...options,
-      headers: {
-        "content-type":
-          "application/json",
-        ...options.headers,
+  const response =
+    await fetch(
+      `${SERVER_URL}${path}`,
+      {
+        ...options,
+        headers: {
+          "content-type":
+            "application/json",
+          ...options.headers,
+        },
       },
-    },
-  );
+    );
 
-  if (!response.ok) {
-    const body = (await response
-      .json()
-      .catch(
-        () => null,
-      )) as {
-      error?: string;
-    } | null;
+  if (
+    !response.ok
+  ) {
+    const body =
+      await response
+        .json()
+        .catch(
+          () =>
+            null,
+        ) as {
+          error?:
+            string;
+        } | null;
 
     throw new Error(
       body?.error ??
@@ -65,15 +80,18 @@ async function request<T>(
  * Creates a task and immediately starts its workflow through the existing backend contract.
  */
 export function createTask(
-  input: CreateTask,
+  input:
+    CreateTask,
 ): Promise<TaskWithRun> {
   return request(
     "/api/tasks",
     {
-      method: "POST",
-      body: JSON.stringify(
-        input,
-      ),
+      method:
+        "POST",
+      body:
+        JSON.stringify(
+          input,
+        ),
     },
     taskWithRunSchema.parse,
   );
@@ -88,7 +106,8 @@ export function getTasks(): Promise<
   return request(
     "/api/tasks",
     {
-      cache: "no-store",
+      cache:
+        "no-store",
     },
     (value) =>
       taskListResponseSchema.parse(
@@ -106,7 +125,8 @@ export function getRuns(): Promise<
   return request(
     "/api/runs",
     {
-      cache: "no-store",
+      cache:
+        "no-store",
     },
     (value) =>
       runListResponseSchema.parse(
@@ -116,15 +136,75 @@ export function getRuns(): Promise<
 }
 
 /**
+ * Loads the persisted global Auto Mode setting.
+ */
+export function getAutoModeSettings(): Promise<SystemSettings> {
+  return request(
+    "/api/auto-mode",
+    {
+      cache:
+        "no-store",
+    },
+    (value) =>
+      systemSettingsResponseSchema.parse(
+        value,
+      ).settings,
+  );
+}
+
+/**
+ * Persists the global Auto Mode setting without affecting an already active run.
+ */
+export function updateAutoModeSettings(
+  input:
+    UpdateSystemSettings,
+): Promise<SystemSettings> {
+  return request(
+    "/api/auto-mode",
+    {
+      method:
+        "PATCH",
+      body:
+        JSON.stringify(
+          input,
+        ),
+    },
+    (value) =>
+      systemSettingsResponseSchema.parse(
+        value,
+      ).settings,
+  );
+}
+
+/**
+ * Loads the derived automation state without exposing process-local scheduler data.
+ */
+export function getAutomationStatus(): Promise<AutomationStatus> {
+  return request(
+    "/api/auto-mode/status",
+    {
+      cache:
+        "no-store",
+    },
+    (value) =>
+      automationStatusResponseSchema.parse(
+        value,
+      ).status,
+  );
+}
+
+/**
  * Returns monitoring-ready run summaries in one request.
  */
 export function getRunMonitoringRuns(
-  signal?: AbortSignal,
+  signal?:
+    AbortSignal,
 ): Promise<RunMonitoringSummary[]> {
   return request(
     "/api/runs/monitoring",
     {
-      cache: "no-store",
+      cache:
+        "no-store",
       signal,
     },
     (value) =>
@@ -138,12 +218,14 @@ export function getRunMonitoringRuns(
  * Returns one run together with its task, executions, and domain events.
  */
 export function getRun(
-  id: string,
+  id:
+    string,
 ): Promise<RunDetail> {
   return request(
     `/api/runs/${id}`,
     {
-      cache: "no-store",
+      cache:
+        "no-store",
     },
     runDetailSchema.parse,
   );
@@ -153,13 +235,16 @@ export function getRun(
  * Returns one selected monitoring run with its immutable safe execution plan.
  */
 export function getRunMonitoringDetail(
-  id: string,
-  signal?: AbortSignal,
+  id:
+    string,
+  signal?:
+    AbortSignal,
 ): Promise<RunMonitoringDetail> {
   return request(
     `/api/runs/${id}/monitoring`,
     {
-      cache: "no-store",
+      cache:
+        "no-store",
       signal,
     },
     runMonitoringDetailSchema.parse,
@@ -170,12 +255,14 @@ export function getRunMonitoringDetail(
  * Cancels one backend-supported active run and returns the updated run summary.
  */
 export function cancelRun(
-  id: string,
+  id:
+    string,
 ): Promise<Run> {
   return request(
     `/api/runs/${id}/cancel`,
     {
-      method: "POST",
+      method:
+        "POST",
     },
     (value) =>
       runDetailSchema.shape.run.parse(
@@ -188,16 +275,20 @@ export function cancelRun(
  * Retries the final execution of a backend-supported failed or blocked run.
  */
 export function retryRun(
-  id: string,
-  override: RetryRun = {},
+  id:
+    string,
+  override:
+    RetryRun = {},
 ): Promise<Run> {
   return request(
     `/api/runs/${id}/retry`,
     {
-      method: "POST",
-      body: JSON.stringify(
-        override,
-      ),
+      method:
+        "POST",
+      body:
+        JSON.stringify(
+          override,
+        ),
     },
     (value) =>
       runDetailSchema.shape.run.parse(
