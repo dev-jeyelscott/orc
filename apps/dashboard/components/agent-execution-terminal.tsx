@@ -1,11 +1,18 @@
 "use client";
 
-import { FitAddon } from "@xterm/addon-fit";
-import { Terminal } from "@xterm/xterm";
+import {
+  FitAddon,
+} from "@xterm/addon-fit";
+import {
+  Terminal,
+} from "@xterm/xterm";
 import {
   terminalFrameSchema,
 } from "@orc/shared";
 import {
+  CopyIcon,
+  Maximize2Icon,
+  Minimize2Icon,
   TerminalIcon,
 } from "lucide-react";
 import type {
@@ -20,10 +27,15 @@ import {
 import "@xterm/xterm/css/xterm.css";
 
 import {
+  Button,
+} from "@/components/ui/button";
+import {
   getAgentExecution,
   getAgentExecutionTerminalUrl,
 } from "@/lib/agent-executions";
-import { cn } from "@/lib/utils";
+import {
+  cn,
+} from "@/lib/utils";
 
 type ConnectionStatus =
   | "connecting"
@@ -38,6 +50,7 @@ interface AgentExecutionTerminalProps {
   className?: string;
   heightClassName?: string;
   subheader?: ReactNode;
+  showControls?: boolean;
 }
 
 const RECONNECT_DELAYS_MS = [
@@ -169,7 +182,47 @@ function resolveTerminalFont(): string {
 }
 
 /**
- * Renders one execution-scoped xterm terminal with persisted replay, bounded reconnect, raw ANSI output, and PTY resize propagation.
+ * Reads the currently replayed xterm buffer as plain text for the local Copy control.
+ */
+function terminalBufferText(
+  terminal:
+    Terminal,
+): string {
+  const buffer =
+    terminal.buffer.active;
+
+  const lines:
+    string[] = [];
+
+  for (
+    let index = 0;
+    index <
+    buffer.length;
+    index += 1
+  ) {
+    const line =
+      buffer.getLine(
+        index,
+      );
+
+    if (!line) {
+      continue;
+    }
+
+    lines.push(
+      line.translateToString(
+        true,
+      ),
+    );
+  }
+
+  return lines
+    .join("\n")
+    .trimEnd();
+}
+
+/**
+ * Renders one execution-scoped xterm terminal with persisted replay, bounded reconnect, raw ANSI output, PTY resize propagation, and optional local operator controls.
  */
 export function AgentExecutionTerminal({
   executionId,
@@ -178,9 +231,16 @@ export function AgentExecutionTerminal({
   heightClassName =
     "h-[480px]",
   subheader,
+  showControls =
+    false,
 }: AgentExecutionTerminalProps) {
   const containerRef =
     useRef<HTMLDivElement | null>(
+      null,
+    );
+
+  const terminalRef =
+    useRef<Terminal | null>(
       null,
     );
 
@@ -191,6 +251,78 @@ export function AgentExecutionTerminal({
     useState<ConnectionStatus>(
       "connecting",
     );
+
+  const [
+    expanded,
+    setExpanded,
+  ] =
+    useState(false);
+
+  /**
+   * Copies the currently rendered terminal buffer without adding a server-side history API.
+   */
+  async function copyTerminalOutput(): Promise<void> {
+    const terminal =
+      terminalRef.current;
+
+    if (!terminal) {
+      return;
+    }
+
+    const value =
+      terminalBufferText(
+        terminal,
+      );
+
+    if (!value) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        value,
+      );
+    } catch {
+      // Clipboard support is optional and must not interrupt terminal observation.
+    }
+  }
+
+  useEffect(() => {
+    if (!expanded) {
+      return;
+    }
+
+    /**
+     * Exits the local expanded terminal view when the operator presses Escape.
+     */
+    function handleKeyDown(
+      event:
+        KeyboardEvent,
+    ): void {
+      if (
+        event.key ===
+        "Escape"
+      ) {
+        setExpanded(
+          false,
+        );
+      }
+    }
+
+    document.addEventListener(
+      "keydown",
+      handleKeyDown,
+    );
+
+    return () => {
+      document.removeEventListener(
+        "keydown",
+        handleKeyDown,
+      );
+    };
+  }, [
+    expanded,
+  ]);
 
   useEffect(() => {
     const container =
@@ -216,6 +348,9 @@ export function AgentExecutionTerminal({
         disableStdin:
           true,
       });
+
+    terminalRef.current =
+      terminal;
 
     const fitAddon =
       new FitAddon();
@@ -632,6 +767,14 @@ export function AgentExecutionTerminal({
         socket.close();
       }
 
+      if (
+        terminalRef.current ===
+        terminal
+      ) {
+        terminalRef.current =
+          null;
+      }
+
       terminal.dispose();
     };
   }, [
@@ -641,11 +784,13 @@ export function AgentExecutionTerminal({
   return (
     <div
       className={cn(
-        "flex min-h-0 flex-col overflow-hidden rounded-lg border border-border-default bg-bg-app",
+        "flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border-default bg-bg-app shadow-xs",
+        expanded &&
+          "fixed inset-3 z-50 bg-bg-app shadow-lg sm:inset-6",
         className,
       )}
     >
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border-default px-3">
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border-default bg-surface-elevated px-3">
         <TerminalIcon className="size-3.5 shrink-0 text-text-muted" />
 
         <span
@@ -676,6 +821,56 @@ export function AgentExecutionTerminal({
             status,
           )}
         </span>
+
+        {showControls ? (
+          <div className="ml-1 flex shrink-0 items-center gap-1 border-l border-divider pl-2">
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              title="Copy terminal output"
+              aria-label="Copy terminal output"
+              onClick={() =>
+                void copyTerminalOutput()
+              }
+            >
+              <CopyIcon />
+            </Button>
+
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              title={
+                expanded
+                  ? "Collapse terminal"
+                  : "Expand terminal"
+              }
+              aria-label={
+                expanded
+                  ? "Collapse terminal"
+                  : "Expand terminal"
+              }
+              aria-pressed={
+                expanded
+              }
+              onClick={() =>
+                setExpanded(
+                  (
+                    current,
+                  ) =>
+                    !current,
+                )
+              }
+            >
+              {expanded ? (
+                <Minimize2Icon />
+              ) : (
+                <Maximize2Icon />
+              )}
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       {subheader ? (
@@ -690,7 +885,9 @@ export function AgentExecutionTerminal({
         }
         className={cn(
           "min-h-0 overflow-hidden bg-bg-app px-3 py-3",
-          heightClassName,
+          expanded
+            ? "flex-1"
+            : heightClassName,
         )}
       />
     </div>
