@@ -5,14 +5,14 @@ import {
   logger,
 } from "../logger.js";
 import {
-  runAutoModeCycle,
-} from "./auto-mode-service.js";
+  runNotionAutoModeCycle,
+} from "./notion-auto-mode-cycle.js";
 
 type AutoModeCycle =
   () => Promise<void>;
 
 /**
- * Runs Auto Mode intake in one process while coalescing overlapping poll and immediate-cycle requests.
+ * Runs Auto Mode lifecycle synchronization and intake in one process while coalescing overlapping requests.
  */
 export class AutoModeScheduler {
   private timer:
@@ -31,7 +31,7 @@ export class AutoModeScheduler {
   constructor(
     private readonly cycle:
       AutoModeCycle =
-        runAutoModeCycle,
+        runNotionAutoModeCycle,
     private readonly pollIntervalMs:
       number =
         env.NOTION_POLL_INTERVAL_SECONDS *
@@ -136,7 +136,7 @@ export class AutoModeScheduler {
 }
 
 /**
- * Creates the production Auto Mode scheduler using persisted cycle behavior and configured polling.
+ * Creates the production Auto Mode scheduler using persisted lifecycle reconciliation and configured polling.
  */
 export function createAutoModeScheduler(): AutoModeScheduler {
   return new AutoModeScheduler();

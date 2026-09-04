@@ -59,7 +59,9 @@ describe(
       "running",
     ] as const)(
       "blocks intake while the latest run is %s",
-      (runStatus) => {
+      (
+        runStatus,
+      ) => {
         expect(
           resolveAutoModeEligibility(
             {
@@ -85,7 +87,9 @@ describe(
       "cancelled",
     ] as const)(
       "does not unlock intake when the latest run is %s",
-      (runStatus) => {
+      (
+        runStatus,
+      ) => {
         expect(
           resolveAutoModeEligibility(
             {
@@ -113,7 +117,9 @@ describe(
       null,
     ] as const)(
       "does not unlock a completed run whose latest result status is %s",
-      (resultStatus) => {
+      (
+        resultStatus,
+      ) => {
         expect(
           resolveAutoModeEligibility(
             {
@@ -196,7 +202,7 @@ describe(
     );
 
     it(
-      "allows intake after the post-approval delay has elapsed",
+      "allows intake after the configured post-approval delay has elapsed",
       () => {
         expect(
           resolveAutoModeEligibility(
@@ -207,6 +213,80 @@ describe(
             ),
             now,
             5,
+          ),
+        ).toEqual({
+          eligible:
+            true,
+          state:
+            "ready",
+          nextEligibleAt:
+            null,
+        });
+      },
+    );
+
+    it(
+      "allows the next task immediately when the rollout delay is zero",
+      () => {
+        expect(
+          resolveAutoModeEligibility(
+            approvedSnapshot(
+              new Date(
+                "2026-09-04T14:00:00.000Z",
+              ),
+            ),
+            now,
+            0,
+          ),
+        ).toEqual({
+          eligible:
+            true,
+          state:
+            "ready",
+          nextEligibleAt:
+            null,
+        });
+      },
+    );
+
+    it(
+      "keeps intake in cooldown one second before the five-minute rollout delay expires",
+      () => {
+        expect(
+          resolveAutoModeEligibility(
+            approvedSnapshot(
+              new Date(
+                "2026-09-04T13:55:01.000Z",
+              ),
+            ),
+            now,
+            300,
+          ),
+        ).toEqual({
+          eligible:
+            false,
+          state:
+            "cooldown",
+          nextEligibleAt:
+            new Date(
+              "2026-09-04T14:00:01.000Z",
+            ),
+        });
+      },
+    );
+
+    it(
+      "allows intake exactly when the five-minute rollout delay has elapsed",
+      () => {
+        expect(
+          resolveAutoModeEligibility(
+            approvedSnapshot(
+              new Date(
+                "2026-09-04T13:55:00.000Z",
+              ),
+            ),
+            now,
+            300,
           ),
         ).toEqual({
           eligible:
