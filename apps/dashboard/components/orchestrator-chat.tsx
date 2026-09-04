@@ -10,11 +10,13 @@ import type {
 import {
   AlertTriangleIcon,
   BotIcon,
+  LoaderCircleIcon,
 } from "lucide-react";
 import {
   useCallback,
   useEffect,
   useState,
+  useSyncExternalStore,
 } from "react";
 import type {
   FormEvent,
@@ -22,16 +24,18 @@ import type {
 
 import { OrchestratorContextStrip } from "@/components/orchestrator-context-strip";
 import { OrchestratorConversation } from "@/components/orchestrator-conversation";
-import {
-  OrchestratorObservability,
-  OrchestratorResultPreview,
-  OrchestratorTerminalPanel,
-} from "@/components/orchestrator-observability";
-import { Button } from "@/components/ui/button";
+import { OrchestratorInspector } from "@/components/orchestrator-inspector";
+import { OrchestratorInspectorDrawer } from "@/components/orchestrator-inspector-drawer";
+import { OrchestratorWorkbench } from "@/components/orchestrator-workbench";
 import {
   Card,
   CardContent,
 } from "@/components/ui/card";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
 import {
   createConversation,
   getConversation,
@@ -64,6 +68,9 @@ type BusyAction =
   | "retry"
   | null;
 
+const DESKTOP_WORKSPACE_QUERY =
+  "(min-width: 1280px)";
+
 /** Normalizes an unknown failure into a concise operator-facing error message. */
 function errorMessage(
   error: unknown,
@@ -72,6 +79,49 @@ function errorMessage(
   return error instanceof Error
     ? error.message
     : fallback;
+}
+
+/** Subscribes to the responsive breakpoint used by the desktop inspector and workbench. */
+function subscribeDesktopWorkspace(
+  callback: () => void,
+): () => void {
+  const query =
+    window.matchMedia(
+      DESKTOP_WORKSPACE_QUERY,
+    );
+
+  query.addEventListener(
+    "change",
+    callback,
+  );
+
+  return () => {
+    query.removeEventListener(
+      "change",
+      callback,
+    );
+  };
+}
+
+/** Returns whether the current browser viewport uses the desktop operator workspace. */
+function getDesktopWorkspaceSnapshot(): boolean {
+  return window.matchMedia(
+    DESKTOP_WORKSPACE_QUERY,
+  ).matches;
+}
+
+/** Provides a stable server snapshot until the client viewport becomes available. */
+function getDesktopWorkspaceServerSnapshot(): boolean {
+  return false;
+}
+
+/** Returns the current responsive workspace mode without duplicating state in an effect. */
+function useDesktopWorkspace(): boolean {
+  return useSyncExternalStore(
+    subscribeDesktopWorkspace,
+    getDesktopWorkspaceSnapshot,
+    getDesktopWorkspaceServerSnapshot,
+  );
 }
 
 /** Coordinates persisted conversations, workflow actions, run observability, and terminal/result selection. */
@@ -167,6 +217,9 @@ export function OrchestratorChat() {
   ] = useState(() =>
     Date.now(),
   );
+
+  const desktopWorkspace =
+    useDesktopWorkspace();
 
   const linkedRunId =
     conversation?.runId ??
@@ -785,8 +838,13 @@ export function OrchestratorChat() {
       runDetail,
     );
 
+  const switchingWorkspace =
+    busyAction === "loading" ||
+    busyAction === "project" ||
+    busyAction === "conversation";
+
   return (
-    <div className="flex min-w-0 flex-col gap-3">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
       <OrchestratorContextStrip
         projects={projects}
         projectPath={projectPath}
@@ -837,7 +895,7 @@ export function OrchestratorChat() {
       {workspaceError ? (
         <div
           role="status"
-          className="rounded-md border border-status-warning/30 bg-status-warning/5 px-3 py-2 text-xs text-status-warning"
+          className="shrink-0 rounded-md border border-status-warning/30 bg-status-warning/5 px-3 py-2 text-xs text-status-warning"
         >
           {workspaceError}
         </div>
@@ -846,7 +904,7 @@ export function OrchestratorChat() {
       {error ? (
         <div
           role="alert"
-          className="flex items-start gap-2 rounded-md border border-status-error/30 bg-status-error/5 px-3 py-2 text-xs text-status-error"
+          className="flex shrink-0 items-start gap-2 rounded-md border border-status-error/30 bg-status-error/5 px-3 py-2 text-xs text-status-error"
         >
           <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
 
@@ -856,11 +914,21 @@ export function OrchestratorChat() {
         </div>
       ) : null}
 
-      {projects.length ===
-        0 &&
-      busyAction === null ? (
-        <Card>
-          <CardContent className="flex min-h-72 items-center justify-center p-6 text-center">
+      {switchingWorkspace ? (
+        <Card className="min-h-0 flex-1">
+          <CardContent className="flex min-h-72 flex-1 items-center justify-center p-6 text-center">
+            <div>
+              <LoaderCircleIcon className="mx-auto size-6 animate-spin text-brand-accent" />
+
+              <p className="mt-3 text-xs text-text-muted">
+                Loading Orchestrator workspace...
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : projects.length === 0 ? (
+        <Card className="min-h-0 flex-1">
+          <CardContent className="flex min-h-72 flex-1 items-center justify-center p-6 text-center">
             <div className="max-w-sm">
               <BotIcon className="mx-auto size-8 text-text-muted" />
 
@@ -874,82 +942,105 @@ export function OrchestratorChat() {
             </div>
           </CardContent>
         </Card>
-      ) : !conversation ? (
-        <Card>
-          <CardContent className="flex min-h-72 items-center justify-center p-6 text-center">
-            <div className="max-w-sm">
-              <BotIcon className="mx-auto size-8 text-text-muted" />
+      ) : desktopWorkspace ? (
+        <div className="min-h-0 flex-1">
+          <ResizablePanelGroup
+            orientation="vertical"
+            className="h-full min-h-0"
+          >
+            <ResizablePanel
+              id="orchestrator-primary"
+              defaultSize="68%"
+              minSize="55%"
+            >
+              <div className="grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,2.1fr)_minmax(360px,1fr)] gap-3">
+                <OrchestratorConversation
+                  className="h-full min-h-0"
+                  projectPath={
+                    projectPath
+                  }
+                  conversation={
+                    conversation
+                  }
+                  messages={
+                    messages
+                  }
+                  content={
+                    content
+                  }
+                  runStatus={
+                    linkedRunStatus
+                  }
+                  busyAction={
+                    busyAction
+                  }
+                  onContentChange={
+                    setContent
+                  }
+                  onSubmit={
+                    handleSubmit
+                  }
+                  onStartTask={
+                    handleStartTask
+                  }
+                  onExplainStatus={
+                    handleExplainStatus
+                  }
+                  onNewConversation={() => {
+                    void handleNewConversation();
+                  }}
+                />
 
-              <h2 className="mt-3 text-sm font-semibold text-text-primary">
-                No conversation selected
-              </h2>
+                <OrchestratorInspector
+                  runDetail={
+                    runDetail
+                  }
+                  runError={
+                    runError
+                  }
+                  activeExecution={
+                    activeExecution
+                  }
+                  settings={
+                    settings
+                  }
+                  settingsError={
+                    settingsError
+                  }
+                  now={now}
+                />
+              </div>
+            </ResizablePanel>
 
-              <p className="mt-1 text-xs leading-5 text-text-muted">
-                Create a persistent conversation for this project to start working with the supervisor.
-              </p>
-
-              <Button
-                className="mt-4"
-                type="button"
-                disabled={
-                  busyAction !==
-                    null ||
-                  !projectPath
-                }
-                onClick={() => {
-                  void handleNewConversation();
-                }}
-              >
-                New conversation
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <>
-          <div className="grid min-w-0 gap-3 2xl:grid-cols-[minmax(0,1.08fr)_minmax(560px,0.92fr)]">
-            <OrchestratorConversation
-              projectPath={
-                projectPath
-              }
-              conversation={
-                conversation
-              }
-              messages={
-                messages
-              }
-              content={
-                content
-              }
-              runStatus={
-                runDetail?.run
-                  .status ??
-                null
-              }
-              busyAction={
-                busyAction
-              }
-              onContentChange={
-                setContent
-              }
-              onSubmit={
-                handleSubmit
-              }
-              onStartTask={
-                handleStartTask
-              }
-              onExplainStatus={
-                handleExplainStatus
-              }
-              onStop={() => {
-                void handleStop();
-              }}
-              onRetry={() => {
-                void handleRetry();
-              }}
+            <ResizableHandle
+              withHandle
+              className="my-2 shrink-0"
             />
 
-            <OrchestratorObservability
+            <ResizablePanel
+              id="orchestrator-workbench"
+              defaultSize="32%"
+              minSize="22%"
+              maxSize="45%"
+            >
+              <OrchestratorWorkbench
+                runDetail={
+                  runDetail
+                }
+                terminalExecution={
+                  terminalExecution
+                }
+                resultExecution={
+                  resultExecution
+                }
+              />
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+          <div className="flex shrink-0 justify-end">
+            <OrchestratorInspectorDrawer
               runDetail={
                 runDetail
               }
@@ -958,6 +1049,12 @@ export function OrchestratorChat() {
               }
               activeExecution={
                 activeExecution
+              }
+              terminalExecution={
+                terminalExecution
+              }
+              resultExecution={
+                resultExecution
               }
               settings={
                 settings
@@ -969,20 +1066,43 @@ export function OrchestratorChat() {
             />
           </div>
 
-          <div className="grid min-w-0 gap-3 xl:grid-cols-2">
-            <OrchestratorTerminalPanel
-              execution={
-                terminalExecution
-              }
-            />
-
-            <OrchestratorResultPreview
-              execution={
-                resultExecution
-              }
-            />
-          </div>
-        </>
+          <OrchestratorConversation
+            className="min-h-[680px] flex-1"
+            projectPath={
+              projectPath
+            }
+            conversation={
+              conversation
+            }
+            messages={
+              messages
+            }
+            content={
+              content
+            }
+            runStatus={
+              linkedRunStatus
+            }
+            busyAction={
+              busyAction
+            }
+            onContentChange={
+              setContent
+            }
+            onSubmit={
+              handleSubmit
+            }
+            onStartTask={
+              handleStartTask
+            }
+            onExplainStatus={
+              handleExplainStatus
+            }
+            onNewConversation={() => {
+              void handleNewConversation();
+            }}
+          />
+        </div>
       )}
     </div>
   );
