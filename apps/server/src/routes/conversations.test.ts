@@ -22,6 +22,8 @@ const mocks =
         vi.fn(),
       updateOrchestratorSettings:
         vi.fn(),
+      resetOrchestratorSettings:
+        vi.fn(),
     }),
   );
 
@@ -55,6 +57,8 @@ vi.mock(
         mocks.getOrchestratorSettings,
       updateOrchestratorSettings:
         mocks.updateOrchestratorSettings,
+      resetOrchestratorSettings:
+        mocks.resetOrchestratorSettings,
     };
   },
 );
@@ -112,6 +116,22 @@ function conversation() {
       new Date().toISOString(),
     updatedAt:
       new Date().toISOString(),
+  };
+}
+
+/**
+ * Creates the canonical server-owned Orchestrator defaults for route assertions.
+ */
+function defaultSettings() {
+  return {
+    harness:
+      "codex" as const,
+    model:
+      "default",
+    reasoning:
+      "low",
+    systemPrompt:
+      "You supervise engineering workflows. Use only supplied system state and never invent execution progress.",
   };
 }
 
@@ -243,19 +263,13 @@ describe(
     );
 
     it(
-      "returns persisted orchestrator settings",
+      "returns persisted orchestrator settings with canonical low reasoning",
       async () => {
+        const value =
+          defaultSettings();
+
         mocks.getOrchestratorSettings.mockResolvedValue(
-          {
-            harness:
-              "codex",
-            model:
-              "default",
-            reasoning:
-              "medium",
-            systemPrompt:
-              "Ground responses.",
-          },
+          value,
         );
 
         const response =
@@ -272,12 +286,55 @@ describe(
 
         expect(
           response.json(),
-        ).toMatchObject({
+        ).toEqual(
+          value,
+        );
+      },
+    );
+
+    it(
+      "updates valid orchestrator settings",
+      async () => {
+        const value = {
           harness:
-            "codex",
+            "claude" as const,
           model:
             "default",
-        });
+          reasoning:
+            "low",
+          systemPrompt:
+            "Customized base prompt.",
+        };
+
+        mocks.updateOrchestratorSettings.mockResolvedValue(
+          value,
+        );
+
+        const response =
+          await app.inject({
+            method:
+              "PUT",
+            url:
+              "/api/orchestrator/settings",
+            payload:
+              value,
+          });
+
+        expect(
+          response.statusCode,
+        ).toBe(200);
+
+        expect(
+          response.json(),
+        ).toEqual(
+          value,
+        );
+
+        expect(
+          mocks.updateOrchestratorSettings,
+        ).toHaveBeenCalledWith(
+          value,
+        );
       },
     );
 
@@ -309,6 +366,42 @@ describe(
         expect(
           mocks.updateOrchestratorSettings,
         ).not.toHaveBeenCalled();
+      },
+    );
+
+    it(
+      "resets orchestrator settings through the server-owned reset capability",
+      async () => {
+        const value =
+          defaultSettings();
+
+        mocks.resetOrchestratorSettings.mockResolvedValue(
+          value,
+        );
+
+        const response =
+          await app.inject({
+            method:
+              "POST",
+            url:
+              "/api/orchestrator/settings/reset",
+          });
+
+        expect(
+          response.statusCode,
+        ).toBe(200);
+
+        expect(
+          response.json(),
+        ).toEqual(
+          value,
+        );
+
+        expect(
+          mocks.resetOrchestratorSettings,
+        ).toHaveBeenCalledTimes(
+          1,
+        );
       },
     );
   },

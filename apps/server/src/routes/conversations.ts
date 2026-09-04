@@ -16,6 +16,7 @@ import {
   getOrchestratorSettings,
   listConversations,
   postConversationMessage,
+  resetOrchestratorSettings,
   updateOrchestratorSettings,
 } from "../services/conversation-service.js";
 import {
@@ -294,6 +295,23 @@ export async function conversationRoutes(
         return await updateOrchestratorSettings(
           parsed.data,
         );
+      } catch (error) {
+        return sendError(
+          error,
+          reply,
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/orchestrator/settings/reset",
+    async (
+      _request,
+      reply,
+    ) => {
+      try {
+        return await resetOrchestratorSettings();
       } catch (error) {
         return sendError(
           error,

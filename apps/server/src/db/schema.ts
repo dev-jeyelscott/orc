@@ -590,7 +590,7 @@ export const orchestratorSettings =
         )
           .notNull()
           .default(
-            "medium",
+            "low",
           ),
       systemPrompt:
         text(

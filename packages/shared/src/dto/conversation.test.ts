@@ -4,6 +4,7 @@ import {
   conversationDetailSchema,
   orchestratorSettingsSchema,
   postConversationMessageResponseSchema,
+  updateOrchestratorSettingsSchema,
 } from "./conversation.js";
 
 const conversationId = "11111111-1111-4111-8111-111111111111";
@@ -56,15 +57,46 @@ describe("conversation contracts", () => {
     expect(result.runId).toBe(runId);
   });
 
-  /** Verifies the independently configured supervisor settings contract. */
-  it("accepts orchestrator settings", () => {
+  /** Verifies low is accepted as the canonical Orchestrator reasoning setting. */
+  it("accepts canonical low orchestrator settings", () => {
     const result = orchestratorSettingsSchema.parse({
       harness: "codex",
       model: "default",
-      reasoning: "medium",
+      reasoning: "low",
       systemPrompt: "You supervise engineering workflows.",
     });
 
     expect(result.harness).toBe("codex");
+    expect(result.reasoning).toBe("low");
+  });
+
+  /** Verifies valid complete settings updates use the existing strict settings contract. */
+  it("accepts a valid orchestrator settings update", () => {
+    const result = updateOrchestratorSettingsSchema.parse({
+      harness: "claude",
+      model: "default",
+      reasoning: "low",
+      systemPrompt: "Use persisted system state.",
+    });
+
+    expect(result).toEqual({
+      harness: "claude",
+      model: "default",
+      reasoning: "low",
+      systemPrompt: "Use persisted system state.",
+    });
+  });
+
+  /** Verifies malformed or incomplete settings payloads remain rejected. */
+  it("rejects invalid orchestrator settings updates", () => {
+    const result = updateOrchestratorSettingsSchema.safeParse({
+      harness: "unsupported",
+      model: "",
+      reasoning: "",
+      systemPrompt: "",
+      extra: true,
+    });
+
+    expect(result.success).toBe(false);
   });
 });

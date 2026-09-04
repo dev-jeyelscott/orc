@@ -193,13 +193,17 @@ const { db } =
 const {
   conversationMessages,
   conversations,
+  orchestratorSettings,
 } = await import("../db/schema.js");
 
 const {
   ConversationServiceError,
   createConversation,
   getConversation,
+  getOrchestratorSettings,
   postConversationMessage,
+  resetOrchestratorSettings,
+  updateOrchestratorSettings,
 } = await import(
   "./conversation-service.js"
 );
@@ -277,6 +281,72 @@ afterEach(async () => {
 describe(
   "conversation-service",
   () => {
+    it(
+      "resets customized settings to the server-owned low-reasoning defaults while preserving the singleton",
+      async () => {
+        const originalSettings =
+          await getOrchestratorSettings();
+
+        try {
+          await updateOrchestratorSettings({
+            harness:
+              "claude",
+            model:
+              "claude-fable-5",
+            reasoning:
+              "medium",
+            systemPrompt:
+              "Temporary customized base prompt.",
+          });
+
+          const reset =
+            await resetOrchestratorSettings();
+
+          expect(
+            reset,
+          ).toEqual({
+            harness:
+              "codex",
+            model:
+              "default",
+            reasoning:
+              "low",
+            systemPrompt:
+              "You supervise engineering workflows. Use only supplied system state and never invent execution progress.",
+          });
+
+          expect(
+            await getOrchestratorSettings(),
+          ).toEqual(
+            reset,
+          );
+
+          const rows =
+            await db
+              .select({
+                id:
+                  orchestratorSettings.id,
+              })
+              .from(
+                orchestratorSettings,
+              );
+
+          expect(
+            rows,
+          ).toEqual([
+            {
+              id:
+                1,
+            },
+          ]);
+        } finally {
+          await updateOrchestratorSettings(
+            originalSettings,
+          );
+        }
+      },
+    );
+
     it(
       "rejects conversation creation when the project is not currently discovered",
       async () => {

@@ -31,10 +31,17 @@ interface OrchestratorInspectorDrawerProps {
   resultExecution: AgentExecution | null;
   settings: OrchestratorSettings | null;
   settingsError: string | null;
+  settingsSaving: boolean;
+  onSaveSettings: (
+    settings: OrchestratorSettings,
+  ) => Promise<void>;
+  onResetSettings: () => Promise<void>;
   now: number;
 }
 
-/** Renders responsive run observability and workbench access without duplicating authoritative state. */
+/**
+ * Renders responsive run observability and workbench access without duplicating authoritative state.
+ */
 export function OrchestratorInspectorDrawer({
   runDetail,
   runError,
@@ -43,6 +50,9 @@ export function OrchestratorInspectorDrawer({
   resultExecution,
   settings,
   settingsError,
+  settingsSaving,
+  onSaveSettings,
+  onResetSettings,
   now,
 }: OrchestratorInspectorDrawerProps) {
   return (
@@ -99,6 +109,15 @@ export function OrchestratorInspectorDrawer({
               settings={settings}
               settingsError={
                 settingsError
+              }
+              settingsSaving={
+                settingsSaving
+              }
+              onSaveSettings={
+                onSaveSettings
+              }
+              onResetSettings={
+                onResetSettings
               }
               now={now}
             />

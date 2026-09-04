@@ -42,6 +42,8 @@ import {
   getOrchestratorSettings,
   listConversations,
   postMessage,
+  resetOrchestratorSettings,
+  updateOrchestratorSettings,
 } from "@/lib/conversations";
 import {
   isRunActive,
@@ -196,6 +198,11 @@ export function OrchestratorChat() {
   ] = useState<string | null>(
     null,
   );
+
+  const [
+    settingsSaving,
+    setSettingsSaving,
+  ] = useState(false);
 
   const [
     error,
@@ -544,6 +551,73 @@ export function OrchestratorChat() {
       setConversations(
         response.conversations,
       );
+    };
+
+  /** Persists an operator-edited Orchestrator configuration and replaces local state with the validated server response. */
+  const handleSaveSettings =
+    async (
+      nextSettings:
+        OrchestratorSettings,
+    ): Promise<void> => {
+      setSettingsSaving(
+        true,
+      );
+      setSettingsError(
+        null,
+      );
+
+      try {
+        const saved =
+          await updateOrchestratorSettings(
+            nextSettings,
+          );
+
+        setSettings(
+          saved,
+        );
+      } catch (value) {
+        setSettingsError(
+          errorMessage(
+            value,
+            "Failed to save Orchestrator settings.",
+          ),
+        );
+      } finally {
+        setSettingsSaving(
+          false,
+        );
+      }
+    };
+
+  /** Restores the Orchestrator configuration through the server-owned defaults endpoint. */
+  const handleResetSettings =
+    async (): Promise<void> => {
+      setSettingsSaving(
+        true,
+      );
+      setSettingsError(
+        null,
+      );
+
+      try {
+        const reset =
+          await resetOrchestratorSettings();
+
+        setSettings(
+          reset,
+        );
+      } catch (value) {
+        setSettingsError(
+          errorMessage(
+            value,
+            "Failed to reset Orchestrator settings.",
+          ),
+        );
+      } finally {
+        setSettingsSaving(
+          false,
+        );
+      }
     };
 
   /** Opens one explicitly selected persisted conversation. */
@@ -1024,6 +1098,15 @@ export function OrchestratorChat() {
                   settingsError={
                     settingsError
                   }
+                  settingsSaving={
+                    settingsSaving
+                  }
+                  onSaveSettings={
+                    handleSaveSettings
+                  }
+                  onResetSettings={
+                    handleResetSettings
+                  }
                   now={now}
                 />
               </div>
@@ -1078,6 +1161,15 @@ export function OrchestratorChat() {
               }
               settingsError={
                 settingsError
+              }
+              settingsSaving={
+                settingsSaving
+              }
+              onSaveSettings={
+                handleSaveSettings
+              }
+              onResetSettings={
+                handleResetSettings
               }
               now={now}
             />

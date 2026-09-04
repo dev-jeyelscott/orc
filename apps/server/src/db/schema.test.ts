@@ -12,6 +12,7 @@ import {
   db,
 } from "./client.js";
 import {
+  orchestratorSettings,
   systemSettings,
   tasks,
 } from "./schema.js";
@@ -200,6 +201,82 @@ describe(
                 2,
               autoModeEnabled:
                 true,
+            }),
+        ).rejects.toThrow();
+      },
+    );
+  },
+);
+
+describe(
+  "Orchestrator settings persistence schema",
+  () => {
+    it(
+      "uses low as the database default without changing the persisted singleton",
+      async () => {
+        await expect(
+          db.transaction(
+            async (
+              transaction,
+            ) => {
+              await transaction
+                .delete(
+                  orchestratorSettings,
+                )
+                .where(
+                  eq(
+                    orchestratorSettings.id,
+                    1,
+                  ),
+                );
+
+              const [settings] =
+                await transaction
+                  .insert(
+                    orchestratorSettings,
+                  )
+                  .values({
+                    id:
+                      1,
+                  })
+                  .returning();
+
+              expect(
+                settings.reasoning,
+              ).toBe(
+                "low",
+              );
+
+              throw new Error(
+                "rollback_orchestrator_settings_default_test",
+              );
+            },
+          ),
+        ).rejects.toThrow(
+          "rollback_orchestrator_settings_default_test",
+        );
+      },
+    );
+
+    it(
+      "keeps orchestrator settings as a single global row",
+      async () => {
+        await expect(
+          db
+            .insert(
+              orchestratorSettings,
+            )
+            .values({
+              id:
+                2,
+              harness:
+                "codex",
+              model:
+                "default",
+              reasoning:
+                "low",
+              systemPrompt:
+                "Schema singleton test.",
             }),
         ).rejects.toThrow();
       },

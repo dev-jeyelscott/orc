@@ -162,3 +162,17 @@ export function updateOrchestratorSettings(
     orchestratorSettingsSchema.parse,
   );
 }
+
+/**
+ * Restores the persisted Orchestrator configuration to current server-owned defaults.
+ */
+export function resetOrchestratorSettings(): Promise<OrchestratorSettings> {
+  return request(
+    "/api/orchestrator/settings/reset",
+    {
+      method:
+        "POST",
+    },
+    orchestratorSettingsSchema.parse,
+  );
+}

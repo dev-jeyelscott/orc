@@ -248,6 +248,15 @@ export async function updateOrchestratorSettings(
 }
 
 /**
+ * Restores the singleton Orchestrator configuration through the existing settings upsert.
+ */
+export async function resetOrchestratorSettings(): Promise<OrchestratorSettings> {
+  return updateOrchestratorSettings(
+    DEFAULT_ORCHESTRATOR_SETTINGS,
+  );
+}
+
+/**
  * Creates a new persisted conversation for a currently discovered project.
  */
 export async function createConversation(
