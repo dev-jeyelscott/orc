@@ -10,12 +10,42 @@ import {
   AutoModeScheduler,
 } from "./auto-mode-scheduler.js";
 
+type Deferred = {
+  promise:
+    Promise<void>;
+  resolve:
+    () => void;
+};
+
 /**
  * Flushes pending promise continuations used by scheduler-cycle assertions.
  */
 async function flushPromises(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+/**
+ * Creates a manually resolvable promise for deterministic scheduler overlap tests.
+ */
+function createDeferred(): Deferred {
+  let resolvePromise:
+    () => void =
+    () => {};
+
+  const promise =
+    new Promise<void>(
+      (resolve) => {
+        resolvePromise =
+          resolve;
+      },
+    );
+
+  return {
+    promise,
+    resolve:
+      resolvePromise,
+  };
 }
 
 afterEach(
@@ -81,10 +111,6 @@ describe(
     it(
       "never overlaps cycles and coalesces repeated immediate requests into one follow-up",
       async () => {
-        let releaseFirst:
-          (() => void) | null =
-          null;
-
         let active =
           0;
 
@@ -92,12 +118,7 @@ describe(
           0;
 
         const firstCycle =
-          new Promise<void>(
-            (resolve) => {
-              releaseFirst =
-                resolve;
-            },
-          );
+          createDeferred();
 
         const cycle =
           vi.fn()
@@ -116,7 +137,7 @@ describe(
                   cycle.mock.calls.length ===
                   1
                 ) {
-                  await firstCycle;
+                  await firstCycle.promise;
                 }
 
                 active -=
@@ -150,7 +171,7 @@ describe(
           1,
         );
 
-        releaseFirst?.();
+        firstCycle.resolve();
 
         await flushPromises();
 
