@@ -5,7 +5,12 @@ import { Terminal } from "@xterm/xterm";
 import {
   terminalFrameSchema,
 } from "@orc/shared";
-import { TerminalIcon } from "lucide-react";
+import {
+  TerminalIcon,
+} from "lucide-react";
+import type {
+  ReactNode,
+} from "react";
 import {
   useEffect,
   useRef,
@@ -27,10 +32,12 @@ type ConnectionStatus =
   | "error";
 
 interface AgentExecutionTerminalProps {
-  executionId: string;
+  executionId:
+    string;
   title: string;
   className?: string;
   heightClassName?: string;
+  subheader?: ReactNode;
 }
 
 const RECONNECT_DELAYS_MS = [
@@ -48,9 +55,12 @@ const ACTIVE_EXECUTION_STATUSES =
     "running",
   ]);
 
-/** Returns the human-readable terminal connection state used by the panel header. */
+/**
+ * Returns the human-readable terminal connection state used by the panel header.
+ */
 function connectionLabel(
-  status: ConnectionStatus,
+  status:
+    ConnectionStatus,
 ): string {
   switch (status) {
     case "streaming":
@@ -65,9 +75,12 @@ function connectionLabel(
   }
 }
 
-/** Returns the semantic design-system class for one terminal connection state. */
+/**
+ * Returns the semantic design-system class for one terminal connection state.
+ */
 function connectionClassName(
-  status: ConnectionStatus,
+  status:
+    ConnectionStatus,
 ): string {
   switch (status) {
     case "streaming":
@@ -83,93 +96,125 @@ function connectionClassName(
 }
 
 /**
- * Renders one execution-scoped xterm terminal with persisted replay,
- * bounded reconnect, raw ANSI output, and PTY resize propagation.
+ * Resolves the current design-system terminal theme from CSS variables.
+ */
+function resolveTerminalTheme(
+  container:
+    HTMLDivElement,
+) {
+  const rootStyles =
+    getComputedStyle(
+      document.documentElement,
+    );
+
+  const containerStyles =
+    getComputedStyle(
+      container,
+    );
+
+  const background =
+    rootStyles
+      .getPropertyValue(
+        "--bg-app",
+      )
+      .trim() ||
+    containerStyles.backgroundColor;
+
+  const foreground =
+    rootStyles
+      .getPropertyValue(
+        "--text-secondary",
+      )
+      .trim() ||
+    containerStyles.color;
+
+  const cursor =
+    rootStyles
+      .getPropertyValue(
+        "--text-primary",
+      )
+      .trim() ||
+    foreground;
+
+  const selectionBackground =
+    rootStyles
+      .getPropertyValue(
+        "--surface-interactive",
+      )
+      .trim() ||
+    background;
+
+  return {
+    background,
+    foreground,
+    cursor,
+    selectionBackground,
+  };
+}
+
+/**
+ * Resolves the current design-system monospace font family for xterm.
+ */
+function resolveTerminalFont(): string {
+  return (
+    getComputedStyle(
+      document.documentElement,
+    )
+      .getPropertyValue(
+        "--font-mono",
+      )
+      .trim() ||
+    "monospace"
+  );
+}
+
+/**
+ * Renders one execution-scoped xterm terminal with persisted replay, bounded reconnect, raw ANSI output, and PTY resize propagation.
  */
 export function AgentExecutionTerminal({
   executionId,
   title,
   className,
-  heightClassName = "h-[480px]",
+  heightClassName =
+    "h-[480px]",
+  subheader,
 }: AgentExecutionTerminalProps) {
   const containerRef =
     useRef<HTMLDivElement | null>(
       null,
     );
 
-  const [status, setStatus] =
+  const [
+    status,
+    setStatus,
+  ] =
     useState<ConnectionStatus>(
       "connecting",
     );
 
   useEffect(() => {
-    if (!containerRef.current) {
+    const container =
+      containerRef.current;
+
+    if (!container) {
       return;
     }
 
-    const rootStyles =
-      getComputedStyle(
-        document.documentElement,
-      );
-
-    const containerStyles =
-      getComputedStyle(
-        containerRef.current,
-      );
-
-    const resolvedMonoFont =
-      rootStyles
-        .getPropertyValue(
-          "--font-mono",
-        )
-        .trim() || "monospace";
-
-    const background =
-      rootStyles
-        .getPropertyValue(
-          "--bg-app",
-        )
-        .trim() ||
-      containerStyles.backgroundColor;
-
-    const foreground =
-      rootStyles
-        .getPropertyValue(
-          "--text-secondary",
-        )
-        .trim() ||
-      containerStyles.color;
-
-    const cursor =
-      rootStyles
-        .getPropertyValue(
-          "--text-primary",
-        )
-        .trim() ||
-      foreground;
-
-    const selectionBackground =
-      rootStyles
-        .getPropertyValue(
-          "--surface-interactive",
-        )
-        .trim() ||
-      background;
-
     const terminal =
       new Terminal({
-        convertEol: false,
+        convertEol:
+          false,
         fontFamily:
-          resolvedMonoFont,
+          resolveTerminalFont(),
         fontSize: 13,
-        scrollback: 10_000,
-        theme: {
-          background,
-          foreground,
-          cursor,
-          selectionBackground,
-        },
-        disableStdin: true,
+        scrollback:
+          10_000,
+        theme:
+          resolveTerminalTheme(
+            container,
+          ),
+        disableStdin:
+          true,
       });
 
     const fitAddon =
@@ -180,7 +225,7 @@ export function AgentExecutionTerminal({
     );
 
     terminal.open(
-      containerRef.current,
+      container,
     );
 
     let socket:
@@ -193,12 +238,24 @@ export function AgentExecutionTerminal({
         >
       | undefined;
 
-    let disposed = false;
-    let finished = false;
-    let reconnectAttempt = 0;
-    let lastSequence = 0;
+    let disposed =
+      false;
 
-    /** Fits xterm to its container and forwards the resulting dimensions to the active PTY. */
+    let finished =
+      false;
+
+    let reconnectAttempt =
+      0;
+
+    let lastSequence =
+      0;
+
+    const reconnectRequestController =
+      new AbortController();
+
+    /**
+     * Fits xterm to its container and forwards dimensions to the active PTY.
+     */
     const fitAndSendResize =
       (): void => {
         if (disposed) {
@@ -214,20 +271,44 @@ export function AgentExecutionTerminal({
         if (
           socket?.readyState ===
             WebSocket.OPEN &&
-          terminal.cols > 0 &&
-          terminal.rows > 0
+          terminal.cols >
+            0 &&
+          terminal.rows >
+            0
         ) {
           socket.send(
             JSON.stringify({
-              type: "resize",
-              cols: terminal.cols,
-              rows: terminal.rows,
+              type:
+                "resize",
+              cols:
+                terminal.cols,
+              rows:
+                terminal.rows,
             }),
           );
         }
       };
 
-    /** Checks persisted execution state before scheduling another WebSocket connection. */
+    /**
+     * Applies current light or dark design-system tokens without rebuilding the terminal session.
+     */
+    const handleThemeChange =
+      (): void => {
+        if (
+          disposed
+        ) {
+          return;
+        }
+
+        terminal.options.theme =
+          resolveTerminalTheme(
+            container,
+          );
+      };
+
+    /**
+     * Checks persisted execution state before scheduling another WebSocket connection.
+     */
     const scheduleReconnect =
       async (): Promise<void> => {
         if (
@@ -241,7 +322,9 @@ export function AgentExecutionTerminal({
           reconnectAttempt >=
           RECONNECT_DELAYS_MS.length
         ) {
-          setStatus("error");
+          setStatus(
+            "error",
+          );
           return;
         }
 
@@ -251,9 +334,28 @@ export function AgentExecutionTerminal({
           execution =
             await getAgentExecution(
               executionId,
+              reconnectRequestController.signal,
             );
         } catch {
-          setStatus("error");
+          if (
+            disposed ||
+            reconnectRequestController.signal
+              .aborted
+          ) {
+            return;
+          }
+
+          setStatus(
+            "error",
+          );
+          return;
+        }
+
+        if (
+          disposed ||
+          reconnectRequestController.signal
+            .aborted
+        ) {
           return;
         }
 
@@ -262,8 +364,12 @@ export function AgentExecutionTerminal({
             execution.status,
           )
         ) {
-          finished = true;
-          setStatus("complete");
+          finished =
+            true;
+
+          setStatus(
+            "complete",
+          );
           return;
         }
 
@@ -272,8 +378,12 @@ export function AgentExecutionTerminal({
             reconnectAttempt
           ];
 
-        reconnectAttempt += 1;
-        setStatus("connecting");
+        reconnectAttempt +=
+          1;
+
+        setStatus(
+          "connecting",
+        );
 
         reconnectTimer =
           setTimeout(
@@ -289,7 +399,9 @@ export function AgentExecutionTerminal({
           );
       };
 
-    /** Opens a terminal WebSocket from the last terminal-specific sequence already rendered. */
+    /**
+     * Opens a terminal WebSocket from the last terminal-specific sequence already rendered.
+     */
     const connect =
       (): void => {
         if (
@@ -313,11 +425,15 @@ export function AgentExecutionTerminal({
         currentSocket.addEventListener(
           "open",
           () => {
-            if (disposed) {
+            if (
+              disposed
+            ) {
               return;
             }
 
-            reconnectAttempt = 0;
+            reconnectAttempt =
+              0;
+
             setStatus(
               "streaming",
             );
@@ -328,8 +444,11 @@ export function AgentExecutionTerminal({
 
         currentSocket.addEventListener(
           "message",
-          (event) => {
-            let payload: unknown;
+          (
+            event,
+          ) => {
+            let payload:
+              unknown;
 
             try {
               payload =
@@ -379,7 +498,8 @@ export function AgentExecutionTerminal({
               frame.type ===
               "complete"
             ) {
-              finished = true;
+              finished =
+                true;
 
               setStatus(
                 "complete",
@@ -402,7 +522,8 @@ export function AgentExecutionTerminal({
               frame.type ===
               "error"
             ) {
-              finished = true;
+              finished =
+                true;
 
               setStatus(
                 "error",
@@ -450,28 +571,57 @@ export function AgentExecutionTerminal({
       };
 
     const resizeObserver =
-      new ResizeObserver(() => {
-        fitAndSendResize();
-      });
+      new ResizeObserver(
+        () => {
+          fitAndSendResize();
+        },
+      );
+
+    const themeObserver =
+      new MutationObserver(
+        handleThemeChange,
+      );
 
     resizeObserver.observe(
-      containerRef.current,
+      container,
+    );
+
+    themeObserver.observe(
+      document.documentElement,
+      {
+        attributes:
+          true,
+        attributeFilter: [
+          "class",
+          "style",
+        ],
+      },
     );
 
     fitAndSendResize();
-    setStatus("connecting");
+
+    setStatus(
+      "connecting",
+    );
+
     connect();
 
     return () => {
-      disposed = true;
+      disposed =
+        true;
 
-      if (reconnectTimer) {
+      reconnectRequestController.abort();
+
+      if (
+        reconnectTimer
+      ) {
         clearTimeout(
           reconnectTimer,
         );
       }
 
       resizeObserver.disconnect();
+      themeObserver.disconnect();
 
       if (
         socket?.readyState ===
@@ -484,26 +634,38 @@ export function AgentExecutionTerminal({
 
       terminal.dispose();
     };
-  }, [executionId]);
+  }, [
+    executionId,
+  ]);
 
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-lg border border-border-default bg-bg-app",
+        "flex min-h-0 flex-col overflow-hidden rounded-lg border border-border-default bg-bg-app",
         className,
       )}
     >
-      <div className="flex items-center gap-2 border-b border-border-default px-3 py-2">
-        <TerminalIcon className="size-3.5 text-text-muted" />
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border-default px-3">
+        <TerminalIcon className="size-3.5 shrink-0 text-text-muted" />
 
-        <span className="truncate text-sm font-medium text-text-primary">
+        <span
+          title={
+            title
+          }
+          className="min-w-0 flex-1 truncate text-xs font-medium text-text-primary"
+        >
           {title}
         </span>
 
-        <span className="ms-auto flex items-center gap-1.5 text-[11px] text-text-muted">
+        <span
+          role="status"
+          aria-live="polite"
+          className="flex shrink-0 items-center gap-1.5 text-[10px] text-text-muted"
+        >
           <span
+            aria-hidden="true"
             className={cn(
-              "size-2 rounded-full",
+              "size-1.5 rounded-full",
               connectionClassName(
                 status,
               ),
@@ -516,10 +678,18 @@ export function AgentExecutionTerminal({
         </span>
       </div>
 
+      {subheader ? (
+        <div className="flex min-h-8 shrink-0 items-center overflow-hidden border-b border-border-default bg-surface-interactive/30 px-3">
+          {subheader}
+        </div>
+      ) : null}
+
       <div
-        ref={containerRef}
+        ref={
+          containerRef
+        }
         className={cn(
-          "bg-bg-app px-3 py-3",
+          "min-h-0 overflow-hidden bg-bg-app px-3 py-3",
           heightClassName,
         )}
       />

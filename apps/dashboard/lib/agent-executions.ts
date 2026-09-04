@@ -6,33 +6,44 @@ import {
 } from "@orc/shared";
 
 const SERVER_URL =
-  process.env.NEXT_PUBLIC_SERVER_URL ?? "http://localhost:4000";
+  process.env.NEXT_PUBLIC_SERVER_URL ??
+  "http://localhost:4000";
 
-/** Performs one validated request against the orchestration backend. */
+/**
+ * Performs one validated request against the orchestration backend.
+ */
 async function request<T>(
   path: string,
-  options: RequestInit,
+  options:
+    RequestInit,
   schema: {
-    parse: (value: unknown) => T;
+    parse: (
+      value: unknown,
+    ) => T;
   },
 ): Promise<T> {
-  const response = await fetch(
-    `${SERVER_URL}${path}`,
-    {
-      ...options,
-      headers: {
-        "content-type": "application/json",
-        ...options.headers,
+  const response =
+    await fetch(
+      `${SERVER_URL}${path}`,
+      {
+        ...options,
+        headers: {
+          "content-type":
+            "application/json",
+          ...options.headers,
+        },
       },
-    },
-  );
+    );
 
   if (!response.ok) {
-    const body = (await response
-      .json()
-      .catch(() => null)) as {
-      error?: string;
-    } | null;
+    const body =
+      (await response
+        .json()
+        .catch(
+          () => null,
+        )) as {
+        error?: string;
+      } | null;
 
     throw new Error(
       body?.error ??
@@ -45,39 +56,56 @@ async function request<T>(
   );
 }
 
-/** Returns the current authoritative execution record without browser caching. */
+/**
+ * Returns the current authoritative execution record without browser caching.
+ */
 export function getAgentExecution(
   id: string,
+  signal?:
+    AbortSignal,
 ): Promise<AgentExecution> {
   return request(
     `/api/agent-executions/${id}`,
     {
-      cache: "no-store",
+      cache:
+        "no-store",
+      signal,
     },
     agentExecutionSchema,
   );
 }
 
-/** Returns validated live process metrics when the server can observe the execution PID. */
+/**
+ * Returns validated live process metrics when the server can observe the execution PID.
+ */
 export function getAgentExecutionMetrics(
   id: string,
+  signal?:
+    AbortSignal,
 ): Promise<AgentExecutionMetrics> {
   return request(
     `/api/agent-executions/${id}/metrics`,
     {
-      cache: "no-store",
+      cache:
+        "no-store",
+      signal,
     },
     agentExecutionMetricsSchema,
   );
 }
 
-/** Builds the execution terminal WebSocket URL using a terminal-specific replay cursor. */
+/**
+ * Builds the execution terminal WebSocket URL using a terminal-specific replay cursor.
+ */
 export function getAgentExecutionTerminalUrl(
   id: string,
   afterSequence = 0,
 ): string {
   const normalizedServerUrl =
-    SERVER_URL.replace(/\/$/, "");
+    SERVER_URL.replace(
+      /\/$/,
+      "",
+    );
 
   const wsUrl =
     normalizedServerUrl.replace(
@@ -85,13 +113,16 @@ export function getAgentExecutionTerminalUrl(
       "ws",
     );
 
-  const url = new URL(
-    `${wsUrl}/api/agent-executions/${id}/terminal`,
-  );
+  const url =
+    new URL(
+      `${wsUrl}/api/agent-executions/${id}/terminal`,
+    );
 
   url.searchParams.set(
     "afterSequence",
-    String(afterSequence),
+    String(
+      afterSequence,
+    ),
   );
 
   return url.toString();
