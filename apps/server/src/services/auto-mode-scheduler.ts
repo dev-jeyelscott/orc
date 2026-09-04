@@ -120,7 +120,17 @@ export class AutoModeScheduler {
         } catch (error) {
           logger.error(
             {
-              error,
+              error:
+                error instanceof Error
+                  ? {
+                      name:
+                        error.name,
+                      message:
+                        error.message,
+                      stack:
+                        error.stack,
+                    }
+                  : error,
             },
             "Auto Mode cycle failed",
           );

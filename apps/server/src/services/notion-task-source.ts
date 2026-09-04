@@ -766,13 +766,37 @@ export class NotionTaskSourceAdapter {
       );
     }
 
-    const repositoryName =
-      validateRepositoryName(
-        readProjectName(
-          page.properties
-            .Project,
-        ),
-      );
+    let repositoryName:
+      string;
+
+    try {
+      repositoryName =
+        validateRepositoryName(
+          readProjectName(
+            page.properties
+              .Project,
+          ),
+        );
+    } catch (error) {
+      if (
+        error instanceof
+        NotionTaskSourceError
+      ) {
+        logger.warn(
+          {
+            pageId:
+              page.id,
+            message:
+              error.message,
+          },
+          "Skipping invalid Notion task",
+        );
+
+        return null;
+      }
+
+      throw error;
+    }
 
     const project =
       await this.options.resolveProject(
