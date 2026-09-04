@@ -17,6 +17,7 @@
   "dependencies": {
     "@fastify/cors": "^10.0.1",
     "@fastify/websocket": "^11.0.2",
+    "@notionhq/client": "^5.26.0",
     "@orc/shared": "workspace:*",
     "drizzle-orm": "^0.36.4",
     "fastify": "^5.1.0",

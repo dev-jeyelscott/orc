@@ -1,4 +1,7 @@
 import {
+  sql,
+} from "drizzle-orm";
+import {
   boolean,
   check,
   index,
@@ -11,9 +14,6 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
-import {
-  sql,
-} from "drizzle-orm";
 
 export const harnessEnum =
   pgEnum(
@@ -21,6 +21,15 @@ export const harnessEnum =
     [
       "claude",
       "codex",
+    ],
+  );
+
+export const taskSourceEnum =
+  pgEnum(
+    "task_source",
+    [
+      "manual",
+      "notion",
     ],
   );
 
@@ -335,8 +344,38 @@ export const tasks =
           .default(
             "pending",
           ),
+      source:
+        taskSourceEnum(
+          "source",
+        )
+          .notNull()
+          .default(
+            "manual",
+          ),
+      externalId:
+        text(
+          "external_id",
+        ),
+      externalUrl:
+        text(
+          "external_url",
+        ),
+      priority:
+        integer(
+          "priority",
+        )
+          .notNull()
+          .default(0),
       ...timestamps,
     },
+    (table) => [
+      unique(
+        "tasks_source_external_id_unique",
+      ).on(
+        table.source,
+        table.externalId,
+      ),
+    ],
   );
 
 export const agentExecutions =
@@ -566,6 +605,32 @@ export const orchestratorSettings =
     (table) => [
       check(
         "orchestrator_settings_singleton_check",
+        sql`${table.id} = 1`,
+      ),
+    ],
+  );
+
+export const systemSettings =
+  pgTable(
+    "system_settings",
+    {
+      id:
+        integer(
+          "id",
+        )
+          .primaryKey()
+          .default(1),
+      autoModeEnabled:
+        boolean(
+          "auto_mode_enabled",
+        )
+          .notNull()
+          .default(false),
+      ...timestamps,
+    },
+    (table) => [
+      check(
+        "system_settings_singleton_check",
         sql`${table.id} = 1`,
       ),
     ],

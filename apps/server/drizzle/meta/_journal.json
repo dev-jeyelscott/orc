@@ -57,6 +57,13 @@
       "when": 1788441600007,
       "tag": "0007_orchestrator_singleton",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788441600008,
+      "tag": "0008_notion_auto_mode_foundation",
+      "breakpoints": true
     }
   ]
 }
