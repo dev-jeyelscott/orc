@@ -3,8 +3,11 @@ import {
   desc,
   eq,
 } from "drizzle-orm";
-import type {
-  DomainEvent,
+import {
+  eventListQuerySchema,
+  type DomainEvent,
+  type EventListQuery,
+  type EventListResponse,
 } from "@orc/shared";
 
 import { db } from "../db/client.js";
@@ -39,6 +42,29 @@ function serialize(
       ) ?? {},
     createdAt:
       row.createdAt.toISOString(),
+  };
+}
+
+/**
+ * Builds one bounded event-history page from one extra fetched row.
+ */
+export function buildEventListResponse(
+  events: DomainEvent[],
+  pagination: EventListQuery,
+): EventListResponse {
+  return {
+    events:
+      events.slice(
+        0,
+        pagination.pageSize,
+      ),
+    page:
+      pagination.page,
+    pageSize:
+      pagination.pageSize,
+    hasMore:
+      events.length >
+      pagination.pageSize,
   };
 }
 
@@ -166,5 +192,48 @@ export async function listRecentEvents(
       )
   ).map(
     serialize,
+  );
+}
+
+/**
+ * Returns one validated newest-first system event-history page.
+ */
+export async function listEvents(
+  input:
+    Partial<EventListQuery> = {},
+): Promise<EventListResponse> {
+  const pagination =
+    eventListQuerySchema.parse(
+      input,
+    );
+
+  const offset =
+    (pagination.page - 1) *
+    pagination.pageSize;
+
+  const rows =
+    await db
+      .select()
+      .from(
+        domainEvents,
+      )
+      .orderBy(
+        desc(
+          domainEvents.createdAt,
+        ),
+      )
+      .limit(
+        pagination.pageSize +
+          1,
+      )
+      .offset(
+        offset,
+      );
+
+  return buildEventListResponse(
+    rows.map(
+      serialize,
+    ),
+    pagination,
   );
 }

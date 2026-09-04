@@ -7,6 +7,7 @@ import { agentMonitoringRoutes } from "./routes/agent-monitoring.js";
 import { agentRoutes } from "./routes/agents.js";
 import { conversationRoutes } from "./routes/conversations.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
+import { eventRoutes } from "./routes/events.js";
 import { healthRoutes } from "./routes/health.js";
 import { projectRoutes } from "./routes/projects.js";
 import { workflowRoutes } from "./routes/workflows.js";
@@ -52,6 +53,10 @@ export async function buildApp() {
 
   await app.register(
     conversationRoutes,
+  );
+
+  await app.register(
+    eventRoutes,
   );
 
   await app.register(
