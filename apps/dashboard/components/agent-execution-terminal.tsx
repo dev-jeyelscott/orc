@@ -34,6 +34,9 @@ import {
   getAgentExecutionTerminalUrl,
 } from "@/lib/agent-executions";
 import {
+  createTerminalOutputFormatter,
+} from "@/lib/terminal-output";
+import {
   cn,
 } from "@/lib/utils";
 
@@ -363,6 +366,9 @@ export function AgentExecutionTerminal({
       container,
     );
 
+    const outputFormatter =
+      createTerminalOutputFormatter();
+
     let socket:
       | WebSocket
       | null = null;
@@ -620,7 +626,9 @@ export function AgentExecutionTerminal({
               }
 
               terminal.write(
-                frame.data,
+                outputFormatter.write(
+                  frame.data,
+                ),
               );
 
               lastSequence =
@@ -633,6 +641,17 @@ export function AgentExecutionTerminal({
               frame.type ===
               "complete"
             ) {
+              const remainingOutput =
+                outputFormatter.flush();
+
+              if (
+                remainingOutput
+              ) {
+                terminal.write(
+                  remainingOutput,
+                );
+              }
+
               finished =
                 true;
 
@@ -657,6 +676,17 @@ export function AgentExecutionTerminal({
               frame.type ===
               "error"
             ) {
+              const remainingOutput =
+                outputFormatter.flush();
+
+              if (
+                remainingOutput
+              ) {
+                terminal.write(
+                  remainingOutput,
+                );
+              }
+
               finished =
                 true;
 
