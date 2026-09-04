@@ -126,6 +126,13 @@ export function TaskCreateDrawer({
       : projects[0]?.id ??
         "";
 
+  const selectedProject =
+    projects.find(
+      (p) =>
+        p.id ===
+        selectedProjectId,
+    );
+
   const formComplete =
     selectedProjectId.length >
       0 &&
@@ -344,7 +351,11 @@ export function TaskCreateDrawer({
                         0
                     }
                   >
-                    <SelectValue placeholder="Select a discovered repository" />
+                    {selectedProject ? (
+                      selectedProject.name
+                    ) : (
+                      <SelectValue placeholder="Select a discovered repository" />
+                    )}
                   </SelectTrigger>
 
                   <SelectContent
