@@ -124,7 +124,7 @@ function executionProgress(
 }
 
 /**
- * Renders status filters and independently scrollable run history without duplicating global search.
+ * Renders a full-height desktop run navigator with a fixed filter header and independently scrollable history.
  */
 export function RunNavigator({
   runs,
@@ -134,8 +134,8 @@ export function RunNavigator({
   onSelect,
 }: RunNavigatorProps) {
   return (
-    <Card className="min-w-0 gap-0 self-start overflow-hidden xl:sticky xl:top-6">
-      <CardHeader className="border-b border-divider py-3">
+    <Card className="min-w-0 gap-0 self-start overflow-hidden xl:sticky xl:top-6 xl:h-[calc(100dvh-3rem)]">
+      <CardHeader className="shrink-0 border-b border-divider py-3">
         <div className="flex flex-wrap gap-1">
           {RUN_STATUS_FILTERS.map(
             (status) => {
@@ -172,9 +172,9 @@ export function RunNavigator({
         </div>
       </CardHeader>
 
-      <CardContent className="p-0">
+      <CardContent className="min-h-0 flex-1 overflow-hidden p-0">
         {runs.length ? (
-          <ScrollArea className="h-[min(58vh,520px)] xl:h-[620px]">
+          <ScrollArea className="h-[min(58vh,520px)] xl:h-full">
             {runs.map(
               (run) => (
                 <RunNavigatorRow
@@ -192,7 +192,7 @@ export function RunNavigator({
             )}
           </ScrollArea>
         ) : (
-          <div className="flex min-h-44 flex-col items-center justify-center gap-2 px-4 text-center">
+          <div className="flex h-full min-h-44 flex-col items-center justify-center gap-2 px-4 text-center">
             <CircleDotIcon className="size-5 text-text-muted" />
 
             <p className="text-sm font-medium text-text-secondary">

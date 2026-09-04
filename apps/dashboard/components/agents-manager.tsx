@@ -1016,42 +1016,46 @@ export function AgentsManager() {
             />
           </section>
 
-          <section className="grid min-w-0 items-start gap-3 xl:grid-cols-[minmax(18rem,0.75fr)_minmax(32rem,1.65fr)] 2xl:grid-cols-[minmax(18rem,0.72fr)_minmax(32rem,1.7fr)_minmax(22rem,1fr)]">
-            <AgentIndex
-              agents={
-                filteredAgents
-              }
-              totalCount={
-                agents.length
-              }
-              totalLayers={
-                overview.metrics
-                  .layers
-              }
-              selectedAgentId={
-                selectedAgentId
-              }
-              onSelect={
-                selectAgent
-              }
-            />
+          <section className="grid min-w-0 items-start gap-3 xl:grid-cols-[minmax(18rem,0.75fr)_minmax(32rem,1.65fr)] 2xl:grid-cols-[minmax(18rem,0.72fr)_minmax(32rem,1.7fr)_minmax(22rem,1fr)] 2xl:items-stretch">
+            <div className="min-w-0 2xl:h-full 2xl:[&>[data-slot=card]]:h-full">
+              <AgentIndex
+                agents={
+                  filteredAgents
+                }
+                totalCount={
+                  agents.length
+                }
+                totalLayers={
+                  overview.metrics
+                    .layers
+                }
+                selectedAgentId={
+                  selectedAgentId
+                }
+                onSelect={
+                  selectAgent
+                }
+              />
+            </div>
 
-            <AgentWorkflowView
-              agents={
-                agents
-              }
-              selectedAgentId={
-                selectedAgentId
-              }
-              activeAgentId={
-                activeGraphAgentId
-              }
-              onSelectAgent={
-                selectAgent
-              }
-            />
+            <div className="min-w-0 2xl:h-full 2xl:[&>[data-slot=card]]:h-full 2xl:[&>[data-slot=card]>[data-slot=card-content]]:flex 2xl:[&>[data-slot=card]>[data-slot=card-content]]:min-h-0 2xl:[&>[data-slot=card]>[data-slot=card-content]]:flex-1 2xl:[&_.agents-react-flow]:!h-full">
+              <AgentWorkflowView
+                agents={
+                  agents
+                }
+                selectedAgentId={
+                  selectedAgentId
+                }
+                activeAgentId={
+                  activeGraphAgentId
+                }
+                onSelectAgent={
+                  selectAgent
+                }
+              />
+            </div>
 
-            <div className="min-w-0 xl:col-span-2 2xl:col-span-1">
+            <div className="min-w-0 xl:col-span-2 2xl:col-span-1 2xl:h-full 2xl:[&>[data-slot=card]]:h-full">
               {selectedAgent ? (
                 <AgentInspector
                   agent={
@@ -1215,7 +1219,7 @@ function AgentIndex({
         </div>
       </CardHeader>
 
-      <CardContent className="p-0">
+      <CardContent className="flex flex-1 flex-col p-0">
         {agents.length ===
         0 ? (
           <p className="p-6 text-center text-xs text-text-muted">
@@ -1332,7 +1336,7 @@ function AgentIndex({
           </div>
         )}
 
-        <div className="border-t border-divider px-3 py-2 text-[10px] text-text-muted">
+        <div className="mt-auto border-t border-divider px-3 py-2 text-[10px] text-text-muted">
           Showing{" "}
           {agents.length} of{" "}
           {totalCount} agents

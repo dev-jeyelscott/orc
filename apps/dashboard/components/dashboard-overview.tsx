@@ -2273,46 +2273,27 @@ export function DashboardOverview({
         </CardContent>
       </Card>
 
-      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)] xl:items-start">
-        <div className="flex min-w-0 flex-col gap-4">
-          <CurrentActivityCard
-            activity={
-              data.activity
-            }
-            now={
-              now
-            }
-            actionPending={
-              actionPending
-            }
-            actionError={
-              actionError
-            }
-            onStop={() =>
-              void handleStop()
-            }
-            onRetry={() =>
-              void handleRetry()
-            }
-          />
-
-          {shouldPollMetrics &&
-          data.activity?.kind ===
-            "active" &&
-          data.activity.execution ? (
-            <ActiveExecutionCard
-              activity={
-                data.activity
-              }
-              metrics={
-                metrics
-              }
-              metricsState={
-                metricsState
-              }
-            />
-          ) : null}
-        </div>
+      <div className="grid min-w-0 items-stretch gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
+        <CurrentActivityCard
+          activity={
+            data.activity
+          }
+          now={
+            now
+          }
+          actionPending={
+            actionPending
+          }
+          actionError={
+            actionError
+          }
+          onStop={() =>
+            void handleStop()
+          }
+          onRetry={() =>
+            void handleRetry()
+          }
+        />
 
         <WorkflowHealthCard
           tasks={
@@ -2323,6 +2304,23 @@ export function DashboardOverview({
           }
         />
       </div>
+
+      {shouldPollMetrics &&
+      data.activity?.kind ===
+        "active" &&
+      data.activity.execution ? (
+        <ActiveExecutionCard
+          activity={
+            data.activity
+          }
+          metrics={
+            metrics
+          }
+          metricsState={
+            metricsState
+          }
+        />
+      ) : null}
 
       <RecentEventsCard
         events={
