@@ -138,7 +138,7 @@ function conversation(): Conversation {
 }
 
 /**
- * Creates one task tied to the conversation project.
+ * Creates one manual task tied to the conversation project.
  */
 function task(
   id =
@@ -154,6 +154,14 @@ function task(
       "Implement test",
     status:
       "pending",
+    source:
+      "manual",
+    externalId:
+      null,
+    externalUrl:
+      null,
+    priority:
+      0,
     createdAt:
       new Date().toISOString(),
     updatedAt:

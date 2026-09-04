@@ -9,6 +9,15 @@ import {
   taskSchema,
 } from "./task.js";
 
+const LEGACY_TASK_ID =
+  "00000000-0000-4000-8000-000000000001";
+
+const NOTION_TASK_ID =
+  "00000000-0000-4000-8000-000000000002";
+
+const INVALID_TASK_ID =
+  "00000000-0000-4000-8000-000000000003";
+
 describe(
   "task contracts",
   () => {
@@ -40,7 +49,7 @@ describe(
         const parsed =
           taskSchema.parse({
             id:
-              crypto.randomUUID(),
+              LEGACY_TASK_ID,
             projectPath:
               "/home/user/workspace/orc",
             title:
@@ -83,7 +92,7 @@ describe(
         const parsed =
           taskSchema.parse({
             id:
-              crypto.randomUUID(),
+              NOTION_TASK_ID,
             projectPath:
               "/home/user/workspace/orc",
             title:
@@ -125,7 +134,7 @@ describe(
       () => {
         const base = {
           id:
-            crypto.randomUUID(),
+            INVALID_TASK_ID,
           projectPath:
             "/home/user/workspace/orc",
           title:
