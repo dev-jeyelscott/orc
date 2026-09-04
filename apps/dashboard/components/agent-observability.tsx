@@ -60,7 +60,7 @@ import {
   Progress,
 } from "@/components/ui/progress";
 
-type ProcessMetrics = {
+export type AgentProcessMetrics = {
   cpuPercent:
     number | null;
   memoryBytes:
@@ -72,6 +72,13 @@ type AgentInspectorProps = {
     AgentWithRoutes;
   agents:
     AgentWithRoutes[];
+  onEdit:
+    () => void;
+};
+
+type AgentLiveObservabilityProps = {
+  agent:
+    AgentWithRoutes;
   observability:
     AgentObservability | null;
   loading: boolean;
@@ -80,9 +87,7 @@ type AgentInspectorProps = {
   range:
     AgentMonitoringRange;
   liveMetrics:
-    ProcessMetrics | null;
-  onEdit:
-    () => void;
+    AgentProcessMetrics | null;
 };
 
 type BadgeVariant =
@@ -132,7 +137,7 @@ const routeChartConfig = {
 } satisfies ChartConfig;
 
 /**
- * Maps execution lifecycle status onto existing semantic badge variants.
+ * Maps execution lifecycle status onto the existing semantic badge variants.
  */
 function executionVariant(
   status:
@@ -141,15 +146,20 @@ function executionVariant(
   switch (status) {
     case "running":
       return "running";
+
     case "starting":
     case "pending":
       return "warning";
+
     case "completed":
       return "success";
+
     case "failed":
       return "error";
+
     case "blocked":
       return "warning";
+
     case "cancelled":
     default:
       return "neutral";
@@ -157,7 +167,7 @@ function executionVariant(
 }
 
 /**
- * Calculates duration for a bounded recent-execution DTO.
+ * Calculates one bounded recent-execution duration from authoritative timestamps.
  */
 function recentExecutionDuration(
   execution:
@@ -181,8 +191,12 @@ function recentExecutionDuration(
     );
 
   if (
-    !Number.isFinite(start) ||
-    !Number.isFinite(end) ||
+    !Number.isFinite(
+      start,
+    ) ||
+    !Number.isFinite(
+      end,
+    ) ||
     end < start
   ) {
     return null;
@@ -192,17 +206,18 @@ function recentExecutionDuration(
 }
 
 /**
- * Copies a stable identifier using the browser clipboard API when available.
+ * Copies a stable persisted identifier using the browser clipboard API.
  */
 async function copyText(
   value: string,
 ): Promise<void> {
-  await navigator.clipboard
-    .writeText(value);
+  await navigator.clipboard.writeText(
+    value,
+  );
 }
 
 /**
- * Returns a human-readable label for the selected monitoring window.
+ * Returns the configured human-readable monitoring-window label.
  */
 function rangeLabel(
   range:
@@ -213,12 +228,13 @@ function rangeLabel(
       (option) =>
         option.value ===
         range,
-    )?.label ?? range
+    )?.label ??
+    range
   );
 }
 
 /**
- * Renders one compact telemetry value with a secondary operator label.
+ * Renders one compact operator metric with optional supporting context.
  */
 function MiniMetric({
   label,
@@ -236,12 +252,22 @@ function MiniMetric({
         {label}
       </p>
 
-      <p className="mt-1 truncate font-heading text-sm font-semibold text-text-primary">
+      <p
+        title={
+          value
+        }
+        className="mt-1 truncate font-heading text-sm font-semibold text-text-primary"
+      >
         {value}
       </p>
 
       {detail ? (
-        <p className="mt-0.5 truncate text-[10px] text-text-muted">
+        <p
+          title={
+            detail
+          }
+          className="mt-0.5 truncate text-[10px] text-text-muted"
+        >
           {detail}
         </p>
       ) : null}
@@ -250,7 +276,7 @@ function MiniMetric({
 }
 
 /**
- * Renders one yes/no configuration capability without relying on color alone.
+ * Renders one yes/no capability without relying on color alone.
  */
 function Capability({
   label,
@@ -284,16 +310,57 @@ function Capability({
 }
 
 /**
- * Renders selected-agent configuration, explicit routes, and persisted/live execution observability.
+ * Resolves one persisted explicit route into a concise operator destination label.
+ */
+function routeDestination(
+  agent:
+    AgentWithRoutes,
+  agentsById:
+    Map<
+      string,
+      AgentWithRoutes
+    >,
+): Array<{
+  id: string;
+  outcome: string;
+  destination: string;
+  enabled: boolean;
+}> {
+  return agent.routes.map(
+    (route) => {
+      const destination =
+        route.targetAgentId
+          ? agentsById.get(
+              route.targetAgentId,
+            )?.name ??
+            "Unavailable target"
+          : route.terminalAction
+            ? formatIdentifier(
+                route.terminalAction,
+              )
+            : "No destination";
+
+      return {
+        id:
+          route.id,
+        outcome:
+          formatIdentifier(
+            route.outcome,
+          ),
+        destination,
+        enabled:
+          route.enabled,
+      };
+    },
+  );
+}
+
+/**
+ * Renders the compact persisted configuration inspector for the currently selected agent.
  */
 export function AgentInspector({
   agent,
   agents,
-  observability,
-  loading,
-  error,
-  range,
-  liveMetrics,
   onEdit,
 }: AgentInspectorProps) {
   const agentsById =
@@ -306,6 +373,300 @@ export function AgentInspector({
       ),
     );
 
+  const routes =
+    routeDestination(
+      agent,
+      agentsById,
+    );
+
+  return (
+    <Card
+      size="sm"
+      className="min-w-0 self-start"
+    >
+      <CardHeader className="border-b border-divider">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>
+            Selected Agent
+          </CardTitle>
+
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={
+              onEdit
+            }
+          >
+            <Edit3Icon />
+            Edit
+          </Button>
+        </div>
+      </CardHeader>
+
+      <CardContent className="grid gap-4">
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="truncate font-heading text-base font-semibold text-text-primary">
+                {
+                  agent.name
+                }
+              </h2>
+
+              <Badge
+                variant={
+                  agent.enabled
+                    ? "success"
+                    : "disabled"
+                }
+              >
+                {agent.enabled
+                  ? "Enabled"
+                  : "Disabled"}
+              </Badge>
+            </div>
+
+            <p className="mt-1 truncate text-xs text-text-muted">
+              {
+                agent.role
+              }
+            </p>
+
+            {agent.description ? (
+              <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
+                {
+                  agent.description
+                }
+              </p>
+            ) : null}
+          </div>
+
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            onClick={() =>
+              void copyText(
+                agent.id,
+              )
+            }
+            aria-label="Copy agent ID"
+          >
+            <CopyIcon />
+          </Button>
+        </div>
+
+        <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-xs">
+          <dt className="text-text-muted">
+            ID
+          </dt>
+          <dd
+            title={
+              agent.id
+            }
+            className="truncate font-mono text-text-secondary"
+          >
+            {
+              agent.id
+            }
+          </dd>
+
+          <dt className="text-text-muted">
+            Slug
+          </dt>
+          <dd
+            title={
+              agent.slug
+            }
+            className="truncate font-mono text-text-secondary"
+          >
+            {
+              agent.slug
+            }
+          </dd>
+
+          <dt className="text-text-muted">
+            Layer
+          </dt>
+          <dd className="text-text-secondary">
+            {
+              agent.layer
+            }
+          </dd>
+
+          <dt className="text-text-muted">
+            Order
+          </dt>
+          <dd className="text-text-secondary">
+            {
+              agent.executionOrder
+            }
+          </dd>
+
+          <dt className="text-text-muted">
+            Harness
+          </dt>
+          <dd className="font-mono text-text-secondary">
+            {
+              agent.harness
+            }
+          </dd>
+
+          <dt className="text-text-muted">
+            Model
+          </dt>
+          <dd
+            title={
+              agent.model
+            }
+            className="truncate font-mono text-text-secondary"
+          >
+            {
+              agent.model
+            }
+          </dd>
+
+          <dt className="text-text-muted">
+            Reasoning
+          </dt>
+          <dd className="text-text-secondary">
+            {
+              agent.reasoning
+            }
+          </dd>
+        </dl>
+
+        <div className="grid gap-1.5 rounded-md border border-divider bg-surface-interactive/20 p-2.5">
+          <Capability
+            label="Can Write"
+            enabled={
+              agent.canWrite
+            }
+          />
+
+          <Capability
+            label="Can Run Commands"
+            enabled={
+              agent.canRunCommands
+            }
+          />
+
+          <Capability
+            label="Can Commit"
+            enabled={
+              agent.canCommit
+            }
+          />
+        </div>
+
+        <section>
+          <p className="mb-1.5 text-xs font-medium text-text-secondary">
+            System Prompt
+            Preview
+          </p>
+
+          <pre className="line-clamp-5 whitespace-pre-wrap rounded-md border border-divider bg-bg-app/60 p-2.5 font-mono text-[10px] leading-relaxed text-text-muted">
+            {
+              agent.systemPrompt
+            }
+          </pre>
+        </section>
+
+        <section>
+          <div className="mb-1.5 flex items-center justify-between gap-3">
+            <p className="text-xs font-medium text-text-secondary">
+              Routes
+            </p>
+
+            <span className="text-[10px] text-text-muted">
+              {
+                routes.length
+              }{" "}
+              configured
+            </span>
+          </div>
+
+          {routes.length ===
+          0 ? (
+            <p className="rounded-md border border-divider p-2.5 text-[10px] text-text-muted">
+              No explicit
+              routing overrides
+              configured.
+            </p>
+          ) : (
+            <div className="divide-y divide-divider rounded-md border border-divider">
+              {routes.map(
+                (route) => (
+                  <div
+                    key={
+                      route.id
+                    }
+                    className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 p-2.5"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-[10px] font-medium text-text-secondary">
+                        {
+                          route.outcome
+                        }
+                      </p>
+
+                      <p
+                        title={
+                          route.destination
+                        }
+                        className="mt-0.5 truncate text-[10px] text-text-muted"
+                      >
+                        →{" "}
+                        {
+                          route.destination
+                        }
+                      </p>
+                    </div>
+
+                    <Badge
+                      variant={
+                        route.enabled
+                          ? "success"
+                          : "disabled"
+                      }
+                      className="h-4 px-1.5 text-[9px]"
+                    >
+                      {route.enabled
+                        ? "Enabled"
+                        : "Disabled"}
+                    </Badge>
+                  </div>
+                ),
+              )}
+            </div>
+          )}
+        </section>
+
+        <p className="border-t border-divider pt-3 text-[10px] leading-relaxed text-text-muted">
+          Active runs retain
+          their own immutable
+          agent snapshots.
+          Configuration changes
+          affect future runs
+          only.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Renders the selected agent's already-fetched persisted and live execution observability across the full page width.
+ */
+export function AgentLiveObservability({
+  agent,
+  observability,
+  loading,
+  error,
+  range,
+  liveMetrics,
+}: AgentLiveObservabilityProps) {
   const successRate =
     observability
       ? calculateResultSuccessRate(
@@ -335,582 +696,370 @@ export function AgentInspector({
         bucket.count > 0,
     ) ?? false;
 
+  const hasActiveExecution =
+    Boolean(
+      observability
+        ?.activeExecution,
+    );
+
   return (
-    <div className="grid min-w-0 gap-3">
-      <Card size="sm">
-        <CardHeader className="border-b border-divider">
-          <div className="flex items-center justify-between gap-3">
-            <CardTitle>
-              Selected Agent
-            </CardTitle>
+    <Card
+      size="sm"
+      className="min-w-0"
+    >
+      <CardHeader className="border-b border-divider">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <ActivityIcon className="size-4 shrink-0 text-brand-accent" />
 
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={
-                onEdit
-              }
-            >
-              <Edit3Icon />
-              Edit
-            </Button>
-          </div>
-        </CardHeader>
-
-        <CardContent className="grid gap-4">
-          <div className="flex min-w-0 items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="truncate font-heading text-base font-semibold text-text-primary">
-                  {
-                    agent.name
-                  }
-                </h2>
-
-                <Badge
-                  variant={
-                    agent.enabled
-                      ? "success"
-                      : "disabled"
-                  }
-                >
-                  {agent.enabled
-                    ? "Enabled"
-                    : "Disabled"}
-                </Badge>
-              </div>
-
-              <p className="mt-1 truncate text-xs text-text-muted">
-                {
-                  agent.role
-                }
-              </p>
-            </div>
-
-            <Button
-              type="button"
-              size="icon-sm"
-              variant="ghost"
-              onClick={() =>
-                void copyText(
-                  agent.id,
-                )
-              }
-              aria-label="Copy agent ID"
-            >
-              <CopyIcon />
-            </Button>
-          </div>
-
-          <dl className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5 text-xs">
-            <dt className="text-text-muted">
-              ID
-            </dt>
-            <dd className="truncate font-mono text-text-secondary">
-              {
-                agent.id
-              }
-            </dd>
-
-            <dt className="text-text-muted">
-              Slug
-            </dt>
-            <dd className="truncate font-mono text-text-secondary">
-              {
-                agent.slug
-              }
-            </dd>
-
-            <dt className="text-text-muted">
-              Description
-            </dt>
-            <dd className="text-text-secondary">
-              {agent.description ||
-                "No description"}
-            </dd>
-
-            <dt className="text-text-muted">
-              Layer
-            </dt>
-            <dd className="text-text-secondary">
-              {
-                agent.layer
-              }
-            </dd>
-
-            <dt className="text-text-muted">
-              Execution Order
-            </dt>
-            <dd className="text-text-secondary">
-              {
-                agent.executionOrder
-              }
-            </dd>
-
-            <dt className="text-text-muted">
-              Harness
-            </dt>
-            <dd className="text-text-secondary">
-              {
-                agent.harness
-              }
-            </dd>
-
-            <dt className="text-text-muted">
-              Model
-            </dt>
-            <dd className="truncate font-mono text-text-secondary">
-              {
-                agent.model
-              }
-            </dd>
-
-            <dt className="text-text-muted">
-              Reasoning
-            </dt>
-            <dd className="text-text-secondary">
-              {
-                agent.reasoning
-              }
-            </dd>
-          </dl>
-
-          <div className="grid gap-1.5 rounded-md border border-divider p-2.5">
-            <Capability
-              label="Can Write"
-              enabled={
-                agent.canWrite
-              }
-            />
-
-            <Capability
-              label="Can Run Commands"
-              enabled={
-                agent.canRunCommands
-              }
-            />
-
-            <Capability
-              label="Can Commit"
-              enabled={
-                agent.canCommit
-              }
-            />
-          </div>
-
-          <div>
-            <p className="mb-1.5 text-xs font-medium text-text-secondary">
-              System Prompt
-              Preview
-            </p>
-
-            <pre className="line-clamp-5 whitespace-pre-wrap rounded-md border border-divider bg-bg-app/60 p-2.5 font-mono text-[10px] leading-relaxed text-text-muted">
-              {
-                agent.systemPrompt
-              }
-            </pre>
-          </div>
-
-          <p className="text-[10px] leading-relaxed text-text-muted">
-            Active runs
-            retain their own
-            immutable agent
-            snapshots.
-            Configuration
-            changes affect
-            future runs only.
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card size="sm">
-        <CardHeader className="border-b border-divider">
-          <CardTitle>
-            Routes
-          </CardTitle>
-        </CardHeader>
-
-        <CardContent className="p-0">
-          {agent.routes.length ===
-          0 ? (
-            <p className="p-3 text-xs text-text-muted">
-              No explicit
-              routing overrides
-              configured.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[31rem] text-left text-[11px]">
-                <thead className="border-b border-divider text-text-muted">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">
-                      Outcome
-                    </th>
-                    <th className="px-3 py-2 font-medium">
-                      Target
-                    </th>
-                    <th className="px-3 py-2 font-medium">
-                      Terminal
-                    </th>
-                    <th className="px-3 py-2 font-medium">
-                      Enabled
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {agent.routes.map(
-                    (
-                      route,
-                    ) => (
-                      <tr
-                        key={
-                          route.id
-                        }
-                        className="border-b border-divider last:border-0"
-                      >
-                        <td className="px-3 py-2 font-mono text-text-secondary">
-                          {
-                            route.outcome
-                          }
-                        </td>
-
-                        <td className="px-3 py-2 text-text-secondary">
-                          {route.targetAgentId
-                            ? agentsById.get(
-                                route.targetAgentId,
-                              )
-                                ?.name ??
-                              "Unavailable target"
-                            : "None"}
-                        </td>
-
-                        <td className="px-3 py-2 font-mono text-text-secondary">
-                          {route.terminalAction ??
-                            "None"}
-                        </td>
-
-                        <td className="px-3 py-2">
-                          <Badge
-                            variant={
-                              route.enabled
-                                ? "success"
-                                : "disabled"
-                            }
-                          >
-                            {route.enabled
-                              ? "Yes"
-                              : "No"}
-                          </Badge>
-                        </td>
-                      </tr>
-                    ),
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card size="sm">
-        <CardHeader className="border-b border-divider">
-          <div className="flex items-center justify-between gap-3">
             <CardTitle>
               Live
               Observability
             </CardTitle>
 
+            <span className="hidden truncate text-[10px] text-text-muted sm:inline">
+              Selected:{" "}
+              {
+                agent.name
+              }
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
             <span className="text-[10px] text-text-muted">
               {rangeLabel(
                 range,
               )}
             </span>
+
+            {hasActiveExecution ? (
+              <Badge variant="running">
+                Live
+              </Badge>
+            ) : null}
           </div>
-        </CardHeader>
+        </div>
+      </CardHeader>
 
-        <CardContent className="grid gap-3">
-          {error ? (
-            <p
-              role="alert"
-              className="rounded-md border border-status-error/30 bg-status-error/10 p-2 text-xs text-status-error"
-            >
-              {error}
-            </p>
-          ) : null}
+      <CardContent className="grid gap-3">
+        {error ? (
+          <p
+            role="alert"
+            className="rounded-md border border-status-error/30 bg-status-error/10 p-2 text-xs text-status-error"
+          >
+            {error}
+          </p>
+        ) : null}
 
-          {loading &&
-          !observability ? (
-            <p className="text-xs text-text-muted">
-              Loading
-              execution
-              telemetry...
-            </p>
-          ) : null}
+        {loading &&
+        !observability ? (
+          <p className="py-8 text-center text-xs text-text-muted">
+            Loading execution
+            telemetry...
+          </p>
+        ) : null}
 
-          {observability ? (
-            <>
-              <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
-                <MiniMetric
-                  label="Success Rate"
-                  value={
-                    successRate ===
-                    null
-                      ? "Unavailable"
-                      : `${successRate.toFixed(
-                          1,
-                        )}%`
-                  }
-                  detail={`${observability.resultCount} results`}
-                />
+        {!loading &&
+        !error &&
+        !observability ? (
+          <p className="py-8 text-center text-xs text-text-muted">
+            No observability
+            snapshot is
+            available for this
+            agent.
+          </p>
+        ) : null}
 
-                <MiniMetric
-                  label="Approval Rate"
-                  value={
-                    approvalRate ===
-                    null
-                      ? "Unavailable"
-                      : `${approvalRate.toFixed(
-                          1,
-                        )}%`
-                  }
-                  detail="Approved vs changes requested"
-                />
+        {observability ? (
+          <>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
+              <MiniMetric
+                label="Success Rate"
+                value={
+                  successRate ===
+                  null
+                    ? "Unavailable"
+                    : `${successRate.toFixed(
+                        1,
+                      )}%`
+                }
+                detail={`${observability.resultCount} results`}
+              />
 
-                <MiniMetric
-                  label="Avg Runtime"
-                  value={formatDuration(
-                    observability.averageDurationMs,
-                  )}
-                  detail={`${observability.totalExecutions} executions`}
-                />
+              <MiniMetric
+                label="Approval Rate"
+                value={
+                  approvalRate ===
+                  null
+                    ? "Unavailable"
+                    : `${approvalRate.toFixed(
+                        1,
+                      )}%`
+                }
+                detail="Approved vs changes"
+              />
 
-                <MiniMetric
-                  label="Avg Tokens"
-                  value={formatCompactNumber(
-                    observability.averageTokens,
-                  )}
-                  detail={
-                    observability.tokenTelemetryExecutions >
-                    0
-                      ? `${observability.tokenTelemetryExecutions} telemetry samples`
-                      : "Telemetry unavailable"
-                  }
-                />
+              <MiniMetric
+                label="Avg Runtime"
+                value={formatDuration(
+                  observability.averageDurationMs,
+                )}
+                detail={`${observability.totalExecutions} executions`}
+              />
 
-                <MiniMetric
-                  label="Latest Exit"
-                  value={
-                    observability.latestExitCode ===
-                    null
-                      ? "Unavailable"
-                      : String(
-                          observability.latestExitCode,
-                        )
-                  }
-                />
+              <MiniMetric
+                label="Avg Tokens"
+                value={formatCompactNumber(
+                  observability.averageTokens,
+                )}
+                detail={
+                  observability.tokenTelemetryExecutions >
+                  0
+                    ? `${observability.tokenTelemetryExecutions} samples`
+                    : "Unavailable"
+                }
+              />
 
-                <MiniMetric
-                  label="Last Run"
-                  value={shortIdentifier(
-                    observability.lastActiveRunId,
-                  )}
-                />
+              <MiniMetric
+                label="Context Usage"
+                value={
+                  observability.contextUsagePercent ===
+                  null
+                    ? "Unavailable"
+                    : `${observability.contextUsagePercent.toFixed(
+                        1,
+                      )}%`
+                }
+                detail={
+                  observability.contextTelemetryExecutions >
+                  0
+                    ? `${observability.contextTelemetryExecutions} samples`
+                    : "Unavailable"
+                }
+              />
 
-                <MiniMetric
-                  label="Last Commit"
-                  value={shortIdentifier(
-                    observability.lastCommitHash,
-                  )}
-                />
+              <MiniMetric
+                label="Active Executions"
+                value={String(
+                  observability.activeExecutionCount,
+                )}
+                detail={
+                  hasActiveExecution
+                    ? "Live execution"
+                    : "No active process"
+                }
+              />
 
-                <MiniMetric
-                  label="Active"
-                  value={String(
-                    observability.activeExecutionCount,
-                  )}
-                />
-              </div>
+              <MiniMetric
+                label="CPU Usage"
+                value={
+                  liveMetrics?.cpuPercent ===
+                    null ||
+                  liveMetrics?.cpuPercent ===
+                    undefined
+                    ? "Unavailable"
+                    : `${liveMetrics.cpuPercent.toFixed(
+                        1,
+                      )}%`
+                }
+                detail="Live process only"
+              />
 
-              <div className="grid gap-2 rounded-md border border-divider p-2.5">
-                <div className="flex items-center justify-between gap-3 text-xs">
-                  <span className="text-text-muted">
-                    Context Usage
+              <MiniMetric
+                label="Memory Usage"
+                value={formatBytes(
+                  liveMetrics?.memoryBytes ??
+                    null,
+                )}
+                detail="Live process only"
+              />
+            </div>
+
+            {observability.contextUsagePercent !==
+            null ? (
+              <div className="grid gap-1.5">
+                <div className="flex items-center justify-between gap-3 text-[10px] text-text-muted">
+                  <span>
+                    Context-window
+                    usage
                   </span>
 
-                  <span className="font-medium text-text-secondary">
-                    {observability.contextUsagePercent ===
-                    null
-                      ? "Unavailable"
-                      : `${observability.contextUsagePercent.toFixed(
-                          1,
-                        )}%`}
+                  <span>
+                    {
+                      observability.contextUsagePercent.toFixed(
+                        1,
+                      )
+                    }
+                    %
                   </span>
                 </div>
 
-                {observability.contextUsagePercent !==
-                null ? (
-                  <Progress
-                    value={
-                      observability.contextUsagePercent
-                    }
-                    className="[&_[data-slot=progress-indicator]]:bg-status-success"
-                  />
-                ) : null}
+                <Progress
+                  value={
+                    observability.contextUsagePercent
+                  }
+                  className="[&_[data-slot=progress-indicator]]:bg-status-success"
+                />
               </div>
+            ) : null}
 
-              {observability.activeExecution ? (
-                <div className="grid grid-cols-2 gap-2">
-                  <MiniMetric
-                    label="CPU"
-                    value={
-                      liveMetrics?.cpuPercent ===
-                        null ||
-                      liveMetrics?.cpuPercent ===
-                        undefined
-                        ? "Unavailable"
-                        : `${liveMetrics.cpuPercent.toFixed(
-                            1,
-                          )}%`
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <MiniMetric
+                label="Latest Exit"
+                value={
+                  observability.latestExitCode ===
+                  null
+                    ? "Unavailable"
+                    : String(
+                        observability.latestExitCode,
+                      )
+                }
+              />
+
+              <MiniMetric
+                label="Last Run"
+                value={shortIdentifier(
+                  observability.lastActiveRunId,
+                )}
+              />
+
+              <MiniMetric
+                label="Last Commit"
+                value={shortIdentifier(
+                  observability.lastCommitHash,
+                )}
+              />
+
+              <MiniMetric
+                label="Active Execution"
+                value={shortIdentifier(
+                  observability.activeExecution
+                    ?.id ??
+                    null,
+                )}
+              />
+            </div>
+
+            <div className="grid min-w-0 gap-3 xl:grid-cols-[1fr_1fr_minmax(18rem,0.9fr)]">
+              <section className="min-w-0 rounded-md border border-divider p-3">
+                <div className="mb-3 flex items-center gap-1.5 text-xs font-medium text-text-secondary">
+                  <ActivityIcon className="size-3.5 text-status-running" />
+                  Agent Activity
+                </div>
+
+                {activityAvailable ? (
+                  <ChartContainer
+                    config={
+                      activityChartConfig
                     }
-                    detail="Live process"
-                  />
-
-                  <MiniMetric
-                    label="Memory"
-                    value={formatBytes(
-                      liveMetrics?.memoryBytes ??
-                        null,
-                    )}
-                    detail="Live process"
-                  />
-                </div>
-              ) : null}
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-md border border-divider p-2.5">
-                  <div className="mb-2 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-text-muted">
-                    <ActivityIcon className="size-3" />
-                    Activity
-                  </div>
-
-                  {activityAvailable ? (
-                    <ChartContainer
-                      config={
-                        activityChartConfig
+                    className="h-40 w-full aspect-auto"
+                    initialDimension={{
+                      width: 420,
+                      height: 160,
+                    }}
+                  >
+                    <BarChart
+                      accessibilityLayer
+                      data={
+                        observability.activityBuckets
                       }
-                      className="h-16 w-full aspect-auto"
-                      initialDimension={{
-                        width: 280,
-                        height: 64,
-                      }}
                     >
-                      <BarChart
-                        data={
-                          observability.activityBuckets
-                        }
-                      >
-                        <Bar
-                          dataKey="count"
-                          fill="var(--status-running)"
-                          radius={[
-                            2,
-                            2,
-                            0,
-                            0,
-                          ]}
-                        />
-                      </BarChart>
-                    </ChartContainer>
-                  ) : (
-                    <p className="py-4 text-center text-[10px] text-text-muted">
-                      No executions
-                      in range
-                    </p>
-                  )}
+                      <Bar
+                        dataKey="count"
+                        fill="var(--status-running)"
+                        radius={[
+                          3,
+                          3,
+                          0,
+                          0,
+                        ]}
+                      />
+                    </BarChart>
+                  </ChartContainer>
+                ) : (
+                  <div className="flex h-40 items-center justify-center text-xs text-text-muted">
+                    No executions
+                    in range
+                  </div>
+                )}
+              </section>
+
+              <section className="min-w-0 rounded-md border border-divider p-3">
+                <div className="mb-3 text-xs font-medium text-text-secondary">
+                  Token Usage
+                  Trend
                 </div>
 
-                <div className="rounded-md border border-divider p-2.5">
-                  <div className="mb-2 text-[10px] font-medium uppercase tracking-wide text-text-muted">
-                    Token Trend
-                  </div>
-
-                  {tokenDataAvailable ? (
-                    <ChartContainer
-                      config={
-                        tokenChartConfig
+                {tokenDataAvailable ? (
+                  <ChartContainer
+                    config={
+                      tokenChartConfig
+                    }
+                    className="h-40 w-full aspect-auto"
+                    initialDimension={{
+                      width: 420,
+                      height: 160,
+                    }}
+                  >
+                    <LineChart
+                      accessibilityLayer
+                      data={
+                        observability.tokenBuckets
                       }
-                      className="h-16 w-full aspect-auto"
-                      initialDimension={{
-                        width: 280,
-                        height: 64,
-                      }}
                     >
-                      <LineChart
-                        data={
-                          observability.tokenBuckets
+                      <Line
+                        type="monotone"
+                        dataKey="averageTokens"
+                        stroke="var(--brand-accent)"
+                        strokeWidth={
+                          1.8
                         }
-                      >
-                        <Line
-                          type="monotone"
-                          dataKey="averageTokens"
-                          stroke="var(--brand-accent)"
-                          strokeWidth={1.5}
-                          dot={false}
-                          connectNulls={false}
-                        />
-                      </LineChart>
-                    </ChartContainer>
-                  ) : (
-                    <p className="py-4 text-center text-[10px] text-text-muted">
-                      Token
-                      telemetry
-                      unavailable
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {observability.activeExecution ? (
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="flex items-center gap-2 rounded-md border border-divider p-2">
-                    <CpuIcon className="size-3.5 text-status-running" />
-                    <span className="truncate text-text-muted">
-                      Execution{" "}
-                      <span className="font-mono text-text-secondary">
-                        {shortIdentifier(
-                          observability.activeExecution.id,
-                        )}
-                      </span>
-                    </span>
+                        dot={{
+                          r: 2,
+                          fill:
+                            "var(--brand-accent)",
+                        }}
+                        activeDot={{
+                          r: 3,
+                        }}
+                        connectNulls={
+                          false
+                        }
+                      />
+                    </LineChart>
+                  </ChartContainer>
+                ) : (
+                  <div className="flex h-40 items-center justify-center text-xs text-text-muted">
+                    Token
+                    telemetry
+                    unavailable
                   </div>
+                )}
+              </section>
 
-                  <div className="flex items-center gap-2 rounded-md border border-divider p-2">
-                    <MemoryStickIcon className="size-3.5 text-brand-accent" />
-                    <span className="text-text-muted">
-                      Process
-                      telemetry
-                      active
-                    </span>
-                  </div>
+              <section className="min-w-0 rounded-md border border-divider">
+                <div className="flex items-center justify-between gap-3 border-b border-divider px-3 py-2.5">
+                  <p className="text-xs font-medium text-text-secondary">
+                    Recent Runs
+                  </p>
+
+                  <span className="text-[10px] text-text-muted">
+                    {
+                      observability.recentExecutions.length
+                    }{" "}
+                    shown
+                  </span>
                 </div>
-              ) : null}
-
-              <div>
-                <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-text-muted">
-                  Recent Runs
-                </p>
 
                 {observability.recentExecutions.length ===
                 0 ? (
-                  <p className="rounded-md border border-divider p-3 text-xs text-text-muted">
+                  <p className="p-4 text-xs text-text-muted">
                     No executions
                     in this
                     reporting range.
                   </p>
                 ) : (
-                  <div className="divide-y divide-divider rounded-md border border-divider">
+                  <div className="divide-y divide-divider">
                     {observability.recentExecutions.map(
                       (
                         execution,
@@ -919,12 +1068,13 @@ export function AgentInspector({
                           key={
                             execution.id
                           }
-                          className="grid grid-cols-[auto_1fr_auto] items-center gap-2 p-2"
+                          className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 py-2"
                         >
                           <Badge
                             variant={executionVariant(
                               execution.status,
                             )}
+                            className="h-4 px-1.5 text-[9px]"
                           >
                             {formatIdentifier(
                               execution.status,
@@ -939,16 +1089,22 @@ export function AgentInspector({
                               )}
                             </p>
 
-                            <p className="truncate text-[10px] text-text-muted">
+                            <p className="truncate text-[9px] text-text-muted">
                               {execution.resultStatus
                                 ? formatIdentifier(
                                     execution.resultStatus,
                                   )
                                 : "No structured result"}
+
+                              {execution.commitHash
+                                ? ` · ${shortIdentifier(
+                                    execution.commitHash,
+                                  )}`
+                                : ""}
                             </p>
                           </div>
 
-                          <div className="text-right text-[10px] text-text-muted">
+                          <div className="text-right text-[9px] text-text-muted">
                             <p>
                               {formatDuration(
                                 recentExecutionDuration(
@@ -968,28 +1124,53 @@ export function AgentInspector({
                     )}
                   </div>
                 )}
-              </div>
+              </section>
+            </div>
 
-              <div className="flex flex-wrap gap-3 text-[10px] text-text-muted">
-                <span className="inline-flex items-center gap-1">
-                  <GitCommitIcon className="size-3" />
-                  Commit data
-                  shown only
-                  when persisted
-                </span>
+            {observability.activeExecution ? (
+              <div className="grid gap-2 text-xs sm:grid-cols-2">
+                <div className="flex items-center gap-2 rounded-md border border-divider p-2.5">
+                  <CpuIcon className="size-3.5 text-status-running" />
 
-                <span className="inline-flex items-center gap-1">
-                  <CpuIcon className="size-3" />
-                  CPU and
-                  memory are
-                  live-only
-                </span>
+                  <span className="truncate text-text-muted">
+                    Execution{" "}
+                    <span className="font-mono text-text-secondary">
+                      {shortIdentifier(
+                        observability.activeExecution.id,
+                      )}
+                    </span>
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 rounded-md border border-divider p-2.5">
+                  <MemoryStickIcon className="size-3.5 text-brand-accent" />
+
+                  <span className="text-text-muted">
+                    Live process
+                    telemetry active
+                  </span>
+                </div>
               </div>
-            </>
-          ) : null}
-        </CardContent>
-      </Card>
-    </div>
+            ) : null}
+
+            <div className="flex flex-wrap gap-3 border-t border-divider pt-3 text-[10px] text-text-muted">
+              <span className="inline-flex items-center gap-1">
+                <GitCommitIcon className="size-3" />
+                Commit data is
+                shown only when
+                persisted
+              </span>
+
+              <span className="inline-flex items-center gap-1">
+                <CpuIcon className="size-3" />
+                CPU and memory
+                are live-only
+              </span>
+            </div>
+          </>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -999,7 +1180,7 @@ type AgentRouteHealthProps = {
 };
 
 /**
- * Renders a mutually exclusive persisted-route health breakdown.
+ * Renders the mutually exclusive persisted-route health breakdown.
  */
 export function AgentRouteHealth({
   agents,
@@ -1045,7 +1226,7 @@ export function AgentRouteHealth({
   return (
     <Card
       size="sm"
-      className="h-full"
+      className="min-w-0 self-start"
     >
       <CardHeader className="border-b border-divider">
         <CardTitle>
@@ -1053,16 +1234,17 @@ export function AgentRouteHealth({
         </CardTitle>
       </CardHeader>
 
-      <CardContent className="grid min-h-40 gap-3 sm:grid-cols-[9rem_1fr] sm:items-center">
-        {health.total > 0 ? (
+      <CardContent className="grid gap-3 sm:grid-cols-[7.5rem_1fr] sm:items-center">
+        {health.total >
+        0 ? (
           <ChartContainer
             config={
               routeChartConfig
             }
-            className="mx-auto h-32 w-32 aspect-square"
+            className="mx-auto h-28 w-28 aspect-square"
             initialDimension={{
-              width: 128,
-              height: 128,
+              width: 112,
+              height: 112,
             }}
           >
             <PieChart>
@@ -1072,9 +1254,15 @@ export function AgentRouteHealth({
                 }
                 dataKey="value"
                 nameKey="label"
-                innerRadius={34}
-                outerRadius={54}
-                strokeWidth={0}
+                innerRadius={
+                  30
+                }
+                outerRadius={
+                  47
+                }
+                strokeWidth={
+                  0
+                }
               >
                 {data.map(
                   (
@@ -1094,7 +1282,7 @@ export function AgentRouteHealth({
             </PieChart>
           </ChartContainer>
         ) : (
-          <div className="flex h-32 items-center justify-center text-xs text-text-muted">
+          <div className="flex h-28 items-center justify-center text-xs text-text-muted">
             No routes
           </div>
         )}

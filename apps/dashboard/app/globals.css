@@ -40,7 +40,7 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
 
-  /* Design-system foundation tokens (docs/design-system.png) */
+  /* Design-system foundation tokens */
   --color-bg-app: var(--bg-app);
   --color-bg-sidebar: var(--bg-sidebar);
   --color-surface-elevated: var(--surface-elevated);
@@ -64,14 +64,13 @@
   --color-status-disabled: var(--status-disabled);
   --color-status-neutral: var(--status-neutral);
 
-  /* Radius scale: fixed steps per design system (not proportional to a base --radius) */
+  /* Radius scale */
   --radius-none: 0px;
   --radius-xs: 2px;
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
   --radius-xl: 12px;
-  /* 2xl/3xl/4xl intentionally left as Tailwind defaults (full-pill radii used by badge.tsx) */
 
   /* Shadow / elevation scale */
   --shadow-none: none;
@@ -82,7 +81,7 @@
 }
 
 :root {
-  /* Foundation tokens (light) */
+  /* Foundation tokens, light */
   --bg-app: #f8fafc;
   --bg-sidebar: #f1f5f9;
   --surface-elevated: #ffffff;
@@ -98,7 +97,7 @@
   --focus-ring: #7c3aed;
   --brand-accent: #7c3aed;
 
-  /* Semantic status tokens (light) */
+  /* Semantic status tokens, light */
   --status-running: #2563eb;
   --status-success: #16a34a;
   --status-warning: #d97706;
@@ -106,7 +105,7 @@
   --status-disabled: #94a3b8;
   --status-neutral: #64748b;
 
-  /* shadcn tokens, re-pointed at the foundation tokens above */
+  /* shadcn tokens */
   --background: var(--bg-app);
   --foreground: var(--text-primary);
   --card: var(--surface-card);
@@ -142,7 +141,7 @@
 }
 
 .dark {
-  /* Foundation tokens (dark) */
+  /* Foundation tokens, dark */
   --bg-app: #0b0f14;
   --bg-sidebar: #0f141b;
   --surface-elevated: #111722;
@@ -158,7 +157,7 @@
   --focus-ring: #7c3aed;
   --brand-accent: #7c3aed;
 
-  /* Semantic status tokens (dark) */
+  /* Semantic status tokens, dark */
   --status-running: #3b82f6;
   --status-success: #22c55e;
   --status-warning: #f59e0b;
@@ -166,7 +165,7 @@
   --status-disabled: #687280;
   --status-neutral: #94a3b8;
 
-  /* shadcn tokens, re-pointed at the foundation tokens above */
+  /* shadcn tokens */
   --background: var(--bg-app);
   --foreground: var(--text-primary);
   --card: var(--surface-card);
@@ -227,8 +226,6 @@
     cursor: pointer;
   }
 
-  /* Native select menus are rendered by the browser outside the React tree. Set both
-     color-scheme and explicit option colors so the popup follows our dark tokens. */
   select,
   select option,
   select optgroup {
@@ -239,5 +236,68 @@
   select option:checked {
     background-color: var(--brand-accent);
     color: #ffffff;
+  }
+}
+
+@layer components {
+  .agents-react-flow .react-flow__pane {
+    cursor: grab;
+  }
+
+  .agents-react-flow .react-flow__pane:active {
+    cursor: grabbing;
+  }
+
+  .agents-react-flow .react-flow__edge-path {
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .agents-react-flow .react-flow__controls {
+    overflow: hidden;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    background: var(--surface-elevated);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .agents-react-flow .react-flow__controls-button {
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-bottom: 1px solid var(--divider);
+    background: var(--surface-elevated);
+    color: var(--text-secondary);
+  }
+
+  .agents-react-flow .react-flow__controls-button:last-child {
+    border-bottom: 0;
+  }
+
+  .agents-react-flow .react-flow__controls-button:hover {
+    background: var(--surface-interactive);
+  }
+
+  .agents-react-flow .react-flow__controls-button svg {
+    fill: currentColor;
+  }
+
+  .agents-react-flow .react-flow__attribution {
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 9px;
+    opacity: 0.7;
+  }
+
+  .agents-react-flow .react-flow__attribution a {
+    color: inherit;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .agents-react-flow .react-flow__edge-path,
+    .agents-react-flow .react-flow__controls-button {
+      animation: none !important;
+      transition: none !important;
+    }
   }
 }

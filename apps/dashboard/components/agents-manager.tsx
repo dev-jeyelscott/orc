@@ -4,14 +4,10 @@ import {
   ActivityIcon,
   AlertTriangleIcon,
   BotIcon,
-  GitCommitIcon,
-  LayersIcon,
-  PencilIcon,
   PlusIcon,
   RefreshCwIcon,
   RouteIcon,
   SearchIcon,
-  TerminalIcon,
 } from "lucide-react";
 import {
   useCallback,
@@ -37,7 +33,6 @@ import {
 } from "@/lib/agents";
 import {
   AGENT_TIME_RANGE_OPTIONS,
-  calculateApprovalRate,
   describeAgentMonitoringEvent,
   filterAgents,
   formatIdentifier,
@@ -56,7 +51,9 @@ import {
 } from "@/components/agent-config-drawer";
 import {
   AgentInspector,
+  AgentLiveObservability,
   AgentRouteHealth,
+  type AgentProcessMetrics,
 } from "@/components/agent-observability";
 import {
   AgentWorkflowView,
@@ -93,16 +90,10 @@ const LIVE_METRICS_INTERVAL_MS =
 const OBSERVABILITY_INTERVAL_MS =
   5_000;
 
-type ProcessMetrics = {
-  cpuPercent:
-    number | null;
-  memoryBytes:
-    number | null;
-};
-
 type LiveMetricsState = {
   executionId: string;
-  metrics: ProcessMetrics;
+  metrics:
+    AgentProcessMetrics;
 };
 
 type ObservabilityErrorState = {
@@ -113,7 +104,7 @@ type ObservabilityErrorState = {
 };
 
 /**
- * Converts unknown request failures into a concise operator-facing message.
+ * Converts unknown request failures into concise operator-facing text.
  */
 function errorMessage(
   error: unknown,
@@ -138,7 +129,7 @@ function isAbortError(
 }
 
 /**
- * Renders the complete production Agents configuration and observability workspace.
+ * Renders the complete Agents configuration and observability workspace.
  */
 export function AgentsManager() {
   const [
@@ -249,7 +240,7 @@ export function AgentsManager() {
     );
 
   /**
-   * Loads the complete Agents overview while ensuring stale requests cannot overwrite newer state.
+   * Loads the complete Agents overview while preventing stale responses from overwriting newer state.
    */
   const loadOverview =
     useCallback(
@@ -285,7 +276,9 @@ export function AgentsManager() {
             next,
           );
 
-          setError(null);
+          setError(
+            null,
+          );
 
           setSelectedAgentId(
             (current) => {
@@ -313,7 +306,8 @@ export function AgentsManager() {
 
               return (
                 next.agents[0]
-                  ?.id ?? null
+                  ?.id ??
+                null
               );
             },
           );
@@ -334,7 +328,9 @@ export function AgentsManager() {
             !controller.signal
               .aborted
           ) {
-            setLoading(false);
+            setLoading(
+              false,
+            );
           }
         }
       },
@@ -345,16 +341,19 @@ export function AgentsManager() {
     let disposed =
       false;
 
-    queueMicrotask(() => {
-      if (!disposed) {
-        void loadOverview(
-          range,
-        );
-      }
-    });
+    queueMicrotask(
+      () => {
+        if (!disposed) {
+          void loadOverview(
+            range,
+          );
+        }
+      },
+    );
 
     return () => {
-      disposed = true;
+      disposed =
+        true;
 
       overviewAbort.current?.abort();
     };
@@ -372,7 +371,8 @@ export function AgentsManager() {
     }
 
     const stableAgentId:
-      string = agentId;
+      string =
+      agentId;
 
     let cancelled =
       false;
@@ -380,14 +380,15 @@ export function AgentsManager() {
     let timeout:
       ReturnType<
         typeof setTimeout
-      > | null = null;
+      > | null =
+      null;
 
     let controller:
       AbortController | null =
       null;
 
     /**
-     * Loads one selected-agent observability snapshot and continues polling only while it is active.
+     * Loads one selected-agent observability snapshot and continues polling only while it has an active execution.
      */
     async function loadSelectedObservability() {
       controller?.abort();
@@ -452,7 +453,8 @@ export function AgentsManager() {
     void loadSelectedObservability();
 
     return () => {
-      cancelled = true;
+      cancelled =
+        true;
 
       controller?.abort();
 
@@ -496,7 +498,8 @@ export function AgentsManager() {
   const activeExecutionId =
     visibleObservability
       ?.activeExecution
-      ?.id ?? null;
+      ?.id ??
+    null;
 
   useEffect(() => {
     const executionId =
@@ -507,13 +510,14 @@ export function AgentsManager() {
     }
 
     const stableExecutionId:
-      string = executionId;
+      string =
+      executionId;
 
     let cancelled =
       false;
 
     /**
-     * Reads the existing runtime process endpoint while the selected execution remains active.
+     * Loads live process metrics only while the selected execution remains active.
      */
     async function loadLiveMetrics() {
       try {
@@ -556,7 +560,8 @@ export function AgentsManager() {
       );
 
     return () => {
-      cancelled = true;
+      cancelled =
+        true;
 
       clearInterval(
         interval,
@@ -578,7 +583,9 @@ export function AgentsManager() {
       () =>
         overview?.agents ??
         [],
-      [overview?.agents],
+      [
+        overview?.agents,
+      ],
     );
 
   const selectedAgent =
@@ -586,7 +593,8 @@ export function AgentsManager() {
       (agent) =>
         agent.id ===
         selectedAgentId,
-    ) ?? null;
+    ) ??
+    null;
 
   const availableLayers =
     useMemo(
@@ -603,7 +611,8 @@ export function AgentsManager() {
             left,
             right,
           ) =>
-            left - right,
+            left -
+            right,
         ),
       [agents],
     );
@@ -630,18 +639,14 @@ export function AgentsManager() {
       ],
     );
 
-  const approvalRate =
-    overview
-      ? calculateApprovalRate(
-          overview.metrics
-            .approvedResults,
-          overview.metrics
-            .changesRequestedResults,
-        )
+  const activeGraphAgentId =
+    visibleObservability
+      ?.activeExecution
+      ? selectedAgentId
       : null;
 
   /**
-   * Selects one current agent and keeps all surrounding overview panels synchronized.
+   * Selects one current agent for the index, graph, inspector, and observability sections.
    */
   function selectAgent(
     agentId: string,
@@ -652,7 +657,7 @@ export function AgentsManager() {
   }
 
   /**
-   * Opens a fresh create-agent drawer session without altering the current agent selection.
+   * Opens a fresh create-agent drawer session without changing current selection.
    */
   function openCreateDrawer() {
     setDrawerMode(
@@ -664,7 +669,9 @@ export function AgentsManager() {
         current + 1,
     );
 
-    setDrawerOpen(true);
+    setDrawerOpen(
+      true,
+    );
   }
 
   /**
@@ -684,17 +691,21 @@ export function AgentsManager() {
         current + 1,
     );
 
-    setDrawerOpen(true);
+    setDrawerOpen(
+      true,
+    );
   }
 
   /**
-   * Refreshes current configuration after any agent or route mutation.
+   * Reloads configuration after one persisted agent or route mutation.
    */
   async function refreshAfterMutation(
     preferredAgentId:
       string | null,
   ) {
-    setLoading(true);
+    setLoading(
+      true,
+    );
 
     await loadOverview(
       range,
@@ -706,21 +717,20 @@ export function AgentsManager() {
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <header className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-        <div>
+        <div className="min-w-0">
           <h1 className="font-heading text-2xl font-semibold text-text-primary">
             Agents
           </h1>
 
           <p className="mt-1 text-sm text-text-muted">
-            Layered worker
-            configuration,
-            capabilities, and
-            route
-            observability.
+            Configure worker
+            agents, organize
+            layers, and observe
+            workflow routing.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <div className="relative min-w-[15rem] flex-1 xl:w-[20rem]">
             <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-text-muted" />
 
@@ -835,12 +845,16 @@ export function AgentsManager() {
             ) => {
               if (
                 value &&
-                value !== range
+                value !==
+                  range
               ) {
-                setLoading(true);
+                setLoading(
+                  true,
+                );
 
                 setRange(
-                  value as AgentMonitoringRange,
+                  value as
+                    AgentMonitoringRange,
                 );
               }
             }}
@@ -879,7 +893,9 @@ export function AgentsManager() {
             size="icon-sm"
             variant="outline"
             onClick={() => {
-              setLoading(true);
+              setLoading(
+                true,
+              );
 
               void loadOverview(
                 range,
@@ -932,19 +948,7 @@ export function AgentsManager() {
 
       {overview ? (
         <>
-          <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-            <MetricCard
-              label="Layers"
-              value={String(
-                overview.metrics
-                  .layers,
-              )}
-              description="Configured"
-              icon={
-                <LayersIcon className="size-4" />
-              }
-            />
-
+          <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             <MetricCard
               label="Enabled Agents"
               value={String(
@@ -975,23 +979,10 @@ export function AgentsManager() {
                 overview.metrics
                   .enabledRouteRules,
               )}
-              description="Enabled"
+              description="Enabled routes"
               icon={
                 <RouteIcon className="size-4 text-brand-accent" />
               }
-            />
-
-            <MetricCard
-              label="Approval Rate"
-              value={
-                approvalRate ===
-                null
-                  ? "Unavailable"
-                  : `${approvalRate.toFixed(
-                      1,
-                    )}%`
-              }
-              description="Approved vs changes requested"
             />
 
             <MetricCard
@@ -1025,13 +1016,17 @@ export function AgentsManager() {
             />
           </section>
 
-          <section className="grid min-w-0 gap-3 2xl:grid-cols-[minmax(17rem,0.8fr)_minmax(34rem,1.55fr)_minmax(23rem,1fr)]">
+          <section className="grid min-w-0 items-start gap-3 xl:grid-cols-[minmax(18rem,0.75fr)_minmax(32rem,1.65fr)] 2xl:grid-cols-[minmax(18rem,0.72fr)_minmax(32rem,1.7fr)_minmax(22rem,1fr)]">
             <AgentIndex
               agents={
                 filteredAgents
               }
               totalCount={
                 agents.length
+              }
+              totalLayers={
+                overview.metrics
+                  .layers
               }
               selectedAgentId={
                 selectedAgentId
@@ -1048,52 +1043,66 @@ export function AgentsManager() {
               selectedAgentId={
                 selectedAgentId
               }
+              activeAgentId={
+                activeGraphAgentId
+              }
               onSelectAgent={
                 selectAgent
               }
             />
 
-            {selectedAgent ? (
-              <AgentInspector
-                agent={
-                  selectedAgent
-                }
-                agents={
-                  agents
-                }
-                observability={
-                  visibleObservability
-                }
-                loading={
-                  observabilityLoading
-                }
-                error={
-                  visibleObservabilityError
-                }
-                range={
-                  range
-                }
-                liveMetrics={
-                  liveMetrics
-                }
-                onEdit={
-                  openEditDrawer
-                }
-              />
-            ) : (
-              <Card size="sm">
-                <CardContent className="py-12 text-center text-sm text-text-muted">
-                  Select an
-                  agent to inspect
-                  its configuration
-                  and execution
-                  history.
-                </CardContent>
-              </Card>
-            )}
+            <div className="min-w-0 xl:col-span-2 2xl:col-span-1">
+              {selectedAgent ? (
+                <AgentInspector
+                  agent={
+                    selectedAgent
+                  }
+                  agents={
+                    agents
+                  }
+                  onEdit={
+                    openEditDrawer
+                  }
+                />
+              ) : (
+                <Card
+                  size="sm"
+                  className="self-start"
+                >
+                  <CardContent className="py-12 text-center text-sm text-text-muted">
+                    Select an
+                    agent to inspect
+                    its configuration.
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           </section>
 
-          <section className="grid min-w-0 gap-3 xl:grid-cols-[1fr_1.25fr_0.8fr]">
+          {selectedAgent ? (
+            <AgentLiveObservability
+              agent={
+                selectedAgent
+              }
+              observability={
+                visibleObservability
+              }
+              loading={
+                observabilityLoading
+              }
+              error={
+                visibleObservabilityError
+              }
+              range={
+                range
+              }
+              liveMetrics={
+                liveMetrics
+              }
+            />
+          ) : null}
+
+          <section className="grid min-w-0 items-start gap-3 xl:grid-cols-[1fr_1.05fr_0.85fr]">
             <RecentAuditEvents
               overview={
                 overview
@@ -1153,6 +1162,7 @@ type AgentIndexProps = {
   agents:
     AgentWithRoutes[];
   totalCount: number;
+  totalLayers: number;
   selectedAgentId:
     string | null;
   onSelect:
@@ -1160,11 +1170,12 @@ type AgentIndexProps = {
 };
 
 /**
- * Renders the compact searchable agent index grouped by generic numeric layer.
+ * Renders the compact searchable agent index grouped by numeric workflow layer.
  */
 function AgentIndex({
   agents,
   totalCount,
+  totalLayers,
   selectedAgentId,
   onSelect,
 }: AgentIndexProps) {
@@ -1176,12 +1187,32 @@ function AgentIndex({
   return (
     <Card
       size="sm"
-      className="min-w-0"
+      className="min-w-0 self-start"
     >
       <CardHeader className="border-b border-divider">
-        <CardTitle>
-          Agent Index
-        </CardTitle>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>
+            Agent Index
+          </CardTitle>
+
+          <span className="text-[10px] text-text-muted">
+            {totalCount}{" "}
+            agent
+            {totalCount ===
+            1
+              ? ""
+              : "s"}{" "}
+            ·{" "}
+            {
+              totalLayers
+            }{" "}
+            layer
+            {totalLayers ===
+            1
+              ? ""
+              : "s"}
+          </span>
+        </div>
       </CardHeader>
 
       <CardContent className="p-0">
@@ -1193,155 +1224,111 @@ function AgentIndex({
             filters.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <div className="min-w-[34rem]">
-              <div className="grid grid-cols-[minmax(9rem,1fr)_5rem_6rem_5.5rem_5.5rem] gap-2 border-b border-divider px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-text-muted">
-                <span>
-                  Agent
-                </span>
-                <span>
-                  Harness
-                </span>
-                <span>
-                  Model
-                </span>
-                <span>
-                  Status
-                </span>
-                <span>
-                  Caps
-                </span>
-              </div>
-
-              {groups.map(
-                (group) => (
-                  <div
-                    key={
+          <div className="max-h-[30rem] overflow-y-auto">
+            {groups.map(
+              (group) => (
+                <div
+                  key={
+                    group.layer
+                  }
+                >
+                  <div className="border-b border-divider bg-surface-interactive/25 px-3 py-1.5 text-[10px] font-medium text-text-secondary">
+                    Layer{" "}
+                    {
                       group.layer
-                    }
-                  >
-                    <div className="border-b border-divider bg-surface-interactive/30 px-3 py-1.5 text-[10px] font-medium text-text-secondary">
-                      Layer{" "}
+                    }{" "}
+                    <span className="text-text-muted">
+                      ·{" "}
                       {
-                        group.layer
+                        group.agents
+                          .length
                       }{" "}
-                      <span className="text-text-muted">
-                        (
-                        {
-                          group.agents
-                            .length
-                        }
-                        )
-                      </span>
-                    </div>
-
-                    {group.agents.map(
-                      (
-                        agent,
-                      ) => (
-                        <button
-                          key={
-                            agent.id
-                          }
-                          type="button"
-                          onClick={() =>
-                            onSelect(
-                              agent.id,
-                            )
-                          }
-                          aria-pressed={
-                            selectedAgentId ===
-                            agent.id
-                          }
-                          className={cn(
-                            "grid w-full grid-cols-[minmax(9rem,1fr)_5rem_6rem_5.5rem_5.5rem] items-center gap-2 border-b border-divider px-3 py-2 text-left transition-colors last:border-0 hover:bg-surface-interactive/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring",
-                            selectedAgentId ===
-                              agent.id &&
-                              "bg-status-running/8 ring-1 ring-inset ring-status-running/40",
-                            !agent.enabled &&
-                              "opacity-55",
-                          )}
-                        >
-                          <span className="min-w-0">
-                            <span className="block truncate text-xs font-medium text-text-primary">
-                              {
-                                agent.name
-                              }
-                            </span>
-
-                            <span className="block truncate font-mono text-[10px] text-text-muted">
-                              {
-                                agent.slug
-                              }{" "}
-                              ·{" "}
-                              {
-                                agent.executionOrder
-                              }
-                            </span>
-                          </span>
-
-                          <span className="truncate font-mono text-[10px] text-text-secondary">
-                            {
-                              agent.harness
-                            }
-                          </span>
-
-                          <span className="truncate font-mono text-[10px] text-text-secondary">
-                            {
-                              agent.model
-                            }
-                          </span>
-
-                          <Badge
-                            variant={
-                              agent.enabled
-                                ? "success"
-                                : "disabled"
-                            }
-                            className="px-1.5 text-[10px]"
-                          >
-                            {agent.enabled
-                              ? "Enabled"
-                              : "Disabled"}
-                          </Badge>
-
-                          <span className="flex items-center gap-1 text-text-muted">
-                            {agent.canWrite ? (
-                              <PencilIcon
-                                className="size-3"
-                                aria-label="Can write"
-                              />
-                            ) : null}
-
-                            {agent.canRunCommands ? (
-                              <TerminalIcon
-                                className="size-3"
-                                aria-label="Can run commands"
-                              />
-                            ) : null}
-
-                            {agent.canCommit ? (
-                              <GitCommitIcon
-                                className="size-3"
-                                aria-label="Can commit"
-                              />
-                            ) : null}
-
-                            {!agent.canWrite &&
-                            !agent.canRunCommands &&
-                            !agent.canCommit ? (
-                              <span className="text-[10px]">
-                                Read
-                              </span>
-                            ) : null}
-                          </span>
-                        </button>
-                      ),
-                    )}
+                      agent
+                      {group.agents
+                        .length ===
+                      1
+                        ? ""
+                        : "s"}
+                    </span>
                   </div>
-                ),
-              )}
-            </div>
+
+                  {group.agents.map(
+                    (
+                      agent,
+                    ) => (
+                      <button
+                        key={
+                          agent.id
+                        }
+                        type="button"
+                        onClick={() =>
+                          onSelect(
+                            agent.id,
+                          )
+                        }
+                        aria-pressed={
+                          selectedAgentId ===
+                          agent.id
+                        }
+                        className={cn(
+                          "flex w-full items-center gap-2.5 border-b border-divider px-3 py-2.5 text-left transition-colors last:border-0",
+                          "hover:bg-surface-interactive/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring",
+                          selectedAgentId ===
+                            agent.id &&
+                            "bg-status-running/8 ring-1 ring-inset ring-status-running/40",
+                          !agent.enabled &&
+                            "opacity-70",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "flex size-8 shrink-0 items-center justify-center rounded-md",
+                            selectedAgentId ===
+                              agent.id
+                              ? "bg-status-running/15 text-status-running"
+                              : "bg-brand-accent/10 text-brand-accent",
+                          )}
+                          aria-hidden="true"
+                        >
+                          <BotIcon className="size-4" />
+                        </span>
+
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-xs font-medium text-text-primary">
+                            {
+                              agent.name
+                            }
+                          </span>
+
+                          <span className="mt-0.5 block truncate text-[10px] text-text-muted">
+                            {
+                              agent.role
+                            }{" "}
+                            · #
+                            {
+                              agent.executionOrder
+                            }
+                          </span>
+                        </span>
+
+                        <Badge
+                          variant={
+                            agent.enabled
+                              ? "success"
+                              : "disabled"
+                          }
+                          className="h-4 px-1.5 text-[9px]"
+                        >
+                          {agent.enabled
+                            ? "Enabled"
+                            : "Disabled"}
+                        </Badge>
+                      </button>
+                    ),
+                  )}
+                </div>
+              ),
+            )}
           </div>
         )}
 
@@ -1361,7 +1348,7 @@ type OverviewPanelProps = {
 };
 
 /**
- * Renders recent persisted runtime events that can be accurately associated with agent activity.
+ * Renders recent persisted runtime events associated with agent activity.
  */
 function RecentAuditEvents({
   overview,
@@ -1369,7 +1356,7 @@ function RecentAuditEvents({
   return (
     <Card
       size="sm"
-      className="h-full"
+      className="min-w-0 self-start"
     >
       <CardHeader className="border-b border-divider">
         <CardTitle>
@@ -1396,7 +1383,7 @@ function RecentAuditEvents({
                   key={
                     event.id
                   }
-                  className="grid grid-cols-[4.5rem_1fr] gap-3 px-3 py-2"
+                  className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 px-3 py-2"
                 >
                   <span className="text-[10px] text-text-muted">
                     {formatRelativeTime(
@@ -1429,7 +1416,7 @@ function RecentAuditEvents({
 }
 
 /**
- * Renders only deterministic current-configuration warnings plus the immutable snapshot notice.
+ * Renders deterministic configuration warnings and the immutable run-snapshot notice.
  */
 function ValidationNotices({
   overview,
@@ -1437,7 +1424,7 @@ function ValidationNotices({
   return (
     <Card
       size="sm"
-      className="h-full"
+      className="min-w-0 self-start"
     >
       <CardHeader className="border-b border-divider">
         <CardTitle>
@@ -1474,6 +1461,7 @@ function ValidationNotices({
                   key={
                     issue.routeId
                   }
+                  role="alert"
                   className="flex gap-2 px-3 py-3"
                 >
                   <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0 text-status-warning" />
