@@ -342,11 +342,20 @@ export function AgentsManager() {
     );
 
   useEffect(() => {
-    void loadOverview(
-      range,
-    );
+    let disposed =
+      false;
+
+    queueMicrotask(() => {
+      if (!disposed) {
+        void loadOverview(
+          range,
+        );
+      }
+    });
 
     return () => {
+      disposed = true;
+
       overviewAbort.current?.abort();
     };
   }, [
@@ -355,7 +364,10 @@ export function AgentsManager() {
   ]);
 
   useEffect(() => {
-    if (!selectedAgentId) {
+    const agentId =
+      selectedAgentId;
+
+    if (!agentId) {
       return;
     }
 
@@ -383,7 +395,7 @@ export function AgentsManager() {
       try {
         const next =
           await getAgentObservability(
-            selectedAgentId,
+            agentId,
             range,
             controller.signal,
           );
@@ -422,8 +434,7 @@ export function AgentsManager() {
           )
         ) {
           setObservabilityErrorState({
-            agentId:
-              selectedAgentId,
+            agentId,
             range,
             message:
               errorMessage(
@@ -484,7 +495,10 @@ export function AgentsManager() {
       ?.id ?? null;
 
   useEffect(() => {
-    if (!activeExecutionId) {
+    const executionId =
+      activeExecutionId;
+
+    if (!executionId) {
       return;
     }
 
@@ -498,13 +512,12 @@ export function AgentsManager() {
       try {
         const next =
           await getAgentExecutionMetrics(
-            activeExecutionId,
+            executionId,
           );
 
         if (!cancelled) {
           setLiveMetricsState({
-            executionId:
-              activeExecutionId,
+            executionId,
             metrics:
               next,
           });
@@ -512,8 +525,7 @@ export function AgentsManager() {
       } catch {
         if (!cancelled) {
           setLiveMetricsState({
-            executionId:
-              activeExecutionId,
+            executionId,
             metrics: {
               cpuPercent:
                 null,

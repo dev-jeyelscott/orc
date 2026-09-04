@@ -568,25 +568,46 @@ export function RunsList() {
     );
 
   useEffect(() => {
-    void loadRuns(true);
+    let disposed =
+      false;
+
+    queueMicrotask(() => {
+      if (!disposed) {
+        void loadRuns(true);
+      }
+    });
 
     return () => {
+      disposed = true;
+
       runsAbortRef.current?.abort();
       detailAbortRef.current?.abort();
     };
   }, [loadRuns]);
 
   useEffect(() => {
-    if (!selectedRunId) {
+    const runId =
+      selectedRunId;
+
+    if (!runId) {
       detailAbortRef.current?.abort();
       return;
     }
 
-    void loadDetail(
-      selectedRunId,
-    );
+    let disposed =
+      false;
+
+    queueMicrotask(() => {
+      if (!disposed) {
+        void loadDetail(
+          runId,
+        );
+      }
+    });
 
     return () => {
+      disposed = true;
+
       detailAbortRef.current?.abort();
     };
   }, [
