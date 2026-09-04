@@ -371,6 +371,9 @@ export function AgentsManager() {
       return;
     }
 
+    const stableAgentId:
+      string = agentId;
+
     let cancelled =
       false;
 
@@ -395,7 +398,7 @@ export function AgentsManager() {
       try {
         const next =
           await getAgentObservability(
-            agentId,
+            stableAgentId,
             range,
             controller.signal,
           );
@@ -434,7 +437,8 @@ export function AgentsManager() {
           )
         ) {
           setObservabilityErrorState({
-            agentId,
+            agentId:
+              stableAgentId,
             range,
             message:
               errorMessage(
@@ -502,6 +506,9 @@ export function AgentsManager() {
       return;
     }
 
+    const stableExecutionId:
+      string = executionId;
+
     let cancelled =
       false;
 
@@ -512,12 +519,13 @@ export function AgentsManager() {
       try {
         const next =
           await getAgentExecutionMetrics(
-            executionId,
+            stableExecutionId,
           );
 
         if (!cancelled) {
           setLiveMetricsState({
-            executionId,
+            executionId:
+              stableExecutionId,
             metrics:
               next,
           });
@@ -525,7 +533,8 @@ export function AgentsManager() {
       } catch {
         if (!cancelled) {
           setLiveMetricsState({
-            executionId,
+            executionId:
+              stableExecutionId,
             metrics: {
               cpuPercent:
                 null,
