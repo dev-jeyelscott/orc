@@ -11,7 +11,6 @@ import {
   SaveIcon,
 } from "lucide-react";
 import {
-  useEffect,
   useState,
   type FormEvent,
 } from "react";
@@ -89,6 +88,18 @@ function settingsChanged(
 }
 
 /**
+ * Produces a stable remount key whenever authoritative persisted settings change.
+ */
+function settingsEditorKey(
+  settings:
+    OrchestratorSettings,
+): string {
+  return JSON.stringify(
+    settings,
+  );
+}
+
+/**
  * Renders the editable Orchestrator base configuration while keeping server-owned grounding rules non-editable.
  */
 function OrchestratorSettingsEditor({
@@ -99,7 +110,7 @@ function OrchestratorSettingsEditor({
   onReset,
 }: {
   settings:
-    OrchestratorSettings | null;
+    OrchestratorSettings;
   error:
     string | null;
   saving:
@@ -114,47 +125,10 @@ function OrchestratorSettingsEditor({
     draft,
     setDraft,
   ] = useState<
-    OrchestratorSettings | null
-  >(
-    settings
-      ? {
-          ...settings,
-        }
-      : null,
-  );
-
-  useEffect(() => {
-    setDraft(
-      settings
-        ? {
-            ...settings,
-          }
-        : null,
-    );
-  }, [settings]);
-
-  if (
-    !settings ||
-    !draft
-  ) {
-    return (
-      <p
-        role={
-          error
-            ? "alert"
-            : undefined
-        }
-        className={
-          error
-            ? "text-xs text-status-error"
-            : "text-xs text-text-muted"
-        }
-      >
-        {error ??
-          "Loading settings..."}
-      </p>
-    );
-  }
+    OrchestratorSettings
+  >(() => ({
+    ...settings,
+  }));
 
   const options =
     harnessOptions[
@@ -199,14 +173,11 @@ function OrchestratorSettingsEditor({
       OrchestratorSettings[K],
   ): void {
     setDraft(
-      (current) =>
-        current
-          ? {
-              ...current,
-              [key]:
-                value,
-            }
-          : current,
+      (current) => ({
+        ...current,
+        [key]:
+          value,
+      }),
     );
   }
 
@@ -219,17 +190,15 @@ function OrchestratorSettingsEditor({
   ): void {
     setDraft(
       (current) =>
-        current
-          ? changeOrchestratorHarness(
-              current,
-              harness,
-            )
-          : current,
+        changeOrchestratorHarness(
+          current,
+          harness,
+        ),
     );
   }
 
   /**
-   * Restores the local form to the last authoritative persisted settings.
+   * Restores the local form to the authoritative persisted settings.
    */
   function handleCancel(): void {
     setDraft({
@@ -260,7 +229,7 @@ function OrchestratorSettingsEditor({
   }
 
   /**
-   * Requests an explicitly confirmed server-owned reset to current defaults.
+   * Restores the local draft and requests an explicitly confirmed server-owned reset.
    */
   async function handleReset(): Promise<void> {
     if (saving) {
@@ -275,6 +244,10 @@ function OrchestratorSettingsEditor({
     if (!confirmed) {
       return;
     }
+
+    setDraft({
+      ...settings,
+    });
 
     await onReset();
   }
@@ -525,6 +498,7 @@ function OrchestratorSettingsEditor({
             }
           >
             <SaveIcon className="size-3.5" />
+
             {saving
               ? "Saving..."
               : "Save"}
@@ -678,23 +652,46 @@ export function OrchestratorInspector({
           value="settings"
           className="min-h-0 overflow-y-auto p-3 data-[hidden]:hidden"
         >
-          <OrchestratorSettingsEditor
-            settings={
-              settings
-            }
-            error={
-              settingsError
-            }
-            saving={
-              settingsSaving
-            }
-            onSave={
-              onSaveSettings
-            }
-            onReset={
-              onResetSettings
-            }
-          />
+          {settings ? (
+            <OrchestratorSettingsEditor
+              key={
+                settingsEditorKey(
+                  settings,
+                )
+              }
+              settings={
+                settings
+              }
+              error={
+                settingsError
+              }
+              saving={
+                settingsSaving
+              }
+              onSave={
+                onSaveSettings
+              }
+              onReset={
+                onResetSettings
+              }
+            />
+          ) : (
+            <p
+              role={
+                settingsError
+                  ? "alert"
+                  : undefined
+              }
+              className={
+                settingsError
+                  ? "text-xs text-status-error"
+                  : "text-xs text-text-muted"
+              }
+            >
+              {settingsError ??
+                "Loading settings..."}
+            </p>
+          )}
         </TabsContent>
       </Tabs>
     </Card>
