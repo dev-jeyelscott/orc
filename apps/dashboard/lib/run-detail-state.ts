@@ -5,7 +5,7 @@ import type {
 
 import {
   formatStatusLabel,
-} from "@/lib/run-observability";
+} from "./run-observability";
 
 export type RunBadgeVariant =
   | "running"
