@@ -273,7 +273,7 @@ describe(
     );
 
     it(
-      "rejects a Notion Project absolute path instead of treating it as a project directory",
+      "skips a Notion Project absolute path instead of treating it as a project directory",
       async () => {
         const mocks =
           mockClient();
@@ -300,11 +300,9 @@ describe(
             resolveProject,
           });
 
-        await expect(
-          adapter.getNextReadyTask(),
-        ).rejects.toThrow(
-          "exact repository name",
-        );
+        expect(
+          await adapter.getNextReadyTask(),
+        ).toBeNull();
 
         expect(
           resolveProject,
