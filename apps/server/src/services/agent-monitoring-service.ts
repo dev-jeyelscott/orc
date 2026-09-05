@@ -21,12 +21,15 @@ import type {
   DomainEvent,
 } from "@orc/shared";
 
-import { db } from "../db/client.js";
+import {
+  db,
+} from "../db/client.js";
 import {
   agentExecutions,
   agentRoutes,
   agents,
   domainEvents,
+  runs,
 } from "../db/schema.js";
 import {
   listRecentEvents,
@@ -41,23 +44,30 @@ const RANGE_MILLISECONDS: Record<
   AgentMonitoringRange,
   number
 > = {
-  "24h": 24 * 60 * 60 * 1000,
-  "7d": 7 * 24 * 60 * 60 * 1000,
-  "30d": 30 * 24 * 60 * 60 * 1000,
+  "24h":
+    24 * 60 * 60 * 1000,
+  "7d":
+    7 * 24 * 60 * 60 * 1000,
+  "30d":
+    30 * 24 * 60 * 60 * 1000,
 };
 
-const CHART_BUCKET_COUNT = 14;
+const CHART_BUCKET_COUNT =
+  14;
 
 /**
- * Converts one persisted agent row into the shared API contract.
+ * Converts one persisted Agent row into the shared API contract.
  */
 function serializeAgent(
-  row: typeof agents.$inferSelect,
+  row:
+    typeof agents.$inferSelect,
 ): Agent {
   return {
     ...row,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
+    createdAt:
+      row.createdAt.toISOString(),
+    updatedAt:
+      row.updatedAt.toISOString(),
   };
 }
 
@@ -65,14 +75,17 @@ function serializeAgent(
  * Converts one persisted route row into the shared API contract.
  */
 function serializeRoute(
-  row: typeof agentRoutes.$inferSelect,
+  row:
+    typeof agentRoutes.$inferSelect,
 ): AgentRoute {
   return {
     ...row,
     targetAgentId:
-      row.targetAgentId ?? null,
+      row.targetAgentId ??
+      null,
     terminalAction:
-      row.terminalAction ?? null,
+      row.terminalAction ??
+      null,
     createdAt:
       row.createdAt.toISOString(),
     updatedAt:
@@ -84,7 +97,8 @@ function serializeRoute(
  * Converts one persisted domain event into the shared API contract.
  */
 function serializeEvent(
-  row: typeof domainEvents.$inferSelect,
+  row:
+    typeof domainEvents.$inferSelect,
 ): DomainEvent {
   return {
     ...row,
@@ -93,7 +107,8 @@ function serializeEvent(
     runId:
       row.runId ?? null,
     agentExecutionId:
-      row.agentExecutionId ?? null,
+      row.agentExecutionId ??
+      null,
     data:
       (
         row.data as
@@ -106,44 +121,136 @@ function serializeEvent(
 }
 
 /**
- * Loads every current agent and route using two ordered queries rather than per-agent requests.
+ * Loads current Agent and route configuration, optionally restricted to one Team.
  */
-async function listAgentConfigurations(): Promise<
+async function listAgentConfigurations(
+  teamId?: string,
+): Promise<
   AgentWithRoutes[]
 > {
-  const [
-    agentRows,
-    routeRows,
-  ] = await Promise.all([
-    db
-      .select()
-      .from(agents)
-      .orderBy(
-        asc(agents.layer),
-        asc(agents.executionOrder),
+  const agentRows =
+    teamId
+      ? await db
+          .select()
+          .from(agents)
+          .where(
+            eq(
+              agents.teamId,
+              teamId,
+            ),
+          )
+          .orderBy(
+            asc(
+              agents.layer,
+            ),
+            asc(
+              agents.executionOrder,
+            ),
+          )
+      : await db
+          .select()
+          .from(agents)
+          .orderBy(
+            asc(
+              agents.teamId,
+            ),
+            asc(
+              agents.layer,
+            ),
+            asc(
+              agents.executionOrder,
+            ),
+          );
+
+  if (
+    agentRows.length ===
+    0
+  ) {
+    return [];
+  }
+
+  const agentIds =
+    new Set(
+      agentRows.map(
+        (agent) =>
+          agent.id,
       ),
-    db
-      .select()
-      .from(agentRoutes)
-      .orderBy(
-        asc(agentRoutes.sourceAgentId),
-        asc(agentRoutes.outcome),
-      ),
-  ]);
+    );
+
+  const routeRows =
+    teamId
+      ? await db
+          .select()
+          .from(
+            agentRoutes,
+          )
+          .where(
+            inArray(
+              agentRoutes.sourceAgentId,
+              [
+                ...agentIds,
+              ],
+            ),
+          )
+          .orderBy(
+            asc(
+              agentRoutes.sourceAgentId,
+            ),
+            asc(
+              agentRoutes.outcome,
+            ),
+          )
+      : await db
+          .select()
+          .from(
+            agentRoutes,
+          )
+          .orderBy(
+            asc(
+              agentRoutes.sourceAgentId,
+            ),
+            asc(
+              agentRoutes.outcome,
+            ),
+          );
 
   const routesBySource =
-    new Map<string, AgentRoute[]>();
+    new Map<
+      string,
+      AgentRoute[]
+    >();
 
   for (const row of routeRows) {
+    if (
+      !agentIds.has(
+        row.sourceAgentId,
+      )
+    ) {
+      continue;
+    }
+
+    if (
+      row.targetAgentId &&
+      !agentIds.has(
+        row.targetAgentId,
+      )
+    ) {
+      continue;
+    }
+
     const route =
-      serializeRoute(row);
+      serializeRoute(
+        row,
+      );
 
     const existing =
       routesBySource.get(
         route.sourceAgentId,
       ) ?? [];
 
-    existing.push(route);
+    existing.push(
+      route,
+    );
 
     routesBySource.set(
       route.sourceAgentId,
@@ -153,10 +260,13 @@ async function listAgentConfigurations(): Promise<
 
   return agentRows.map(
     (row) => ({
-      ...serializeAgent(row),
+      ...serializeAgent(
+        row,
+      ),
       routes:
-        routesBySource.get(row.id) ??
-        [],
+        routesBySource.get(
+          row.id,
+        ) ?? [],
     }),
   );
 }
@@ -165,12 +275,15 @@ async function listAgentConfigurations(): Promise<
  * Returns the reporting-window cutoff for the requested monitoring range.
  */
 function rangeCutoff(
-  range: AgentMonitoringRange,
+  range:
+    AgentMonitoringRange,
   now = Date.now(),
 ): Date {
   return new Date(
     now -
-      RANGE_MILLISECONDS[range],
+      RANGE_MILLISECONDS[
+        range
+      ],
   );
 }
 
@@ -179,11 +292,17 @@ function rangeCutoff(
  */
 function asRecord(
   value: unknown,
-): Record<string, unknown> | null {
+): Record<
+  string,
+  unknown
+> | null {
   if (
-    typeof value !== "object" ||
+    typeof value !==
+      "object" ||
     value === null ||
-    Array.isArray(value)
+    Array.isArray(
+      value,
+    )
   ) {
     return null;
   }
@@ -202,7 +321,9 @@ function readNumber(
   keys: string[],
 ): number | null {
   const record =
-    asRecord(value);
+    asRecord(
+      value,
+    );
 
   if (!record) {
     return null;
@@ -215,7 +336,9 @@ function readNumber(
     if (
       typeof candidate ===
         "number" &&
-      Number.isFinite(candidate) &&
+      Number.isFinite(
+        candidate,
+      ) &&
       candidate >= 0
     ) {
       return candidate;
@@ -232,26 +355,38 @@ function totalTokensFromUsage(
   value: unknown,
 ): number | null {
   const reportedTotal =
-    readNumber(value, [
-      "total_tokens",
-      "totalTokens",
-    ]);
+    readNumber(
+      value,
+      [
+        "total_tokens",
+        "totalTokens",
+      ],
+    );
 
-  if (reportedTotal !== null) {
+  if (
+    reportedTotal !==
+    null
+  ) {
     return reportedTotal;
   }
 
   const input =
-    readNumber(value, [
-      "input_tokens",
-      "inputTokens",
-    ]);
+    readNumber(
+      value,
+      [
+        "input_tokens",
+        "inputTokens",
+      ],
+    );
 
   const output =
-    readNumber(value, [
-      "output_tokens",
-      "outputTokens",
-    ]);
+    readNumber(
+      value,
+      [
+        "output_tokens",
+        "outputTokens",
+      ],
+    );
 
   if (
     input === null &&
@@ -273,35 +408,50 @@ function contextPercentFromUsage(
   value: unknown,
 ): number | null {
   const reported =
-    readNumber(value, [
-      "percent",
-      "percentage",
-      "percent_used",
-      "percentUsed",
-    ]);
+    readNumber(
+      value,
+      [
+        "percent",
+        "percentage",
+        "percent_used",
+        "percentUsed",
+      ],
+    );
 
-  if (reported !== null) {
+  if (
+    reported !==
+    null
+  ) {
     return Math.min(
       100,
-      Math.max(0, reported),
+      Math.max(
+        0,
+        reported,
+      ),
     );
   }
 
   const used =
-    readNumber(value, [
-      "used_tokens",
-      "usedTokens",
-      "context_tokens",
-      "contextTokens",
-    ]);
+    readNumber(
+      value,
+      [
+        "used_tokens",
+        "usedTokens",
+        "context_tokens",
+        "contextTokens",
+      ],
+    );
 
   const limit =
-    readNumber(value, [
-      "limit_tokens",
-      "limitTokens",
-      "context_window",
-      "contextWindow",
-    ]);
+    readNumber(
+      value,
+      [
+        "limit_tokens",
+        "limitTokens",
+        "context_window",
+        "contextWindow",
+      ],
+    );
 
   if (
     used === null ||
@@ -315,7 +465,8 @@ function contextPercentFromUsage(
     100,
     Math.max(
       0,
-      (used / limit) * 100,
+      (used / limit) *
+        100,
     ),
   );
 }
@@ -349,13 +500,19 @@ function executionDurationMs(
 function average(
   values: number[],
 ): number | null {
-  if (values.length === 0) {
+  if (
+    values.length ===
+    0
+  ) {
     return null;
   }
 
   return (
     values.reduce(
-      (sum, value) =>
+      (
+        sum,
+        value,
+      ) =>
         sum + value,
       0,
     ) / values.length
@@ -363,18 +520,22 @@ function average(
 }
 
 /**
- * Converts an execution row into the bounded summary needed by the Agents page.
+ * Converts an execution row into the bounded summary needed by Agent observability.
  */
 function serializeRecentExecution(
   row:
     typeof agentExecutions.$inferSelect,
 ): AgentRecentExecution {
   return {
-    id: row.id,
-    runId: row.runId,
-    status: row.status,
+    id:
+      row.id,
+    runId:
+      row.runId,
+    status:
+      row.status,
     resultStatus:
-      row.resultStatus ?? null,
+      row.resultStatus ??
+      null,
     startedAt:
       row.startedAt
         ? row.startedAt.toISOString()
@@ -384,9 +545,11 @@ function serializeRecentExecution(
         ? row.completedAt.toISOString()
         : null,
     exitCode:
-      row.exitCode ?? null,
+      row.exitCode ??
+      null,
     commitHash:
-      row.commitHash ?? null,
+      row.commitHash ??
+      null,
     createdAt:
       row.createdAt.toISOString(),
     updatedAt:
@@ -411,15 +574,20 @@ function bucketIndex(
   }
 
   const duration =
-    Math.max(1, now - cutoff);
+    Math.max(
+      1,
+      now - cutoff,
+    );
 
   const width =
-    duration / bucketCount;
+    duration /
+    bucketCount;
 
   return Math.min(
     bucketCount - 1,
     Math.floor(
-      (timestamp - cutoff) /
+      (timestamp -
+        cutoff) /
         width,
     ),
   );
@@ -439,7 +607,10 @@ function buildActivityBuckets(
 ) {
   const counts =
     Array.from(
-      { length: bucketCount },
+      {
+        length:
+          bucketCount,
+      },
       () => 0,
     );
 
@@ -452,13 +623,19 @@ function buildActivityBuckets(
         bucketCount,
       );
 
-    if (index !== null) {
-      counts[index] += 1;
+    if (
+      index !== null
+    ) {
+      counts[index] +=
+        1;
     }
   }
 
   return counts.map(
-    (count, index) => ({
+    (
+      count,
+      index,
+    ) => ({
       index,
       count,
     }),
@@ -479,8 +656,12 @@ function buildTokenBuckets(
 ) {
   const samples =
     Array.from(
-      { length: bucketCount },
-      () => [] as number[],
+      {
+        length:
+          bucketCount,
+      },
+      () =>
+        [] as number[],
     );
 
   for (const row of rows) {
@@ -492,7 +673,9 @@ function buildTokenBuckets(
         bucketCount,
       );
 
-    if (index === null) {
+    if (
+      index === null
+    ) {
       continue;
     }
 
@@ -501,16 +684,25 @@ function buildTokenBuckets(
         row.tokenUsage,
       );
 
-    if (total !== null) {
-      samples[index].push(total);
+    if (
+      total !== null
+    ) {
+      samples[index].push(
+        total,
+      );
     }
   }
 
   return samples.map(
-    (values, index) => ({
+    (
+      values,
+      index,
+    ) => ({
       index,
       averageTokens:
-        average(values),
+        average(
+          values,
+        ),
     }),
   );
 }
@@ -533,7 +725,8 @@ function findValidationIssues(
     );
 
   const issues:
-    AgentValidationIssue[] = [];
+    AgentValidationIssue[] =
+    [];
 
   for (
     const source of
@@ -581,44 +774,39 @@ function findValidationIssues(
 }
 
 /**
- * Determines whether a recent persisted domain event belongs in the Agents operator feed.
+ * Determines whether a recent persisted domain event belongs in the Agent operator feed.
  */
 function isAgentMonitoringEvent(
-  event: DomainEvent,
+  event:
+    DomainEvent,
 ): boolean {
   return [
     "agent.started",
     "result.received",
     "workflow.transition",
     "route.selected",
-  ].includes(event.type);
+  ].includes(
+    event.type,
+  );
 }
 
 /**
- * Returns the whole Agents page read model without changing workflow or CRUD semantics.
+ * Loads active execution identifiers globally or through their persisted Run Team.
  */
-export async function listAgentMonitoringOverview(
-  range:
-    AgentMonitoringRange,
-): Promise<AgentMonitoringOverview> {
-  const cutoff =
-    rangeCutoff(range);
-
-  const [
-    configuredAgents,
-    activeRows,
-    resultRows,
-    recentEventWindow,
-  ] = await Promise.all([
-    listAgentConfigurations(),
-    db
+async function listOverviewActiveExecutions(
+  teamId?: string,
+) {
+  if (!teamId) {
+    return db
       .select({
         id:
           agentExecutions.id,
         runId:
           agentExecutions.runId,
       })
-      .from(agentExecutions)
+      .from(
+        agentExecutions,
+      )
       .where(
         inArray(
           agentExecutions.status,
@@ -626,21 +814,198 @@ export async function listAgentMonitoringOverview(
             ...ACTIVE_EXECUTION_STATUSES,
           ],
         ),
+      );
+  }
+
+  return db
+    .select({
+      id:
+        agentExecutions.id,
+      runId:
+        agentExecutions.runId,
+    })
+    .from(
+      agentExecutions,
+    )
+    .innerJoin(
+      runs,
+      eq(
+        agentExecutions.runId,
+        runs.id,
       ),
-    db
+    )
+    .where(
+      and(
+        eq(
+          runs.teamId,
+          teamId,
+        ),
+        inArray(
+          agentExecutions.status,
+          [
+            ...ACTIVE_EXECUTION_STATUSES,
+          ],
+        ),
+      ),
+    );
+}
+
+/**
+ * Loads result statuses for the reporting window globally or through persisted Run Team ownership.
+ */
+async function listOverviewResults(
+  cutoff: Date,
+  teamId?: string,
+) {
+  if (!teamId) {
+    return db
       .select({
         resultStatus:
           agentExecutions.resultStatus,
       })
-      .from(agentExecutions)
+      .from(
+        agentExecutions,
+      )
       .where(
         gte(
           agentExecutions.createdAt,
           cutoff,
         ),
+      );
+  }
+
+  return db
+    .select({
+      resultStatus:
+        agentExecutions.resultStatus,
+    })
+    .from(
+      agentExecutions,
+    )
+    .innerJoin(
+      runs,
+      eq(
+        agentExecutions.runId,
+        runs.id,
       ),
-    listRecentEvents(30),
-  ]);
+    )
+    .where(
+      and(
+        eq(
+          runs.teamId,
+          teamId,
+        ),
+        gte(
+          agentExecutions.createdAt,
+          cutoff,
+        ),
+      ),
+    );
+}
+
+/**
+ * Loads recent domain events globally or through the Run Team owning each event.
+ */
+async function listOverviewRecentEvents(
+  teamId?: string,
+): Promise<
+  DomainEvent[]
+> {
+  if (!teamId) {
+    return listRecentEvents(
+      30,
+    );
+  }
+
+  const rows =
+    await db
+      .select({
+        id:
+          domainEvents.id,
+        type:
+          domainEvents.type,
+        projectPath:
+          domainEvents.projectPath,
+        taskId:
+          domainEvents.taskId,
+        runId:
+          domainEvents.runId,
+        agentExecutionId:
+          domainEvents.agentExecutionId,
+        data:
+          domainEvents.data,
+        createdAt:
+          domainEvents.createdAt,
+      })
+      .from(
+        domainEvents,
+      )
+      .innerJoin(
+        runs,
+        eq(
+          domainEvents.runId,
+          runs.id,
+        ),
+      )
+      .where(
+        eq(
+          runs.teamId,
+          teamId,
+        ),
+      )
+      .orderBy(
+        desc(
+          domainEvents.createdAt,
+        ),
+      )
+      .limit(30);
+
+  return rows.map(
+    (
+      row,
+    ) =>
+      serializeEvent(
+        row,
+      ),
+  );
+}
+
+/**
+ * Returns the Agent monitoring read model, optionally isolated to one Team.
+ */
+export async function listAgentMonitoringOverview(
+  range:
+    AgentMonitoringRange,
+  teamId?: string,
+): Promise<
+  AgentMonitoringOverview
+> {
+  const cutoff =
+    rangeCutoff(
+      range,
+    );
+
+  const [
+    configuredAgents,
+    activeRows,
+    resultRows,
+    recentEventWindow,
+  ] =
+    await Promise.all([
+      listAgentConfigurations(
+        teamId,
+      ),
+      listOverviewActiveExecutions(
+        teamId,
+      ),
+      listOverviewResults(
+        cutoff,
+        teamId,
+      ),
+      listOverviewRecentEvents(
+        teamId,
+      ),
+    ]);
 
   const routeRules =
     configuredAgents.flatMap(
@@ -707,12 +1072,15 @@ export async function listAgentMonitoringOverview(
         .filter(
           isAgentMonitoringEvent,
         )
-        .slice(0, 8),
+        .slice(
+          0,
+          8,
+        ),
   };
 }
 
 /**
- * Returns persisted and currently observable telemetry for one current agent configuration.
+ * Returns persisted and currently observable telemetry for one current Agent configuration.
  */
 export async function getAgentObservability(
   agentId: string,
@@ -724,7 +1092,8 @@ export async function getAgentObservability(
   const [existingAgent] =
     await db
       .select({
-        id: agents.id,
+        id:
+          agents.id,
       })
       .from(agents)
       .where(
@@ -740,12 +1109,16 @@ export async function getAgentObservability(
   }
 
   const cutoff =
-    rangeCutoff(range);
+    rangeCutoff(
+      range,
+    );
 
   const executionRows =
     await db
       .select()
-      .from(agentExecutions)
+      .from(
+        agentExecutions,
+      )
       .where(
         and(
           eq(
@@ -829,7 +1202,9 @@ export async function getAgentObservability(
         row.contextUsage,
       );
 
-    if (percent === null) {
+    if (
+      percent === null
+    ) {
       continue;
     }
 
@@ -847,7 +1222,8 @@ export async function getAgentObservability(
 
   const executionIds =
     executionRows.map(
-      (row) => row.id,
+      (row) =>
+        row.id,
     );
 
   const dataMatch =
@@ -858,7 +1234,8 @@ export async function getAgentObservability(
     );
 
   const eventCondition =
-    executionIds.length > 0
+    executionIds.length >
+    0
       ? or(
           dataMatch,
           inArray(
@@ -871,8 +1248,12 @@ export async function getAgentObservability(
   const eventRows =
     await db
       .select()
-      .from(domainEvents)
-      .where(eventCondition)
+      .from(
+        domainEvents,
+      )
+      .where(
+        eventCondition,
+      )
       .orderBy(
         desc(
           domainEvents.createdAt,
@@ -883,17 +1264,22 @@ export async function getAgentObservability(
   const latestExitCode =
     executionRows.find(
       (row) =>
-        row.exitCode !== null,
-    )?.exitCode ?? null;
+        row.exitCode !==
+        null,
+    )?.exitCode ??
+    null;
 
   const lastCommitHash =
     executionRows.find(
       (row) =>
-        row.commitHash !== null,
-    )?.commitHash ?? null;
+        row.commitHash !==
+        null,
+    )?.commitHash ??
+    null;
 
   const activeExecution =
-    activeRows[0] ?? null;
+    activeRows[0] ??
+    null;
 
   return {
     agentId,
@@ -925,9 +1311,13 @@ export async function getAgentObservability(
           "changes_requested",
       ).length,
     averageDurationMs:
-      average(durations),
+      average(
+        durations,
+      ),
     averageTokens:
-      average(tokenTotals),
+      average(
+        tokenTotals,
+      ),
     tokenTelemetryExecutions:
       tokenTotals.length,
     contextUsagePercent,
@@ -935,7 +1325,8 @@ export async function getAgentObservability(
     latestExitCode,
     lastActiveRunId:
       executionRows[0]
-        ?.runId ?? null,
+        ?.runId ??
+      null,
     lastCommitHash,
     activeExecution:
       activeExecution
@@ -945,7 +1336,10 @@ export async function getAgentObservability(
         : null,
     recentExecutions:
       executionRows
-        .slice(0, 6)
+        .slice(
+          0,
+          6,
+        )
         .map(
           serializeRecentExecution,
         ),

@@ -9,13 +9,19 @@ import {
   it,
 } from "vitest";
 
-import { db } from "../db/client.js";
+import {
+  db,
+} from "../db/client.js";
+import {
+  RESOLUTION_TEAM_ID,
+} from "../db/seed-ids.js";
 import {
   agentExecutions,
   agentRoutes,
   agents,
   domainEvents,
   runs,
+  teams,
 } from "../db/schema.js";
 import {
   getAgentObservability,
@@ -37,6 +43,9 @@ const createdExecutionIds =
 const createdEventIds =
   new Set<string>();
 
+const createdTeamIds =
+  new Set<string>();
+
 let nextLayer =
   500_000 +
   Math.floor(
@@ -45,16 +54,43 @@ let nextLayer =
   );
 
 /**
- * Creates a uniquely ordered generic agent for monitoring tests.
+ * Creates and tracks one disposable Team for monitoring isolation tests.
+ */
+async function createTestTeam(
+  label: string,
+) {
+  const [team] =
+    await db
+      .insert(teams)
+      .values({
+        slug:
+          `monitor-${label.toLowerCase()}-${crypto.randomUUID()}`,
+        name:
+          `Monitor ${label}`,
+      })
+      .returning();
+
+  createdTeamIds.add(
+    team.id,
+  );
+
+  return team;
+}
+
+/**
+ * Creates a uniquely ordered generic Agent for monitoring tests.
  */
 async function createTestAgent(
   label: string,
   enabled = true,
+  teamId =
+    RESOLUTION_TEAM_ID,
 ) {
   const [agent] =
     await db
       .insert(agents)
       .values({
+        teamId,
         slug:
           `monitor-${label.toLowerCase()}-${crypto.randomUUID()}`,
         name:
@@ -94,7 +130,9 @@ async function createTestRoute(
 ) {
   const [route] =
     await db
-      .insert(agentRoutes)
+      .insert(
+        agentRoutes,
+      )
       .values({
         sourceAgentId,
         outcome:
@@ -113,13 +151,17 @@ async function createTestRoute(
 }
 
 /**
- * Creates one persisted run for execution aggregation tests.
+ * Creates one persisted Run for a specific Team.
  */
-async function createTestRun() {
+async function createTestRun(
+  teamId =
+    RESOLUTION_TEAM_ID,
+) {
   const [run] =
     await db
       .insert(runs)
       .values({
+        teamId,
         projectPath:
           `/tmp/orc-agent-monitoring-${crypto.randomUUID()}`,
         status:
@@ -135,7 +177,7 @@ async function createTestRun() {
 }
 
 /**
- * Builds a valid structured agent result for one persisted result status.
+ * Builds a valid structured Agent result for one persisted result status.
  */
 function createResult(
   status:
@@ -263,10 +305,16 @@ async function createTestEvent(
   executionId: string,
   run:
     typeof runs.$inferSelect,
+  status:
+    | "approved"
+    | "changes_requested" =
+    "approved",
 ) {
   const [event] =
     await db
-      .insert(domainEvents)
+      .insert(
+        domainEvents,
+      )
       .values({
         type:
           "result.received",
@@ -277,8 +325,7 @@ async function createTestEvent(
         agentExecutionId:
           executionId,
         data: {
-          status:
-            "approved",
+          status,
         },
       })
       .returning();
@@ -299,7 +346,9 @@ async function cleanupCreatedRows() {
     0
   ) {
     await db
-      .delete(domainEvents)
+      .delete(
+        domainEvents,
+      )
       .where(
         inArray(
           domainEvents.id,
@@ -333,11 +382,15 @@ async function cleanupCreatedRows() {
     0
   ) {
     await db
-      .delete(runs)
+      .delete(
+        runs,
+      )
       .where(
         inArray(
           runs.id,
-          [...createdRunIds],
+          [
+            ...createdRunIds,
+          ],
         ),
       );
   }
@@ -347,7 +400,9 @@ async function cleanupCreatedRows() {
     0
   ) {
     await db
-      .delete(agentRoutes)
+      .delete(
+        agentRoutes,
+      )
       .where(
         inArray(
           agentRoutes.id,
@@ -363,7 +418,9 @@ async function cleanupCreatedRows() {
     0
   ) {
     await db
-      .delete(agents)
+      .delete(
+        agents,
+      )
       .where(
         inArray(
           agents.id,
@@ -374,11 +431,30 @@ async function cleanupCreatedRows() {
       );
   }
 
+  if (
+    createdTeamIds.size >
+    0
+  ) {
+    await db
+      .delete(
+        teams,
+      )
+      .where(
+        inArray(
+          teams.id,
+          [
+            ...createdTeamIds,
+          ],
+        ),
+      );
+  }
+
   createdEventIds.clear();
   createdExecutionIds.clear();
   createdRunIds.clear();
   createdRouteIds.clear();
   createdAgentIds.clear();
+  createdTeamIds.clear();
 }
 
 afterEach(
@@ -389,7 +465,7 @@ describe(
   "agent monitoring service",
   () => {
     it(
-      "returns the complete route projection and detects an enabled route targeting a disabled agent",
+      "returns the complete route projection and detects an enabled route targeting a disabled Agent",
       async () => {
         const source =
           await createTestAgent(
@@ -410,7 +486,8 @@ describe(
         await db
           .update(agents)
           .set({
-            enabled: false,
+            enabled:
+              false,
             updatedAt:
               new Date(),
           })
@@ -434,15 +511,17 @@ describe(
           );
 
         expect(
-          projectedSource?.routes.some(
-            (candidate) =>
-              candidate.id ===
-              route.id,
-          ),
+          projectedSource
+            ?.routes.some(
+              (candidate) =>
+                candidate.id ===
+                route.id,
+            ),
         ).toBe(true);
 
         expect(
-          overview.validationIssues,
+          overview
+            .validationIssues,
         ).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
@@ -461,7 +540,282 @@ describe(
     );
 
     it(
-      "aggregates selected-agent execution state and only trustworthy usage telemetry",
+      "isolates configuration, metrics, validation, results, and events by Team",
+      async () => {
+        const firstTeam =
+          await createTestTeam(
+            "First Team",
+          );
+
+        const secondTeam =
+          await createTestTeam(
+            "Second Team",
+          );
+
+        const firstSource =
+          await createTestAgent(
+            "First Source",
+            true,
+            firstTeam.id,
+          );
+
+        const firstTarget =
+          await createTestAgent(
+            "First Target",
+            false,
+            firstTeam.id,
+          );
+
+        const secondSource =
+          await createTestAgent(
+            "Second Source",
+            true,
+            secondTeam.id,
+          );
+
+        const secondTarget =
+          await createTestAgent(
+            "Second Target",
+            false,
+            secondTeam.id,
+          );
+
+        const firstRoute =
+          await createTestRoute(
+            firstSource.id,
+            firstTarget.id,
+          );
+
+        const secondRoute =
+          await createTestRoute(
+            secondSource.id,
+            secondTarget.id,
+          );
+
+        const firstRun =
+          await createTestRun(
+            firstTeam.id,
+          );
+
+        const secondRun =
+          await createTestRun(
+            secondTeam.id,
+          );
+
+        const now =
+          Date.now();
+
+        const firstExecution =
+          await createTestExecution(
+            firstSource,
+            firstRun,
+            {
+              status:
+                "running",
+              createdAt:
+                new Date(
+                  now -
+                    30_000,
+                ),
+              startedAt:
+                new Date(
+                  now -
+                    30_000,
+                ),
+            },
+          );
+
+        const firstResultRun =
+          await createTestRun(
+            firstTeam.id,
+          );
+
+        const firstResult =
+          await createTestExecution(
+            firstSource,
+            firstResultRun,
+            {
+              status:
+                "completed",
+              resultStatus:
+                "approved",
+              createdAt:
+                new Date(
+                  now -
+                    60_000,
+                ),
+              startedAt:
+                new Date(
+                  now -
+                    60_000,
+                ),
+              completedAt:
+                new Date(
+                  now -
+                    50_000,
+                ),
+            },
+          );
+
+        const secondExecution =
+          await createTestExecution(
+            secondSource,
+            secondRun,
+            {
+              status:
+                "running",
+              createdAt:
+                new Date(
+                  now -
+                    25_000,
+                ),
+              startedAt:
+                new Date(
+                  now -
+                    25_000,
+                ),
+            },
+          );
+
+        const secondResultRun =
+          await createTestRun(
+            secondTeam.id,
+          );
+
+        const secondResult =
+          await createTestExecution(
+            secondSource,
+            secondResultRun,
+            {
+              status:
+                "completed",
+              resultStatus:
+                "changes_requested",
+              createdAt:
+                new Date(
+                  now -
+                    55_000,
+                ),
+              startedAt:
+                new Date(
+                  now -
+                    55_000,
+                ),
+              completedAt:
+                new Date(
+                  now -
+                    45_000,
+                ),
+            },
+          );
+
+        await createTestEvent(
+          firstResult.id,
+          firstResultRun,
+          "approved",
+        );
+
+        await createTestEvent(
+          secondResult.id,
+          secondResultRun,
+          "changes_requested",
+        );
+
+        const overview =
+          await listAgentMonitoringOverview(
+            "7d",
+            firstTeam.id,
+          );
+
+        expect(
+          overview.agents.map(
+            (agent) =>
+              agent.id,
+          ),
+        ).toEqual(
+          expect.arrayContaining([
+            firstSource.id,
+            firstTarget.id,
+          ]),
+        );
+
+        expect(
+          overview.agents.some(
+            (agent) =>
+              agent.id ===
+              secondSource.id ||
+              agent.id ===
+              secondTarget.id,
+          ),
+        ).toBe(false);
+
+        expect(
+          overview.metrics,
+        ).toMatchObject({
+          totalAgents: 2,
+          enabledAgents: 1,
+          activeExecutions: 1,
+          activeRuns: 1,
+          enabledRouteRules: 1,
+          approvedResults: 1,
+          changesRequestedResults:
+            0,
+        });
+
+        expect(
+          overview
+            .validationIssues,
+        ).toEqual([
+          expect.objectContaining({
+            routeId:
+              firstRoute.id,
+            sourceAgentId:
+              firstSource.id,
+            targetAgentId:
+              firstTarget.id,
+          }),
+        ]);
+
+        expect(
+          overview
+            .validationIssues.some(
+              (issue) =>
+                issue.routeId ===
+                secondRoute.id,
+            ),
+        ).toBe(false);
+
+        expect(
+          overview
+            .recentEvents.some(
+              (event) =>
+                event.runId ===
+                secondRun.id ||
+                event.runId ===
+                secondResultRun.id,
+            ),
+        ).toBe(false);
+
+        expect(
+          firstExecution.id,
+        ).toEqual(
+          expect.any(
+            String,
+          ),
+        );
+
+        expect(
+          secondExecution.id,
+        ).toEqual(
+          expect.any(
+            String,
+          ),
+        );
+      },
+    );
+
+    it(
+      "aggregates selected-Agent execution state and only trustworthy usage telemetry",
       async () => {
         const agent =
           await createTestAgent(
@@ -560,7 +914,8 @@ describe(
                 300,
             },
             contextUsage: {
-              percent: 60,
+              percent:
+                60,
             },
             exitCode: 0,
           },
@@ -719,15 +1074,18 @@ describe(
               "completed",
             createdAt:
               new Date(
-                now - 60_000,
+                now -
+                  60_000,
               ),
             startedAt:
               new Date(
-                now - 60_000,
+                now -
+                  60_000,
               ),
             completedAt:
               new Date(
-                now - 30_000,
+                now -
+                  30_000,
               ),
             tokenUsage: {
               mystery:

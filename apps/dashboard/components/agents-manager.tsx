@@ -22,6 +22,7 @@ import type {
   AgentMonitoringRange,
   AgentObservability,
   AgentWithRoutes,
+  Team,
 } from "@orc/shared";
 
 import {
@@ -37,6 +38,7 @@ import {
   filterAgents,
   formatIdentifier,
   groupAgentsByLayer,
+  scopeAgentsToTeam,
   type AgentStatusFilter,
 } from "@/lib/agent-presentation";
 import {
@@ -90,6 +92,11 @@ const LIVE_METRICS_INTERVAL_MS =
 const OBSERVABILITY_INTERVAL_MS =
   5_000;
 
+type AgentsManagerProps = {
+  team:
+    Team;
+};
+
 type LiveMetricsState = {
   executionId: string;
   metrics:
@@ -129,9 +136,11 @@ function isAbortError(
 }
 
 /**
- * Renders the complete Agents configuration and observability workspace.
+ * Renders Team-scoped Agent configuration, routing, and observability.
  */
-export function AgentsManager() {
+export function AgentsManager({
+  team,
+}: AgentsManagerProps) {
   const [
     overview,
     setOverview,
@@ -240,7 +249,7 @@ export function AgentsManager() {
     );
 
   /**
-   * Loads the complete Agents overview while preventing stale responses from overwriting newer state.
+   * Loads the selected Team's complete Agent overview while preventing stale response writes.
    */
   const loadOverview =
     useCallback(
@@ -262,6 +271,7 @@ export function AgentsManager() {
           const next =
             await getAgentMonitoringOverview(
               nextRange,
+              team.id,
               controller.signal,
             );
 
@@ -272,8 +282,20 @@ export function AgentsManager() {
             return;
           }
 
+          const scopedAgents =
+            scopeAgentsToTeam(
+              next.agents,
+              team.id,
+            );
+
+          const scopedOverview = {
+            ...next,
+            agents:
+              scopedAgents,
+          };
+
           setOverview(
-            next,
+            scopedOverview,
           );
 
           setError(
@@ -284,7 +306,7 @@ export function AgentsManager() {
             (current) => {
               if (
                 preferredAgentId &&
-                next.agents.some(
+                scopedAgents.some(
                   (agent) =>
                     agent.id ===
                     preferredAgentId,
@@ -295,7 +317,7 @@ export function AgentsManager() {
 
               if (
                 current &&
-                next.agents.some(
+                scopedAgents.some(
                   (agent) =>
                     agent.id ===
                     current,
@@ -305,7 +327,7 @@ export function AgentsManager() {
               }
 
               return (
-                next.agents[0]
+                scopedAgents[0]
                   ?.id ??
                 null
               );
@@ -334,7 +356,9 @@ export function AgentsManager() {
           }
         }
       },
-      [],
+      [
+        team.id,
+      ],
     );
 
   useEffect(() => {
@@ -388,7 +412,7 @@ export function AgentsManager() {
       null;
 
     /**
-     * Loads one selected-agent observability snapshot and continues polling only while it has an active execution.
+     * Loads one selected-Agent observability snapshot and polls only while it remains active.
      */
     async function loadSelectedObservability() {
       controller?.abort();
@@ -581,10 +605,14 @@ export function AgentsManager() {
   const agents =
     useMemo(
       () =>
-        overview?.agents ??
-        [],
+        scopeAgentsToTeam(
+          overview?.agents ??
+            [],
+          team.id,
+        ),
       [
         overview?.agents,
+        team.id,
       ],
     );
 
@@ -646,7 +674,7 @@ export function AgentsManager() {
       : null;
 
   /**
-   * Selects one current agent for the index, graph, inspector, and observability sections.
+   * Selects one current Agent for the index, graph, inspector, and observability sections.
    */
   function selectAgent(
     agentId: string,
@@ -657,7 +685,7 @@ export function AgentsManager() {
   }
 
   /**
-   * Opens a fresh create-agent drawer session without changing current selection.
+   * Opens a fresh Team-owned create-Agent drawer session.
    */
   function openCreateDrawer() {
     setDrawerMode(
@@ -675,7 +703,7 @@ export function AgentsManager() {
   }
 
   /**
-   * Opens a fresh edit drawer session for the currently selected persisted agent.
+   * Opens a fresh edit drawer session for the currently selected persisted Agent.
    */
   function openEditDrawer() {
     if (!selectedAgent) {
@@ -697,7 +725,7 @@ export function AgentsManager() {
   }
 
   /**
-   * Reloads configuration after one persisted agent or route mutation.
+   * Reloads this Team's configuration after one persisted Agent or route mutation.
    */
   async function refreshAfterMutation(
     preferredAgentId:
@@ -718,15 +746,26 @@ export function AgentsManager() {
     <div className="flex min-w-0 flex-col gap-3">
       <header className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
         <div className="min-w-0">
-          <h1 className="font-heading text-2xl font-semibold text-text-primary">
-            Agents
-          </h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-heading text-xl font-semibold text-text-primary">
+              {team.name} Agents
+            </h2>
+
+            <Badge
+              variant={
+                team.enabled
+                  ? "success"
+                  : "disabled"
+              }
+            >
+              {team.enabled
+                ? "Team Enabled"
+                : "Team Disabled"}
+            </Badge>
+          </div>
 
           <p className="mt-1 text-sm text-text-muted">
-            Configure worker
-            agents, organize
-            layers, and observe
-            workflow routing.
+            Configure worker agents, layers, observability, and routes for this Team only.
           </p>
         </div>
 
@@ -904,7 +943,7 @@ export function AgentsManager() {
             disabled={
               loading
             }
-            aria-label="Refresh Agents page"
+            aria-label={`Refresh ${team.name} agents`}
           >
             <RefreshCwIcon
               className={
@@ -940,8 +979,7 @@ export function AgentsManager() {
       !overview ? (
         <Card size="sm">
           <CardContent className="py-12 text-center text-sm text-text-muted">
-            Loading agent
-            configuration...
+            Loading Team Agent configuration...
           </CardContent>
         </Card>
       ) : null}
@@ -1074,9 +1112,7 @@ export function AgentsManager() {
                   className="self-start"
                 >
                   <CardContent className="py-12 text-center text-sm text-text-muted">
-                    Select an
-                    agent to inspect
-                    its configuration.
+                    Select an agent to inspect its configuration.
                   </CardContent>
                 </Card>
               )}
@@ -1127,7 +1163,7 @@ export function AgentsManager() {
           </section>
 
           <AgentConfigDrawer
-            key={`${drawerSession}:${drawerMode}:${
+            key={`${team.id}:${drawerSession}:${drawerMode}:${
               drawerMode ===
               "edit"
                 ? selectedAgent?.id ??
@@ -1139,6 +1175,9 @@ export function AgentsManager() {
             }
             mode={
               drawerMode
+            }
+            createTeamId={
+              team.id
             }
             agent={
               drawerMode ===
@@ -1174,7 +1213,7 @@ type AgentIndexProps = {
 };
 
 /**
- * Renders the compact searchable agent index grouped by numeric workflow layer.
+ * Renders the compact searchable Agent index grouped by numeric workflow layer.
  */
 function AgentIndex({
   agents,
@@ -1223,9 +1262,7 @@ function AgentIndex({
         {agents.length ===
         0 ? (
           <p className="p-6 text-center text-xs text-text-muted">
-            No agents match
-            the current
-            filters.
+            No agents match the current filters.
           </p>
         ) : (
           <div className="max-h-[30rem] overflow-y-auto">
@@ -1352,7 +1389,7 @@ type OverviewPanelProps = {
 };
 
 /**
- * Renders recent persisted runtime events associated with agent activity.
+ * Renders recent persisted runtime events associated with this Team's Agent activity.
  */
 function RecentAuditEvents({
   overview,
@@ -1364,8 +1401,7 @@ function RecentAuditEvents({
     >
       <CardHeader className="border-b border-divider">
         <CardTitle>
-          Recent Audit
-          Events
+          Recent Audit Events
         </CardTitle>
       </CardHeader>
 
@@ -1373,9 +1409,7 @@ function RecentAuditEvents({
         {overview.recentEvents.length ===
         0 ? (
           <p className="p-5 text-xs text-text-muted">
-            No recent
-            persisted agent
-            events.
+            No recent persisted Agent events.
           </p>
         ) : (
           <div className="divide-y divide-divider">
@@ -1420,7 +1454,7 @@ function RecentAuditEvents({
 }
 
 /**
- * Renders deterministic configuration warnings and the immutable run-snapshot notice.
+ * Renders Team-scoped deterministic configuration warnings and the immutable run-snapshot notice.
  */
 function ValidationNotices({
   overview,
@@ -1432,8 +1466,7 @@ function ValidationNotices({
     >
       <CardHeader className="border-b border-divider">
         <CardTitle>
-          Validation &
-          Notices
+          Validation & Notices
         </CardTitle>
       </CardHeader>
 
@@ -1442,17 +1475,11 @@ function ValidationNotices({
         0 ? (
           <div className="border-b border-divider px-3 py-3">
             <p className="text-xs font-medium text-status-success">
-              No configuration
-              issues detected
+              No configuration issues detected
             </p>
 
             <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
-              Persisted
-              configuration
-              currently satisfies
-              the deterministic
-              checks available to
-              this view.
+              Persisted Team configuration currently satisfies the deterministic checks available to this view.
             </p>
           </div>
         ) : (
@@ -1472,8 +1499,7 @@ function ValidationNotices({
 
                   <div>
                     <p className="text-xs font-medium text-status-warning">
-                      Route target
-                      unavailable
+                      Route target unavailable
                     </p>
 
                     <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
@@ -1497,12 +1523,7 @@ function ValidationNotices({
             </p>
 
             <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
-              Active runs keep
-              their own immutable
-              agent snapshot.
-              Changes on this page
-              affect future runs
-              only.
+              Active runs keep their own immutable Team Agent snapshot. Changes here affect future runs only.
             </p>
           </div>
         </div>

@@ -20,6 +20,9 @@ import type {
 } from "@orc/shared";
 
 import {
+  AgentsManager,
+} from "@/components/agents-manager";
+import {
   TeamConfigDrawer,
 } from "@/components/team-config-drawer";
 import {
@@ -79,7 +82,7 @@ function formatUpdatedAt(
 }
 
 /**
- * Renders Team CRUD, enablement state, and Agent membership visibility.
+ * Renders Team CRUD and the selected Team's complete Agent management workspace.
  */
 export function TeamsManager() {
   const [
@@ -139,12 +142,6 @@ export function TeamsManager() {
     >("create");
 
   const [
-    drawerSession,
-    setDrawerSession,
-  ] =
-    useState(0);
-
-  const [
     selectedTeamId,
     setSelectedTeamId,
   ] =
@@ -152,8 +149,16 @@ export function TeamsManager() {
       null,
     );
 
+  const [
+    drawerTeamId,
+    setDrawerTeamId,
+  ] =
+    useState<string | null>(
+      null,
+    );
+
   /**
-   * Reloads Teams and Agent memberships as one coherent management snapshot.
+   * Reloads Teams and Agent memberships while preserving or resolving a valid selected Team.
    */
   const loadWorkspace =
     useCallback(
@@ -208,7 +213,11 @@ export function TeamsManager() {
                 return current;
               }
 
-              return null;
+              return (
+                nextTeams[0]
+                  ?.id ??
+                null
+              );
             },
           );
         } catch (caught) {
@@ -232,21 +241,7 @@ export function TeamsManager() {
 
   useEffect(
     () => {
-      let disposed =
-        false;
-
-      queueMicrotask(
-        () => {
-          if (!disposed) {
-            void loadWorkspace();
-          }
-        },
-      );
-
-      return () => {
-        disposed =
-          true;
-      };
+      void loadWorkspace();
     },
     [
       loadWorkspace,
@@ -360,30 +355,32 @@ export function TeamsManager() {
         selectedTeamId,
     ) ?? null;
 
-  const selectedMemberCount =
-    selectedTeam
+  const drawerTeam =
+    teams.find(
+      (team) =>
+        team.id ===
+        drawerTeamId,
+    ) ?? null;
+
+  const drawerMemberCount =
+    drawerTeam
       ? (
           membersByTeam.get(
-            selectedTeam.id,
+            drawerTeam.id,
           ) ?? []
         ).length
       : 0;
 
   /**
-   * Opens a fresh Team creation drawer.
+   * Opens a fresh Team creation drawer without clearing the selected management workspace.
    */
   function openCreate() {
-    setSelectedTeamId(
+    setDrawerTeamId(
       null,
     );
 
     setDrawerMode(
       "create",
-    );
-
-    setDrawerSession(
-      (current) =>
-        current + 1,
     );
 
     setDrawerOpen(
@@ -392,7 +389,7 @@ export function TeamsManager() {
   }
 
   /**
-   * Opens the selected Team in a fresh edit drawer session.
+   * Opens one Team in edit mode and makes it the active management workspace.
    */
   function openEdit(
     teamId: string,
@@ -401,17 +398,27 @@ export function TeamsManager() {
       teamId,
     );
 
+    setDrawerTeamId(
+      teamId,
+    );
+
     setDrawerMode(
       "edit",
     );
 
-    setDrawerSession(
-      (current) =>
-        current + 1,
-    );
-
     setDrawerOpen(
       true,
+    );
+  }
+
+  /**
+   * Selects one Team as the ownership boundary for Agent management and workflow visualization.
+   */
+  function selectTeam(
+    teamId: string,
+  ) {
+    setSelectedTeamId(
+      teamId,
     );
   }
 
@@ -429,7 +436,7 @@ export function TeamsManager() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 md:p-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       <header className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="flex items-center gap-2">
@@ -441,7 +448,7 @@ export function TeamsManager() {
           </div>
 
           <p className="mt-1 max-w-3xl text-sm text-text-muted">
-            Manage workflow ownership boundaries and inspect the Agents assigned to each Team.
+            Manage Team ownership boundaries, worker Agents, layered workflows, routes, and Agent observability.
           </p>
         </div>
 
@@ -579,16 +586,31 @@ export function TeamsManager() {
                       agent.enabled,
                   ).length;
 
+                const selected =
+                  selectedTeamId ===
+                  team.id;
+
                 return (
                   <TableRow
                     key={
                       team.id
                     }
+                    className={
+                      selected
+                        ? "bg-status-running/5"
+                        : undefined
+                    }
                   >
                     <TableCell>
                       <div className="min-w-48">
-                        <div className="font-medium text-text-primary">
+                        <div className="flex items-center gap-2 font-medium text-text-primary">
                           {team.name}
+
+                          {selected ? (
+                            <Badge variant="running">
+                              Selected
+                            </Badge>
+                          ) : null}
                         </div>
 
                         <div className="mt-0.5 font-mono text-[11px] text-text-muted">
@@ -682,19 +704,36 @@ export function TeamsManager() {
                     </TableCell>
 
                     <TableCell className="text-right">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          openEdit(
-                            team.id,
-                          )
-                        }
-                      >
-                        <PencilIcon />
-                        Edit
-                      </Button>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            selectTeam(
+                              team.id,
+                            )
+                          }
+                        >
+                          {selected
+                            ? "Selected"
+                            : "Manage"}
+                        </Button>
+
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            openEdit(
+                              team.id,
+                            )
+                          }
+                        >
+                          <PencilIcon />
+                          Edit
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
@@ -704,8 +743,22 @@ export function TeamsManager() {
         </Table>
       )}
 
+      {!loading &&
+      selectedTeam ? (
+        <section className="min-w-0 border-t border-divider pt-4">
+          <AgentsManager
+            key={
+              selectedTeam.id
+            }
+            team={
+              selectedTeam
+            }
+          />
+        </section>
+      ) : null}
+
       <TeamConfigDrawer
-        key={`${drawerSession}:${drawerMode}:${selectedTeam?.id ?? "new"}`}
+        key={`${drawerMode}:${drawerTeam?.id ?? "new"}`}
         open={
           drawerOpen
         }
@@ -713,10 +766,10 @@ export function TeamsManager() {
           drawerMode
         }
         team={
-          selectedTeam
+          drawerTeam
         }
         memberCount={
-          selectedMemberCount
+          drawerMemberCount
         }
         onOpenChange={
           setDrawerOpen

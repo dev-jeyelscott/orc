@@ -87,6 +87,41 @@ function compareAgents(
 }
 
 /**
+ * Restricts a current Agent collection to one explicit Team ownership boundary.
+ */
+export function scopeAgentsToTeam(
+  agents:
+    AgentWithRoutes[],
+  teamId:
+    string,
+): AgentWithRoutes[] {
+  return agents.filter(
+    (agent) =>
+      agent.teamId ===
+      teamId,
+  );
+}
+
+/**
+ * Returns enabled route destinations belonging to the source Agent's Team and excludes self-routing.
+ */
+export function getAvailableAgentRouteTargets(
+  agents:
+    AgentWithRoutes[],
+  sourceAgent:
+    AgentWithRoutes,
+): AgentWithRoutes[] {
+  return agents.filter(
+    (candidate) =>
+      candidate.enabled &&
+      candidate.teamId ===
+        sourceAgent.teamId &&
+      candidate.id !==
+        sourceAgent.id,
+  );
+}
+
+/**
  * Groups current agent configuration by numeric workflow layer.
  */
 export function groupAgentsByLayer(
@@ -277,7 +312,7 @@ export function calculateRouteHealth(
 }
 
 /**
- * Derives the read-only normal workflow sequence plus every persisted explicit route.
+ * Derives the read-only normal workflow sequence plus every persisted in-scope explicit route.
  */
 export function deriveWorkflowEdges(
   agents:
@@ -349,6 +384,13 @@ export function deriveWorkflowEdges(
               route.targetAgentId,
             ) ?? null
           : null;
+
+      if (
+        route.targetAgentId &&
+        !target
+      ) {
+        continue;
+      }
 
       edges.push({
         id:
@@ -519,22 +561,21 @@ export function formatIdentifier(
  * Formats a byte count using binary operator-friendly units.
  */
 export function formatBytes(
-  value:
+  bytes:
     number | null,
 ): string {
   if (
-    value === null ||
+    bytes === null ||
     !Number.isFinite(
-      value,
-    ) ||
-    value < 0
+      bytes,
+    )
   ) {
     return "Unavailable";
   }
 
-  if (value < 1024) {
+  if (bytes < 1024) {
     return `${Math.round(
-      value,
+      bytes,
     )} B`;
   }
 
@@ -545,25 +586,23 @@ export function formatBytes(
     "TB",
   ];
 
-  let current =
-    value / 1024;
+  let value =
+    bytes / 1024;
 
   let unitIndex = 0;
 
   while (
-    current >= 1024 &&
+    value >= 1024 &&
     unitIndex <
       units.length - 1
   ) {
-    current /= 1024;
+    value /= 1024;
     unitIndex += 1;
   }
 
-  return `${current.toFixed(
-    current >= 100
-      ? 0
-      : current >= 10
-        ? 1
-        : 2,
+  return `${value.toFixed(
+    value >= 10
+      ? 1
+      : 2,
   )} ${units[unitIndex]}`;
 }

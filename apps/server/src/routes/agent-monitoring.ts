@@ -1,7 +1,9 @@
 import type {
   FastifyInstance,
 } from "fastify";
-import { z } from "zod";
+import {
+  z,
+} from "zod";
 
 import {
   agentMonitoringRangeSchema,
@@ -12,11 +14,19 @@ import {
   listAgentMonitoringOverview,
 } from "../services/agent-monitoring-service.js";
 
-const querySchema =
+const rangeQuerySchema =
   z.object({
     range:
       agentMonitoringRangeSchema
         .default("7d"),
+  });
+
+const overviewQuerySchema =
+  rangeQuerySchema.extend({
+    teamId:
+      z.string()
+        .uuid()
+        .optional(),
   });
 
 const agentParamsSchema =
@@ -26,7 +36,7 @@ const agentParamsSchema =
   });
 
 /**
- * Registers additive read-only endpoints used by the Agents operator dashboard.
+ * Registers read-only Agent monitoring endpoints with optional Team scoping for overview aggregation.
  */
 export async function agentMonitoringRoutes(
   app: FastifyInstance,
@@ -38,7 +48,7 @@ export async function agentMonitoringRoutes(
       reply,
     ) => {
       const parsed =
-        querySchema.safeParse(
+        overviewQuerySchema.safeParse(
           request.query,
         );
 
@@ -58,6 +68,7 @@ export async function agentMonitoringRoutes(
 
       return listAgentMonitoringOverview(
         parsed.data.range,
+        parsed.data.teamId,
       );
     },
   );
@@ -74,7 +85,7 @@ export async function agentMonitoringRoutes(
         );
 
       const query =
-        querySchema.safeParse(
+        rangeQuerySchema.safeParse(
           request.query,
         );
 

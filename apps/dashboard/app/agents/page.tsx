@@ -1,10 +1,12 @@
 import {
-  AgentsManager,
-} from "@/components/agents-manager";
+  redirect,
+} from "next/navigation";
 
 /**
- * Renders the production Agents management and observability workspace.
+ * Redirects the legacy standalone Agents route into the Team-owned management workspace.
  */
 export default function AgentsPage() {
-  return <AgentsManager />;
+  redirect(
+    "/teams",
+  );
 }

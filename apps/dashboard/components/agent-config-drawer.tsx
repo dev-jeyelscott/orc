@@ -28,9 +28,13 @@ import {
   createAgentRoute,
   deleteAgent,
   deleteAgentRoute,
+  scopeCreateAgentToTeam,
   updateAgent,
   updateAgentRoute,
 } from "@/lib/agents";
+import {
+  getAvailableAgentRouteTargets,
+} from "@/lib/agent-presentation";
 import {
   harnessOptions,
 } from "@/lib/harness-options";
@@ -118,6 +122,8 @@ type AgentConfigDrawerProps = {
   mode:
     | "create"
     | "edit";
+  createTeamId:
+    string;
   agent:
     AgentWithRoutes | null;
   agents:
@@ -143,17 +149,21 @@ function errorMessage(
 }
 
 /**
- * Copies a persisted Agent into an editable create/update payload.
+ * Copies a persisted Agent into an editable payload or creates a Team-scoped draft.
  */
 function createDraft(
   agent:
     AgentWithRoutes | null,
+  createTeamId:
+    string,
 ): CreateAgent {
   if (
     !agent
   ) {
     return {
       ...blankAgent,
+      teamId:
+        createTeamId,
     };
   }
 
@@ -197,6 +207,7 @@ function createDraft(
 export function AgentConfigDrawer({
   open,
   mode,
+  createTeamId,
   agent,
   agents,
   onOpenChange,
@@ -213,6 +224,7 @@ export function AgentConfigDrawer({
             "edit"
             ? agent
             : null,
+          createTeamId,
         ),
     );
 
@@ -256,7 +268,7 @@ export function AgentConfigDrawer({
         false;
 
       /**
-       * Loads Team configuration and selects Resolution for a fresh Agent when available.
+       * Loads Team labels while preserving the current Team as the immutable create scope.
        */
       async function loadTeamOptions() {
         setTeamsLoading(
@@ -284,35 +296,11 @@ export function AgentConfigDrawer({
             setDraft(
               (
                 current,
-              ) => {
-                if (
-                  current.teamId
-                ) {
-                  return current;
-                }
-
-                const defaultTeam =
-                  nextTeams.find(
-                    (
-                      candidate,
-                    ) =>
-                      candidate.slug ===
-                      "resolution",
-                  ) ??
-                  nextTeams[0];
-
-                if (
-                  !defaultTeam
-                ) {
-                  return current;
-                }
-
-                return {
-                  ...current,
-                  teamId:
-                    defaultTeam.id,
-                };
-              },
+              ) =>
+                scopeCreateAgentToTeam(
+                  current,
+                  createTeamId,
+                ),
             );
           }
         } catch (
@@ -348,6 +336,7 @@ export function AgentConfigDrawer({
     [
       open,
       mode,
+      createTeamId,
     ],
   );
 
@@ -410,7 +399,7 @@ export function AgentConfigDrawer({
   }
 
   /**
-   * Creates or updates the current Agent after validating required Team membership.
+   * Creates or updates the current Agent while forcing create operations into the selected Team.
    */
   async function submit(
     event:
@@ -455,11 +444,17 @@ export function AgentConfigDrawer({
     );
 
     try {
+      const createPayload =
+        scopeCreateAgentToTeam(
+          draft,
+          createTeamId,
+        );
+
       const saved =
         mode ===
         "create"
           ? await createAgent(
-              draft,
+              createPayload,
             )
           : await updateAgent(
               agent!.id,
@@ -578,10 +573,7 @@ export function AgentConfigDrawer({
                 </DrawerTitle>
 
                 <DrawerDescription>
-                  Configuration
-                  changes affect
-                  future run
-                  snapshots only.
+                  Configuration changes affect future run snapshots only.
                 </DrawerDescription>
               </div>
 
@@ -729,7 +721,9 @@ export function AgentConfigDrawer({
                       value,
                     ) => {
                       if (
-                        value
+                        value &&
+                        mode ===
+                          "edit"
                       ) {
                         update(
                           "teamId",
@@ -742,7 +736,9 @@ export function AgentConfigDrawer({
                       className="w-full"
                       disabled={
                         saving ||
-                        teamsLoading
+                        teamsLoading ||
+                        mode ===
+                          "create"
                       }
                       aria-label="Select Team"
                     >
@@ -772,12 +768,18 @@ export function AgentConfigDrawer({
                     </SelectContent>
                   </Select>
 
+                  {mode ===
+                  "create" ? (
+                    <span className="text-xs text-text-muted">
+                      Assigned from the currently selected Team workspace.
+                    </span>
+                  ) : null}
+
                   {!teamsLoading &&
                   teams.length ===
                     0 ? (
                     <span className="text-xs text-status-error">
-                      No Teams are
-                      available.
+                      No Teams are available.
                     </span>
                   ) : null}
                 </label>
@@ -812,8 +814,7 @@ export function AgentConfigDrawer({
 
                 <label className="grid gap-1.5 text-sm">
                   <span className="font-medium text-text-secondary">
-                    Execution
-                    Order
+                    Execution Order
                   </span>
 
                   <Input
@@ -1297,20 +1298,13 @@ function AgentRoutesEditor({
   const availableTargets =
     useMemo(
       () =>
-        agents.filter(
-          (
-            candidate,
-          ) =>
-            candidate.enabled &&
-            candidate.teamId ===
-              agent.teamId &&
-            candidate.id !==
-              agent.id,
+        getAvailableAgentRouteTargets(
+          agents,
+          agent,
         ),
       [
         agents,
-        agent.id,
-        agent.teamId,
+        agent,
       ],
     );
 
@@ -1364,20 +1358,14 @@ function AgentRoutesEditor({
         </h3>
 
         <p className="mt-1 text-xs text-text-muted">
-          Explicit routes
-          override normal
-          progression in
-          future run
-          snapshots.
+          Explicit routes override normal progression in future run snapshots.
         </p>
       </div>
 
       {agent.routes.length ===
       0 ? (
         <p className="rounded-lg border border-divider bg-surface-interactive/40 p-3 text-xs text-text-muted">
-          No explicit
-          routing overrides
-          configured.
+          No explicit routing overrides configured.
         </p>
       ) : null}
 
@@ -1640,15 +1628,9 @@ function RouteRowEditor({
     );
 
   const availableTargets =
-    agents.filter(
-      (
-        candidate,
-      ) =>
-        candidate.enabled &&
-        candidate.teamId ===
-          agent.teamId &&
-        candidate.id !==
-          agent.id,
+    getAvailableAgentRouteTargets(
+      agents,
+      agent,
     );
 
   const currentTarget =

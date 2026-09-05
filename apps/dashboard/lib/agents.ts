@@ -104,6 +104,21 @@ async function requestNoContent(
 }
 
 /**
+ * Forces one create-Agent payload to the Team owning the current management workspace.
+ */
+export function scopeCreateAgentToTeam(
+  input:
+    CreateAgent,
+  teamId:
+    string,
+): CreateAgent {
+  return {
+    ...input,
+    teamId,
+  };
+}
+
+/**
  * Loads all configured agents using deterministic workflow order.
  */
 export async function getAgents(): Promise<
@@ -132,15 +147,23 @@ export function getAgent(
 }
 
 /**
- * Loads the complete Agents command-center read model without browser caching.
+ * Loads one Team-scoped Agent command-center read model without browser caching.
  */
 export function getAgentMonitoringOverview(
   range:
     AgentMonitoringRange,
+  teamId:
+    string,
   signal?: AbortSignal,
 ): Promise<AgentMonitoringOverview> {
+  const search =
+    new URLSearchParams({
+      range,
+      teamId,
+    });
+
   return request(
-    `/api/agents/monitoring?range=${encodeURIComponent(range)}`,
+    `/api/agents/monitoring?${search.toString()}`,
     {
       cache: "no-store",
       signal,

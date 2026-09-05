@@ -10,11 +10,16 @@ import {
   calculateRouteHealth,
   deriveWorkflowEdges,
   filterAgents,
+  getAvailableAgentRouteTargets,
   groupAgentsByLayer,
+  scopeAgentsToTeam,
 } from "./agent-presentation";
 
 const TEST_TEAM_ID =
   "00000000-0000-4000-9000-000000000001";
+
+const OTHER_TEAM_ID =
+  "00000000-0000-4000-9000-000000000002";
 
 /**
  * Creates a generic Agent with deterministic test defaults.
@@ -191,6 +196,77 @@ function testFiltering(): void {
 }
 
 /**
+ * Verifies explicit Team scoping excludes every Agent belonging to another Team.
+ */
+function testTeamScoping(): void {
+  const owned =
+    createAgent();
+
+  const other =
+    createAgent({
+      teamId:
+        OTHER_TEAM_ID,
+    });
+
+  assert.deepEqual(
+    scopeAgentsToTeam(
+      [
+        owned,
+        other,
+      ],
+      TEST_TEAM_ID,
+    ).map(
+      (agent) =>
+        agent.id,
+    ),
+    [
+      owned.id,
+    ],
+  );
+}
+
+/**
+ * Verifies route destinations contain only enabled Agents in the source Team and never the source itself.
+ */
+function testRouteTargetScoping(): void {
+  const source =
+    createAgent();
+
+  const valid =
+    createAgent();
+
+  const disabled =
+    createAgent({
+      enabled:
+        false,
+    });
+
+  const otherTeam =
+    createAgent({
+      teamId:
+        OTHER_TEAM_ID,
+    });
+
+  assert.deepEqual(
+    getAvailableAgentRouteTargets(
+      [
+        source,
+        valid,
+        disabled,
+        otherTeam,
+      ],
+      source,
+    ).map(
+      (agent) =>
+        agent.id,
+    ),
+    [
+      valid.id,
+    ],
+  );
+}
+
+/**
  * Verifies approval rate follows the approved versus changes-requested denominator.
  */
 function testApprovalRate(): void {
@@ -351,11 +427,54 @@ function testWorkflowEdges(): void {
   );
 }
 
+/**
+ * Verifies a malformed route cannot render a graph edge into an Agent outside the supplied Team scope.
+ */
+function testCrossTeamGraphIsolation(): void {
+  const source =
+    createAgent();
+
+  const outside =
+    createAgent({
+      teamId:
+        OTHER_TEAM_ID,
+    });
+
+  source.routes = [
+    createRoute(
+      source.id,
+      {
+        targetAgentId:
+          outside.id,
+        terminalAction:
+          null,
+      },
+    ),
+  ];
+
+  const edges =
+    deriveWorkflowEdges([
+      source,
+    ]);
+
+  assert.equal(
+    edges.some(
+      (edge) =>
+        edge.targetAgentId ===
+        outside.id,
+    ),
+    false,
+  );
+}
+
 testGrouping();
 testFiltering();
+testTeamScoping();
+testRouteTargetScoping();
 testApprovalRate();
 testRouteHealth();
 testWorkflowEdges();
+testCrossTeamGraphIsolation();
 
 console.log(
   "agent-presentation helper tests passed",

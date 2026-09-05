@@ -53,11 +53,6 @@ const navigation = [
     icon: UsersIcon,
   },
   {
-    title: "Agents",
-    url: "/agents",
-    icon: BotIcon,
-  },
-  {
     title: "Orchestrator",
     url: "/orchestrator",
     icon: MessageSquareIcon,
