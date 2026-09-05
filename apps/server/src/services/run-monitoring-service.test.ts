@@ -10,6 +10,9 @@ import {
 
 import { db } from "../db/client.js";
 import {
+  RESOLUTION_TEAM_ID,
+} from "../db/seed-ids.js";
+import {
   runs,
   tasks,
 } from "../db/schema.js";
@@ -30,86 +33,117 @@ const createdTaskIds =
  */
 function createSnapshotAgent(
   input: {
-    name: string;
-    layer: number;
-    executionOrder: number;
+    name:
+      string;
+    layer:
+      number;
+    executionOrder:
+      number;
   },
 ) {
   return {
-    id: crypto.randomUUID(),
-    name: input.name,
+    id:
+      crypto.randomUUID(),
+    name:
+      input.name,
     role:
       `${input.name} Role`,
-    layer: input.layer,
+    layer:
+      input.layer,
     executionOrder:
       input.executionOrder,
     harness:
       "codex" as const,
-    model: "default",
-    reasoning: "high",
+    model:
+      "default",
+    reasoning:
+      "high",
     systemPrompt:
       `Secret ${input.name} prompt`,
-    canWrite: true,
-    canRunCommands: true,
-    canCommit: false,
+    canWrite:
+      true,
+    canRunCommands:
+      true,
+    canCommit:
+      false,
   };
 }
 
 /**
- * Creates one persisted run with an immutable workflow snapshot for monitoring tests.
+ * Creates one persisted Run with an immutable workflow snapshot for monitoring tests.
  */
 async function createMonitoringRun() {
   const first =
     createSnapshotAgent({
-      name: "First Agent",
-      layer: 1,
-      executionOrder: 1,
+      name:
+        "First Agent",
+      layer:
+        1,
+      executionOrder:
+        1,
     });
 
   const second =
     createSnapshotAgent({
-      name: "Second Agent",
-      layer: 2,
-      executionOrder: 1,
+      name:
+        "Second Agent",
+      layer:
+        2,
+      executionOrder:
+        1,
     });
 
   const projectPath =
     `/tmp/orc-monitoring-${crypto.randomUUID()}`;
 
-  const [task] = await db
-    .insert(tasks)
-    .values({
-      projectPath,
-      title:
-        "Monitoring test task",
-      instruction:
-        "Validate the monitoring read model.",
-      status: "running",
-    })
-    .returning();
+  const [task] =
+    await db
+      .insert(tasks)
+      .values({
+        teamId:
+          RESOLUTION_TEAM_ID,
+        projectPath,
+        title:
+          "Monitoring test task",
+        instruction:
+          "Validate the monitoring read model.",
+        status:
+          "running",
+      })
+      .returning();
 
-  createdTaskIds.add(task.id);
+  createdTaskIds.add(
+    task.id,
+  );
 
-  const [run] = await db
-    .insert(runs)
-    .values({
-      taskId: task.id,
-      projectPath,
-      status: "running",
-      workflowSnapshot: {
-        agents: [
-          second,
-          first,
-        ],
-        routes: [],
-      },
-      currentAgentId:
-        first.id,
-      executionCount: 1,
-    })
-    .returning();
+  const [run] =
+    await db
+      .insert(runs)
+      .values({
+        taskId:
+          task.id,
+        teamId:
+          task.teamId,
+        projectPath,
+        status:
+          "running",
+        workflowSnapshot: {
+          agents: [
+            second,
+            first,
+          ],
+          routes: [],
+        },
+        currentAgentId:
+          first.id,
+        executionCount:
+          1,
+      })
+      .returning();
 
-  createdRunIds.add(run.id);
+  createdRunIds.add(
+    run.id,
+  );
 
   return {
     run,
@@ -119,28 +153,40 @@ async function createMonitoringRun() {
   };
 }
 
-afterEach(async () => {
-  for (
-    const id of
-    createdRunIds
-  ) {
-    await db
-      .delete(runs)
-      .where(eq(runs.id, id));
-  }
+afterEach(
+  async () => {
+    for (
+      const id of
+      createdRunIds
+    ) {
+      await db
+        .delete(runs)
+        .where(
+          eq(
+            runs.id,
+            id,
+          ),
+        );
+    }
 
-  for (
-    const id of
-    createdTaskIds
-  ) {
-    await db
-      .delete(tasks)
-      .where(eq(tasks.id, id));
-  }
+    for (
+      const id of
+      createdTaskIds
+    ) {
+      await db
+        .delete(tasks)
+        .where(
+          eq(
+            tasks.id,
+            id,
+          ),
+        );
+    }
 
-  createdRunIds.clear();
-  createdTaskIds.clear();
-});
+    createdRunIds.clear();
+    createdTaskIds.clear();
+  },
+);
 
 describe(
   "run monitoring service",
@@ -152,27 +198,38 @@ describe(
           createSnapshotAgent({
             name:
               "Projection Agent",
-            layer: 2,
-            executionOrder: 3,
+            layer:
+              2,
+            executionOrder:
+              3,
           });
 
         const plan =
           projectExecutionPlan({
-            agents: [agent],
+            agents: [
+              agent,
+            ],
             routes: [],
           });
 
-        expect(plan).toEqual([
+        expect(
+          plan,
+        ).toEqual([
           {
-            id: agent.id,
-            name: agent.name,
-            role: agent.role,
-            layer: agent.layer,
+            id:
+              agent.id,
+            name:
+              agent.name,
+            role:
+              agent.role,
+            layer:
+              agent.layer,
             executionOrder:
               agent.executionOrder,
             harness:
               agent.harness,
-            model: agent.model,
+            model:
+              agent.model,
             reasoning:
               agent.reasoning,
           },
@@ -181,12 +238,16 @@ describe(
         expect(
           "systemPrompt" in
             plan[0],
-        ).toBe(false);
+        ).toBe(
+          false,
+        );
 
         expect(
           "canWrite" in
             plan[0],
-        ).toBe(false);
+        ).toBe(
+          false,
+        );
       },
     );
 
@@ -209,7 +270,7 @@ describe(
     );
 
     it(
-      "joins task metadata and resolves the current snapshot agent",
+      "joins Task metadata, Team ownership, and current snapshot Agent",
       async () => {
         const {
           run,
@@ -227,25 +288,29 @@ describe(
               run.id,
           );
 
-        expect(summary).toMatchObject(
-          {
-            id: run.id,
-            taskTitle:
-              "Monitoring test task",
-            plannedExecutionCount:
-              2,
-            currentAgent: {
-              id: first.id,
-              name:
-                first.name,
-            },
+        expect(
+          summary,
+        ).toMatchObject({
+          id:
+            run.id,
+          teamId:
+            RESOLUTION_TEAM_ID,
+          taskTitle:
+            "Monitoring test task",
+          plannedExecutionCount:
+            2,
+          currentAgent: {
+            id:
+              first.id,
+            name:
+              first.name,
           },
-        );
+        });
       },
     );
 
     it(
-      "adds the safe execution plan to the existing run detail",
+      "adds the safe execution plan to existing Team-scoped Run detail",
       async () => {
         const {
           run,
@@ -258,8 +323,16 @@ describe(
           );
 
         expect(
+          detail?.run.teamId,
+        ).toBe(
+          RESOLUTION_TEAM_ID,
+        );
+
+        expect(
           detail?.executionPlan.map(
-            (agent) =>
+            (
+              agent,
+            ) =>
               agent.name,
           ),
         ).toEqual([

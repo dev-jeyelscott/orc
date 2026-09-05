@@ -37,7 +37,8 @@ export class OrchestratorToolServiceError extends Error {
 }
 
 export type OrchestratorToolExecution = {
-  result: unknown;
+  result:
+    unknown;
   references?: {
     taskId?:
       | string
@@ -49,7 +50,7 @@ export type OrchestratorToolExecution = {
 };
 
 /**
- * Resolves the conversation project through current filesystem discovery.
+ * Resolves the Conversation Project through current filesystem discovery.
  */
 async function requireCurrentProject(
   conversation:
@@ -72,7 +73,7 @@ async function requireCurrentProject(
 }
 
 /**
- * Resolves a task and verifies that it belongs to the conversation project.
+ * Resolves a Task and verifies that both Project and Team match the persisted Conversation scope.
  */
 async function requireTask(
   conversation:
@@ -103,10 +104,12 @@ async function requireTask(
 
   if (
     task.projectPath !==
-    conversation.projectPath
+      conversation.projectPath ||
+    task.teamId !==
+      conversation.teamId
   ) {
     throw new OrchestratorToolServiceError(
-      "The task does not belong to this conversation project",
+      "The task does not belong to this conversation project and team",
       403,
     );
   }
@@ -115,7 +118,7 @@ async function requireTask(
 }
 
 /**
- * Resolves a run and verifies that it belongs to the conversation project.
+ * Resolves a Run and verifies its Project, Team, and linked Task remain internally consistent with Conversation scope.
  */
 async function requireRun(
   conversation:
@@ -146,11 +149,38 @@ async function requireRun(
 
   if (
     detail.run.projectPath !==
-    conversation.projectPath
+      conversation.projectPath ||
+    detail.run.teamId !==
+      conversation.teamId
   ) {
     throw new OrchestratorToolServiceError(
-      "The run does not belong to this conversation project",
+      "The run does not belong to this conversation project and team",
       403,
+    );
+  }
+
+  if (
+    detail.run.taskId &&
+    !detail.task
+  ) {
+    throw new OrchestratorToolServiceError(
+      "The run's linked task is unavailable",
+      409,
+    );
+  }
+
+  if (
+    detail.task &&
+    (
+      detail.task.projectPath !==
+        detail.run.projectPath ||
+      detail.task.teamId !==
+        detail.run.teamId
+    )
+  ) {
+    throw new OrchestratorToolServiceError(
+      "The run and linked task have inconsistent project or team scope",
+      409,
     );
   }
 
@@ -158,12 +188,13 @@ async function requireRun(
 }
 
 /**
- * Resolves an execution together with its project-owned run detail.
+ * Resolves an execution together with its verified Project and Team scoped Run detail.
  */
 async function requireExecution(
   conversation:
     Conversation,
-  executionId: string,
+  executionId:
+    string,
 ) {
   const execution =
     await getExecution(
@@ -236,6 +267,8 @@ export async function executeOrchestratorTool(
         await createTask({
           projectId:
             project.id,
+          teamId:
+            conversation.teamId,
           title:
             tool.arguments
               .title,

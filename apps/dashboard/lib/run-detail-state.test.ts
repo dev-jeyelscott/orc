@@ -15,6 +15,9 @@ import {
   terminalRunDurationMs,
 } from "./run-detail-state";
 
+const TEAM_ID =
+  "00000000-0000-4000-9000-000000000001";
+
 /**
  * Creates one deterministic persisted execution for Run Detail state verification.
  */
@@ -33,35 +36,49 @@ function createExecution(
       "Generic Worker",
     agentRole:
       "Implementation",
-    layer: 1,
-    executionOrder: 1,
-    harness: "codex",
-    model: "default",
-    reasoning: "high",
-    status: "completed",
-    pid: null,
+    layer:
+      1,
+    executionOrder:
+      1,
+    harness:
+      "codex",
+    model:
+      "default",
+    reasoning:
+      "high",
+    status:
+      "completed",
+    pid:
+      null,
     startedAt:
       "2026-09-04T00:00:00.000Z",
     completedAt:
       "2026-09-04T00:05:00.000Z",
-    exitCode: 0,
+    exitCode:
+      0,
     resultStatus:
       "completed",
     resultPayload: {
       status:
         "completed",
-      summary: "Done",
+      summary:
+        "Done",
       details: {},
       findings: [],
       filesChanged: [],
       commandsRun: [],
       validation: {},
-      commit: null,
+      commit:
+        null,
     },
-    tokenUsage: null,
-    contextUsage: null,
-    commitHash: null,
-    failureReason: null,
+    tokenUsage:
+      null,
+    contextUsage:
+      null,
+    commitHash:
+      null,
+    failureReason:
+      null,
     repairAttempted:
       false,
     createdAt:
@@ -73,7 +90,7 @@ function createExecution(
 }
 
 /**
- * Creates one deterministic monitoring detail for current-state verification.
+ * Creates one deterministic Team-scoped monitoring detail for current-state verification.
  */
 function createDetail(
   executions:
@@ -83,24 +100,31 @@ function createDetail(
     run: {
       id:
         crypto.randomUUID(),
-      taskId: null,
+      teamId:
+        TEAM_ID,
+      taskId:
+        null,
       projectPath:
         "/workspace/test",
-      status: "running",
+      status:
+        "running",
       currentAgentId:
         executions[
-          executions.length - 1
+          executions.length -
+            1
         ]?.agentId ??
         null,
       executionCount:
         executions.length,
-      terminalReason: null,
+      terminalReason:
+        null,
       createdAt:
         "2026-09-04T00:00:00.000Z",
       updatedAt:
         "2026-09-04T00:10:00.000Z",
     },
-    task: null,
+    task:
+      null,
     executions,
     events: [],
     executionPlan: [],
@@ -119,11 +143,16 @@ function testPreferredExecution(): void {
 
   const running =
     createExecution({
-      status: "running",
-      completedAt: null,
-      exitCode: null,
-      resultStatus: null,
-      resultPayload: null,
+      status:
+        "running",
+      completedAt:
+        null,
+      exitCode:
+        null,
+      resultStatus:
+        null,
+      resultPayload:
+        null,
       createdAt:
         "2026-09-04T00:10:00.000Z",
     });
@@ -152,16 +181,21 @@ function testPreferredExecution(): void {
 }
 
 /**
- * Verifies operator current-state text comes only from persisted execution/run state.
+ * Verifies operator current-state text comes only from persisted execution and Run state.
  */
 function testCurrentState(): void {
   const running =
     createExecution({
-      status: "running",
-      completedAt: null,
-      exitCode: null,
-      resultStatus: null,
-      resultPayload: null,
+      status:
+        "running",
+      completedAt:
+        null,
+      exitCode:
+        null,
+      resultStatus:
+        null,
+      resultPayload:
+        null,
     });
 
   assert.equal(
@@ -204,7 +238,7 @@ function testProgress(): void {
 }
 
 /**
- * Verifies run actions and badge semantics remain tied to persisted lifecycle state.
+ * Verifies Run actions and badge semantics remain tied to persisted lifecycle state.
  */
 function testRunStatePredicates(): void {
   assert.equal(
@@ -230,7 +264,7 @@ function testRunStatePredicates(): void {
 }
 
 /**
- * Verifies duration is exposed only for terminal runs with valid persisted timestamps.
+ * Verifies duration is exposed only for terminal Runs with valid persisted timestamps.
  */
 function testTerminalDuration(): void {
   const detail =

@@ -9,6 +9,9 @@ import {
   taskSchema,
 } from "./task.js";
 
+const TEAM_ID =
+  "00000000-0000-4000-9000-000000000001";
+
 const LEGACY_TASK_ID =
   "00000000-0000-4000-8000-000000000001";
 
@@ -22,11 +25,13 @@ describe(
   "task contracts",
   () => {
     it(
-      "keeps the existing manual create-task payload backward compatible",
+      "requires Team scope for manual Task creation",
       () => {
         const payload = {
           projectId:
             "project-runtime-id",
+          teamId:
+            TEAM_ID,
           title:
             "Implement feature",
           instruction:
@@ -40,16 +45,31 @@ describe(
         ).toEqual(
           payload,
         );
+
+        expect(
+          createTaskSchema.safeParse({
+            projectId:
+              payload.projectId,
+            title:
+              payload.title,
+            instruction:
+              payload.instruction,
+          }).success,
+        ).toBe(
+          false,
+        );
       },
     );
 
     it(
-      "defaults legacy task responses to manual source metadata",
+      "requires persisted Task responses to expose Team ownership",
       () => {
         const parsed =
           taskSchema.parse({
             id:
               LEGACY_TASK_ID,
+            teamId:
+              TEAM_ID,
             projectPath:
               "/home/user/workspace/orc",
             title:
@@ -63,6 +83,12 @@ describe(
             updatedAt:
               "2026-09-04T00:00:00.000Z",
           });
+
+        expect(
+          parsed.teamId,
+        ).toBe(
+          TEAM_ID,
+        );
 
         expect(
           parsed.source,
@@ -87,12 +113,14 @@ describe(
     );
 
     it(
-      "accepts generic Notion-backed external task metadata",
+      "accepts generic Notion-backed external Task metadata with Team ownership",
       () => {
         const parsed =
           taskSchema.parse({
             id:
               NOTION_TASK_ID,
+            teamId:
+              TEAM_ID,
             projectPath:
               "/home/user/workspace/orc",
             title:
@@ -116,6 +144,12 @@ describe(
           });
 
         expect(
+          parsed.teamId,
+        ).toBe(
+          TEAM_ID,
+        );
+
+        expect(
           parsed.source,
         ).toBe(
           "notion",
@@ -130,11 +164,13 @@ describe(
     );
 
     it(
-      "rejects unsupported sources and non-integer priority values",
+      "rejects unsupported sources, malformed Teams, and non-integer priority values",
       () => {
         const base = {
           id:
             INVALID_TASK_ID,
+          teamId:
+            TEAM_ID,
           projectPath:
             "/home/user/workspace/orc",
           title:
@@ -158,6 +194,20 @@ describe(
             ...base,
             source:
               "github",
+            priority:
+              1,
+          }).success,
+        ).toBe(
+          false,
+        );
+
+        expect(
+          taskSchema.safeParse({
+            ...base,
+            teamId:
+              "not-a-uuid",
+            source:
+              "notion",
             priority:
               1,
           }).success,

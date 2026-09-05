@@ -54,16 +54,23 @@ import {
   db,
 } from "../db/client.js";
 import {
+  DEVELOPMENT_TEAM_ID,
+  RESOLUTION_TEAM_ID,
+} from "../db/seed-ids.js";
+import {
   agents,
   domainEvents,
   runs,
   tasks,
+  teams,
 } from "../db/schema.js";
 import type {
   ExecutionFinalization,
 } from "./agent-execution-service.js";
 import {
   createAndStartTask,
+  createTask,
+  startTask,
 } from "./workflow-service.js";
 
 const project = {
@@ -86,19 +93,31 @@ const project = {
     "node",
 };
 
-let testAgentId:
-  string | null =
-  null;
+const createdAgentIds =
+  new Set<string>();
 
-let originalAgentStates: Array<{
-  id:
-    string;
-  enabled:
-    boolean;
-}> = [];
+let originalAgentStates:
+  Array<{
+    id:
+      string;
+    enabled:
+      boolean;
+  }> = [];
+
+let originalTeamStates:
+  Array<{
+    id:
+      string;
+    enabled:
+      boolean;
+  }> = [];
+
+let resolutionAgentId:
+  string | null =
+    null;
 
 /**
- * Builds a successful structured worker result for manual-start regression tests.
+ * Builds a successful structured worker result for Team-scoped workflow regression tests.
  */
 function completedResult(): AgentResult {
   return {
@@ -117,10 +136,67 @@ function completedResult(): AgentResult {
 }
 
 /**
- * Waits until one persisted run reaches a terminal state.
+ * Creates one enabled generic worker for a specific Team.
+ */
+async function createTestAgent(
+  teamId:
+    string,
+  label:
+    string,
+) {
+  const [agent] =
+    await db
+      .insert(agents)
+      .values({
+        teamId,
+        slug:
+          `workflow-start-${label}-${crypto.randomUUID()}`,
+        name:
+          `${label} Worker`,
+        role:
+          "Generic Engineering Role",
+        description:
+          "Workflow Team scope regression agent",
+        layer:
+          1_000_000 +
+          Math.floor(
+            Math.random() *
+              100_000_000,
+          ),
+        executionOrder:
+          1,
+        harness:
+          "codex",
+        model:
+          "default",
+        reasoning:
+          "medium",
+        systemPrompt:
+          "Complete the supplied task.",
+        enabled:
+          true,
+        canWrite:
+          false,
+        canRunCommands:
+          true,
+        canCommit:
+          false,
+      })
+      .returning();
+
+  createdAgentIds.add(
+    agent.id,
+  );
+
+  return agent;
+}
+
+/**
+ * Waits until one persisted Run reaches a terminal state.
  */
 async function waitForTerminalRun(
-  runId: string,
+  runId:
+    string,
 ) {
   for (
     let attempt = 0;
@@ -153,7 +229,9 @@ async function waitForTerminalRun(
     }
 
     await new Promise<void>(
-      (resolve) => {
+      (
+        resolve,
+      ) => {
         setTimeout(
           resolve,
           10,
@@ -204,6 +282,16 @@ beforeEach(
         })
         .from(agents);
 
+    originalTeamStates =
+      await db
+        .select({
+          id:
+            teams.id,
+          enabled:
+            teams.enabled,
+        })
+        .from(teams);
+
     await db
       .update(agents)
       .set({
@@ -211,52 +299,27 @@ beforeEach(
           false,
       });
 
-    const [agent] =
-      await db
-        .insert(agents)
-        .values({
-          slug:
-            `workflow-start-${crypto.randomUUID()}`,
-          name:
-            "Generic Worker",
-          role:
-            "Generic Engineering Role",
-          description:
-            "Workflow start regression agent",
-          layer:
-            1_000_000 +
-            Math.floor(
-              Math.random() *
-              100_000_000,
-            ),
-          executionOrder:
-            1,
-          harness:
-            "codex",
-          model:
-            "default",
-          reasoning:
-            "medium",
-          systemPrompt:
-            "Complete the supplied task.",
-          enabled:
-            true,
-          canWrite:
-            false,
-          canRunCommands:
-            true,
-          canCommit:
-            false,
-        })
-        .returning();
+    await db
+      .update(teams)
+      .set({
+        enabled:
+          true,
+      });
 
-    testAgentId =
+    const agent =
+      await createTestAgent(
+        RESOLUTION_TEAM_ID,
+        "resolution",
+      );
+
+    resolutionAgentId =
       agent.id;
 
     mocks.startSnapshotAgentExecution
       .mockImplementation(
         async (
-          _run: unknown,
+          _run:
+            unknown,
           snapshotAgent: {
             id:
               string;
@@ -274,18 +337,20 @@ beforeEach(
             snapshotAgent.id,
           );
 
-          const finalization: ExecutionFinalization = {
-            executionId:
-              crypto.randomUUID(),
-            status:
-              "completed",
-            resultStatus:
-              "completed",
-            failureReason:
-              null,
-            result:
-              completedResult(),
-          };
+          const finalization:
+            ExecutionFinalization =
+              {
+                executionId:
+                  crypto.randomUUID(),
+                status:
+                  "completed",
+                resultStatus:
+                  "completed",
+                failureReason:
+                  null,
+                result:
+                  completedResult(),
+              };
 
           queueMicrotask(
             () => {
@@ -334,22 +399,23 @@ afterEach(
         ),
       );
 
-    if (
-      testAgentId
+    for (
+      const id of
+      createdAgentIds
     ) {
       await db
         .delete(agents)
         .where(
           eq(
             agents.id,
-            testAgentId,
+            id,
           ),
         );
     }
 
     for (
       const state of
-        originalAgentStates
+      originalAgentStates
     ) {
       await db
         .update(agents)
@@ -365,24 +431,55 @@ afterEach(
         );
     }
 
-    testAgentId =
+    for (
+      const state of
+      originalTeamStates
+    ) {
+      await db
+        .update(teams)
+        .set({
+          enabled:
+            state.enabled,
+        })
+        .where(
+          eq(
+            teams.id,
+            state.id,
+          ),
+        );
+    }
+
+    createdAgentIds.clear();
+
+    resolutionAgentId =
       null;
 
     originalAgentStates =
+      [];
+
+    originalTeamStates =
       [];
   },
 );
 
 describe(
-  "manual create-and-start workflow",
+  "Team-scoped workflow start",
   () => {
     it(
-      "keeps the manual create endpoint service contract as create and immediately start",
+      "persists Task and Run Team and snapshots only enabled agents from that Team",
       async () => {
+        const developmentAgent =
+          await createTestAgent(
+            DEVELOPMENT_TEAM_ID,
+            "development",
+          );
+
         const result =
           await createAndStartTask({
             projectId:
               project.id,
+            teamId:
+              RESOLUTION_TEAM_ID,
             title:
               "Manual workflow task",
             instruction:
@@ -390,25 +487,53 @@ describe(
           });
 
         expect(
-          result.task.source,
+          result.task.teamId,
         ).toBe(
-          "manual",
+          RESOLUTION_TEAM_ID,
         );
 
         expect(
-          result.task.priority,
+          result.run.teamId,
         ).toBe(
-          0,
+          RESOLUTION_TEAM_ID,
+        );
+
+        const [persistedRun] =
+          await db
+            .select()
+            .from(runs)
+            .where(
+              eq(
+                runs.id,
+                result.run.id,
+              ),
+            );
+
+        const snapshot =
+          persistedRun.workflowSnapshot as {
+            agents:
+              Array<{
+                id:
+                  string;
+              }>;
+          };
+
+        expect(
+          snapshot.agents.map(
+            (agent) =>
+              agent.id,
+          ),
+        ).toContain(
+          resolutionAgentId,
         );
 
         expect(
-          result.task.externalId,
-        ).toBeNull();
-
-        expect(
-          result.run.taskId,
-        ).toBe(
-          result.task.id,
+          snapshot.agents.map(
+            (agent) =>
+              agent.id,
+          ),
+        ).not.toContain(
+          developmentAgent.id,
         );
 
         const terminalRun =
@@ -421,39 +546,145 @@ describe(
         ).toBe(
           "completed",
         );
+      },
+    );
+
+    it(
+      "uses the persisted Task Team when startTask builds its immutable snapshot",
+      async () => {
+        const developmentAgent =
+          await createTestAgent(
+            DEVELOPMENT_TEAM_ID,
+            "development-start-existing",
+          );
+
+        const pending =
+          await createTask({
+            projectId:
+              project.id,
+            teamId:
+              RESOLUTION_TEAM_ID,
+            title:
+              "Pending Team Task",
+            instruction:
+              "Start this persisted Task.",
+          });
+
+        const started =
+          await startTask(
+            pending.id,
+          );
 
         expect(
-          mocks.startedAgentIds,
-        ).toEqual([
-          testAgentId,
-        ]);
+          started?.task.teamId,
+        ).toBe(
+          RESOLUTION_TEAM_ID,
+        );
 
-        const [task] =
+        expect(
+          started?.run.teamId,
+        ).toBe(
+          RESOLUTION_TEAM_ID,
+        );
+
+        const [persistedRun] =
           await db
             .select()
-            .from(tasks)
+            .from(runs)
             .where(
               eq(
-                tasks.id,
-                result.task.id,
+                runs.id,
+                started!.run.id,
               ),
             );
 
+        const snapshot =
+          persistedRun.workflowSnapshot as {
+            agents:
+              Array<{
+                id:
+                  string;
+              }>;
+          };
+
         expect(
-          task.status,
-        ).toBe(
-          "completed",
+          snapshot.agents.map(
+            (agent) =>
+              agent.id,
+          ),
+        ).not.toContain(
+          developmentAgent.id,
         );
       },
     );
 
     it(
-      "does not leave a second manual task when another run is already active",
+      "rejects a disabled Team",
+      async () => {
+        await db
+          .update(teams)
+          .set({
+            enabled:
+              false,
+          })
+          .where(
+            eq(
+              teams.id,
+              DEVELOPMENT_TEAM_ID,
+            ),
+          );
+
+        await expect(
+          createAndStartTask({
+            projectId:
+              project.id,
+            teamId:
+              DEVELOPMENT_TEAM_ID,
+            title:
+              "Disabled Team task",
+            instruction:
+              "This must not start.",
+          }),
+        ).rejects.toMatchObject({
+          statusCode:
+            409,
+          message:
+            "The selected team is disabled",
+        });
+      },
+    );
+
+    it(
+      "rejects an enabled Team with no enabled agents",
+      async () => {
+        await expect(
+          createAndStartTask({
+            projectId:
+              project.id,
+            teamId:
+              DEVELOPMENT_TEAM_ID,
+            title:
+              "Empty Team task",
+            instruction:
+              "This must not start.",
+          }),
+        ).rejects.toMatchObject({
+          statusCode:
+            409,
+          message:
+            "The selected team has no enabled agents",
+        });
+      },
+    );
+
+    it(
+      "preserves the one-active-run-global invariant across different Teams",
       async () => {
         mocks.startSnapshotAgentExecution
           .mockImplementation(
             async (
-              _run: unknown,
+              _run:
+                unknown,
               snapshotAgent: {
                 id:
                   string;
@@ -467,27 +698,38 @@ describe(
             },
           );
 
+        await createTestAgent(
+          DEVELOPMENT_TEAM_ID,
+          "development-active-conflict",
+        );
+
         await createAndStartTask({
           projectId:
             project.id,
+          teamId:
+            RESOLUTION_TEAM_ID,
           title:
-            "Active manual task",
+            "Active Resolution task",
           instruction:
-            "Remain active for the conflict assertion.",
+            "Remain active for the global conflict assertion.",
         });
 
         await expect(
           createAndStartTask({
             projectId:
               project.id,
+            teamId:
+              DEVELOPMENT_TEAM_ID,
             title:
-              "Conflicting manual task",
+              "Conflicting Development task",
             instruction:
-              "This task must not remain persisted.",
+              "This Task must not be persisted.",
           }),
         ).rejects.toMatchObject({
           statusCode:
             409,
+          message:
+            "Another task is already active",
         });
 
         const conflictingTasks =
@@ -497,7 +739,7 @@ describe(
             .where(
               eq(
                 tasks.title,
-                "Conflicting manual task",
+                "Conflicting Development task",
               ),
             );
 

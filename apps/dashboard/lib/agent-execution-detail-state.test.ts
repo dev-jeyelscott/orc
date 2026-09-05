@@ -12,6 +12,9 @@ import {
   isExecutionRetryable,
 } from "./agent-execution-detail-state";
 
+const TEAM_ID =
+  "00000000-0000-4000-9000-000000000001";
+
 /**
  * Creates one deterministic execution suitable for execution-detail state tests.
  */
@@ -30,8 +33,10 @@ function createExecution(
       "Generic Worker",
     agentRole:
       "Implementation",
-    layer: 1,
-    executionOrder: 1,
+    layer:
+      1,
+    executionOrder:
+      1,
     harness:
       "codex",
     model:
@@ -40,12 +45,14 @@ function createExecution(
       "high",
     status:
       "failed",
-    pid: null,
+    pid:
+      null,
     startedAt:
       "2026-09-04T00:00:00.000Z",
     completedAt:
       "2026-09-04T00:05:00.000Z",
-    exitCode: 1,
+    exitCode:
+      1,
     resultStatus:
       "failed",
     resultPayload: {
@@ -58,11 +65,15 @@ function createExecution(
       filesChanged: [],
       commandsRun: [],
       validation: {},
-      commit: null,
+      commit:
+        null,
     },
-    tokenUsage: null,
-    contextUsage: null,
-    commitHash: null,
+    tokenUsage:
+      null,
+    contextUsage:
+      null,
+    commitHash:
+      null,
     failureReason:
       "Validation failed",
     repairAttempted:
@@ -89,7 +100,8 @@ function createEvent(
       "workflow.transition",
     projectPath:
       "/workspace/test",
-    taskId: null,
+    taskId:
+      null,
     runId:
       crypto.randomUUID(),
     agentExecutionId:
@@ -102,7 +114,7 @@ function createEvent(
 }
 
 /**
- * Creates monitoring detail with an immutable plan matching the supplied executions.
+ * Creates Team-scoped monitoring detail with an immutable plan matching supplied executions.
  */
 function createDetail(
   executions:
@@ -122,7 +134,10 @@ function createDetail(
     run: {
       id:
         runId,
-      taskId: null,
+      taskId:
+        null,
+      teamId:
+        TEAM_ID,
       projectPath:
         "/workspace/test",
       status,
@@ -137,7 +152,8 @@ function createDetail(
       updatedAt:
         "2026-09-04T00:10:00.000Z",
     },
-    task: null,
+    task:
+      null,
     executions,
     events,
     executionPlan:
@@ -175,7 +191,7 @@ function createDetail(
 }
 
 /**
- * Verifies Retry is exposed only for the newest execution of a failed or blocked run.
+ * Verifies Retry is exposed only for the newest execution of a failed or blocked Run.
  */
 function testRetryBoundary(): void {
   const runId =
@@ -233,7 +249,8 @@ function testRetryBoundary(): void {
   const deletedAgentExecution =
     createExecution({
       runId,
-      agentId: null,
+      agentId:
+        null,
       createdAt:
         "2026-09-04T00:20:00.000Z",
     });
@@ -259,22 +276,28 @@ function testPlanPosition(): void {
   const first =
     createExecution({
       runId,
-      layer: 1,
-      executionOrder: 1,
+      layer:
+        1,
+      executionOrder:
+        1,
     });
 
   const second =
     createExecution({
       runId,
-      layer: 2,
-      executionOrder: 1,
+      layer:
+        2,
+      executionOrder:
+        1,
     });
 
   const third =
     createExecution({
       runId,
-      layer: 3,
-      executionOrder: 1,
+      layer:
+        3,
+      executionOrder:
+        1,
     });
 
   const position =
@@ -290,9 +313,12 @@ function testPlanPosition(): void {
   assert.deepEqual(
     position,
     {
-      step: 2,
-      total: 3,
-      maxLayer: 3,
+      step:
+        2,
+      total:
+        3,
+      maxLayer:
+        3,
     },
   );
 }

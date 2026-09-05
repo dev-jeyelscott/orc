@@ -7,6 +7,7 @@ import {
   XIcon,
 } from "lucide-react";
 import {
+  useEffect,
   useState,
   type CSSProperties,
   type FormEvent,
@@ -15,6 +16,7 @@ import type {
   Project,
   Run,
   TaskWithRun,
+  Team,
 } from "@orc/shared";
 
 import {
@@ -48,6 +50,9 @@ import {
   shortId,
 } from "@/lib/task-presentation";
 import {
+  getTeams,
+} from "@/lib/teams";
+import {
   createTask,
 } from "@/lib/workflows";
 
@@ -57,29 +62,38 @@ const drawerStyle = {
 } as CSSProperties;
 
 type TaskCreateDrawerProps = {
-  open: boolean;
+  open:
+    boolean;
   onOpenChange:
     (open: boolean) => void;
-  projects: Project[];
+  projects:
+    Project[];
   projectError:
     string | null;
-  activeRun: Run | null;
+  activeRun:
+    Run | null;
   onCreated:
     (
-      created: TaskWithRun,
+      created:
+        TaskWithRun,
     ) => Promise<void> | void;
 };
 
-/** Converts an unknown task-creation failure into a concise operator-facing message. */
+/**
+ * Converts an unknown Task creation failure into a concise operator-facing message.
+ */
 function getErrorMessage(
-  error: unknown,
+  error:
+    unknown,
 ): string {
   return error instanceof Error
     ? error.message
     : "Unable to start task";
 }
 
-/** Renders the controlled non-modal task creation drawer using the existing Base UI-backed shadcn primitive. */
+/**
+ * Renders the controlled non-modal Task creation drawer and requires an explicit runnable Team.
+ */
 export function TaskCreateDrawer({
   open,
   onOpenChange,
@@ -91,30 +105,143 @@ export function TaskCreateDrawer({
   const [
     projectId,
     setProjectId,
-  ] = useState("");
+  ] =
+    useState("");
+
+  const [
+    teams,
+    setTeams,
+  ] =
+    useState<Team[]>(
+      [],
+    );
+
+  const [
+    teamId,
+    setTeamId,
+  ] =
+    useState("");
+
+  const [
+    teamsLoading,
+    setTeamsLoading,
+  ] =
+    useState(false);
+
+  const [
+    teamError,
+    setTeamError,
+  ] =
+    useState<
+      string | null
+    >(null);
 
   const [
     title,
     setTitle,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     instruction,
     setInstruction,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     error,
     setError,
   ] =
-    useState<string | null>(
-      null,
-    );
+    useState<
+      string | null
+    >(null);
 
   const [
     submitting,
     setSubmitting,
-  ] = useState(false);
+  ] =
+    useState(false);
+
+  useEffect(
+    () => {
+      if (!open) {
+        return;
+      }
+
+      let disposed =
+        false;
+
+      /**
+       * Reloads Team configuration whenever the Task drawer opens so disabled state is not stale.
+       */
+      async function loadTeams(): Promise<void> {
+        setTeamsLoading(
+          true,
+        );
+
+        setTeamError(
+          null,
+        );
+
+        try {
+          const nextTeams =
+            await getTeams();
+
+          if (disposed) {
+            return;
+          }
+
+          setTeams(
+            nextTeams,
+          );
+
+          setTeamId(
+            (current) =>
+              nextTeams.some(
+                (team) =>
+                  team.id ===
+                    current &&
+                  team.enabled,
+              )
+                ? current
+                : "",
+          );
+        } catch (
+          caught
+        ) {
+          if (disposed) {
+            return;
+          }
+
+          setTeams([]);
+
+          setTeamId("");
+
+          setTeamError(
+            getErrorMessage(
+              caught,
+            ),
+          );
+        } finally {
+          if (!disposed) {
+            setTeamsLoading(
+              false,
+            );
+          }
+        }
+      }
+
+      void loadTeams();
+
+      return () => {
+        disposed =
+          true;
+      };
+    },
+    [
+      open,
+    ],
+  );
 
   const selectedProjectId =
     projects.some(
@@ -128,33 +255,54 @@ export function TaskCreateDrawer({
 
   const selectedProject =
     projects.find(
-      (p) =>
-        p.id ===
+      (project) =>
+        project.id ===
         selectedProjectId,
     );
+
+  const selectedTeam =
+    teams.find(
+      (team) =>
+        team.id ===
+        teamId,
+    ) ?? null;
 
   const formComplete =
     selectedProjectId.length >
       0 &&
-    title.trim().length > 0 &&
+    Boolean(
+      selectedTeam
+        ?.enabled,
+    ) &&
+    title.trim().length >
+      0 &&
     instruction
       .trim()
-      .length > 0;
+      .length >
+      0;
 
   const startDisabled =
     submitting ||
-    Boolean(activeRun) ||
-    projects.length === 0 ||
+    teamsLoading ||
+    Boolean(
+      activeRun,
+    ) ||
+    projects.length ===
+      0 ||
     !formComplete;
 
-  /** Clears editable task content while retaining the current valid repository selection. */
+  /**
+   * Clears editable Task content while retaining valid Project and Team selections.
+   */
   function clearDraft() {
     setTitle("");
     setInstruction("");
     setError(null);
   }
 
-  /** Validates the draft, creates the immediate-start task, and returns the new task/run to the page owner. */
+  /**
+   * Validates Project and Team scope, creates the immediate-start Task, and returns the new Task and Run.
+   */
   async function submit(
     event:
       FormEvent<HTMLFormElement>,
@@ -165,24 +313,33 @@ export function TaskCreateDrawer({
       setError(
         "Another workflow is already active. Finish or cancel it before starting a new task.",
       );
+
       return;
     }
 
     if (!formComplete) {
       setError(
-        "Project, title, and instructions are required.",
+        "Project, Team, title, and instructions are required.",
       );
+
       return;
     }
 
-    setSubmitting(true);
-    setError(null);
+    setSubmitting(
+      true,
+    );
+
+    setError(
+      null,
+    );
 
     try {
       const created =
         await createTask({
           projectId:
             selectedProjectId,
+          teamId:
+            selectedTeam!.id,
           title:
             title.trim(),
           instruction:
@@ -194,15 +351,22 @@ export function TaskCreateDrawer({
       );
 
       clearDraft();
-      onOpenChange(false);
-    } catch (caught) {
+
+      onOpenChange(
+        false,
+      );
+    } catch (
+      caught
+    ) {
       setError(
         getErrorMessage(
           caught,
         ),
       );
     } finally {
-      setSubmitting(false);
+      setSubmitting(
+        false,
+      );
     }
   }
 
@@ -217,10 +381,14 @@ export function TaskCreateDrawer({
       swipeDirection="right"
     >
       <DrawerContent
-        style={drawerStyle}
+        style={
+          drawerStyle
+        }
       >
         <form
-          onSubmit={submit}
+          onSubmit={
+            submit
+          }
           className="flex min-h-0 flex-1 flex-col"
         >
           <DrawerHeader className="border-b border-divider p-4">
@@ -231,13 +399,7 @@ export function TaskCreateDrawer({
                 </DrawerTitle>
 
                 <DrawerDescription>
-                  Tasks start
-                  immediately against
-                  the selected
-                  discovered
-                  repository using the
-                  current enabled-agent
-                  workflow.
+                  Tasks start immediately against the selected repository using only enabled agents from the selected Team.
                 </DrawerDescription>
               </div>
 
@@ -276,9 +438,7 @@ export function TaskCreateDrawer({
 
                     <div>
                       <p className="font-medium">
-                        Another
-                        workflow is
-                        active
+                        Another workflow is active
                       </p>
 
                       <p className="mt-1 text-xs leading-relaxed text-text-muted">
@@ -292,14 +452,7 @@ export function TaskCreateDrawer({
                         {compactPath(
                           activeRun.projectPath,
                         )}
-                        . Keep this
-                        draft open and
-                        refresh after
-                        that run
-                        finishes, or
-                        cancel the
-                        active run
-                        first.
+                        . The global one-active-run limit applies across all Teams.
                       </p>
                     </div>
                   </div>
@@ -312,6 +465,15 @@ export function TaskCreateDrawer({
                   className="rounded-lg border border-status-warning/30 bg-status-warning/5 p-3 text-sm text-status-warning"
                 >
                   {projectError}
+                </div>
+              ) : null}
+
+              {teamError ? (
+                <div
+                  role="alert"
+                  className="rounded-lg border border-status-warning/30 bg-status-warning/5 p-3 text-sm text-status-warning"
+                >
+                  {teamError}
                 </div>
               ) : null}
 
@@ -344,12 +506,6 @@ export function TaskCreateDrawer({
                         0 ||
                       submitting
                     }
-                    aria-invalid={
-                      selectedProjectId.length ===
-                        0 &&
-                      projects.length >
-                        0
-                    }
                   >
                     {selectedProject ? (
                       selectedProject.name
@@ -365,7 +521,9 @@ export function TaskCreateDrawer({
                     }
                   >
                     {projects.map(
-                      (project) => (
+                      (
+                        project,
+                      ) => (
                         <SelectItem
                           key={
                             project.id
@@ -376,9 +534,7 @@ export function TaskCreateDrawer({
                         >
                           <span className="flex min-w-0 flex-col">
                             <span>
-                              {
-                                project.name
-                              }
+                              {project.name}
                             </span>
 
                             <span className="truncate font-mono text-[11px] text-text-muted">
@@ -392,14 +548,89 @@ export function TaskCreateDrawer({
                     )}
                   </SelectContent>
                 </Select>
+              </label>
 
-                {projects.length ===
-                0 ? (
+              <label
+                className="grid gap-1.5 text-sm"
+                htmlFor="task-team"
+              >
+                <span className="font-medium text-text-secondary">
+                  Team
+                </span>
+
+                <Select
+                  value={
+                    teamId ||
+                    null
+                  }
+                  onValueChange={(
+                    value,
+                  ) =>
+                    setTeamId(
+                      value ?? "",
+                    )
+                  }
+                >
+                  <SelectTrigger
+                    id="task-team"
+                    className="w-full"
+                    disabled={
+                      teamsLoading ||
+                      teams.length ===
+                        0 ||
+                      submitting
+                    }
+                  >
+                    {selectedTeam ? (
+                      selectedTeam.name
+                    ) : (
+                      <SelectValue placeholder="Select a Team" />
+                    )}
+                  </SelectTrigger>
+
+                  <SelectContent
+                    align="start"
+                    alignItemWithTrigger={
+                      false
+                    }
+                  >
+                    {teams.map(
+                      (
+                        team,
+                      ) => (
+                        <SelectItem
+                          key={
+                            team.id
+                          }
+                          value={
+                            team.id
+                          }
+                          disabled={
+                            !team.enabled
+                          }
+                        >
+                          {team.name}
+                          {!team.enabled
+                            ? " (disabled)"
+                            : ""}
+                        </SelectItem>
+                      ),
+                    )}
+                  </SelectContent>
+                </Select>
+
+                {teamsLoading ? (
                   <span className="text-xs text-text-muted">
-                    No discovered Git
-                    repositories are
-                    currently
-                    available.
+                    Loading Teams...
+                  </span>
+                ) : null}
+
+                {!teamsLoading &&
+                teams.length ===
+                  0 &&
+                !teamError ? (
+                  <span className="text-xs text-text-muted">
+                    No Teams are configured.
                   </span>
                 ) : null}
               </label>
@@ -495,10 +726,12 @@ export function TaskCreateDrawer({
               }
               disabled={
                 submitting ||
-                (title.length ===
-                  0 &&
+                (
+                  title.length ===
+                    0 &&
                   instruction.length ===
-                    0)
+                    0
+                )
               }
             >
               <RotateCcwIcon />

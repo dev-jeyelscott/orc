@@ -14,6 +14,11 @@ import type {
   Task,
 } from "@orc/shared";
 
+import {
+  DEVELOPMENT_TEAM_ID,
+  RESOLUTION_TEAM_ID,
+} from "../db/seed-ids.js";
+
 const mocks =
   vi.hoisted(
     () => ({
@@ -93,7 +98,7 @@ const {
   );
 
 /**
- * Creates the project used by dispatcher tests.
+ * Creates the Project used by dispatcher tests.
  */
 function project(): Project {
   return {
@@ -118,12 +123,16 @@ function project(): Project {
 }
 
 /**
- * Creates a persisted conversation context for dispatcher tests.
+ * Creates a persisted Team-scoped Conversation context for dispatcher tests.
  */
-function conversation(): Conversation {
+function conversation(
+  teamId:
+    string = RESOLUTION_TEAM_ID,
+): Conversation {
   return {
     id:
       crypto.randomUUID(),
+    teamId,
     projectPath:
       "/workspace/orc",
     taskId:
@@ -138,16 +147,20 @@ function conversation(): Conversation {
 }
 
 /**
- * Creates one manual task tied to the conversation project.
+ * Creates one manual Task tied to a specified Project and Team.
  */
 function task(
-  id =
-    crypto.randomUUID(),
+  id:
+    string = crypto.randomUUID(),
+  teamId:
+    string = RESOLUTION_TEAM_ID,
+  projectPath:
+    string = "/workspace/orc",
 ): Task {
   return {
     id,
-    projectPath:
-      "/workspace/orc",
+    teamId,
+    projectPath,
     title:
       "Test task",
     instruction:
@@ -239,22 +252,28 @@ function execution(
 }
 
 /**
- * Creates the minimal run detail used by dispatcher authorization checks.
+ * Creates minimal Team-scoped Run detail used by dispatcher authorization checks.
  */
 function runDetail(
   runId:
     string,
   executions:
     AgentExecution[] = [],
-  projectPath =
-    "/workspace/orc",
+  projectPath:
+    string = "/workspace/orc",
+  teamId:
+    string = RESOLUTION_TEAM_ID,
+  linkedTask:
+    Task | null = null,
 ): RunDetail {
   return {
     run: {
       id:
         runId,
+      teamId,
       projectPath,
       taskId:
+        linkedTask?.id ??
         null,
       status:
         "failed",
@@ -270,7 +289,7 @@ function runDetail(
         new Date().toISOString(),
     },
     task:
-      null,
+      linkedTask,
     executions,
     events: [],
   };
@@ -279,7 +298,8 @@ function runDetail(
 beforeEach(
   () => {
     for (
-      const mock of Object.values(
+      const mock of
+      Object.values(
         mocks,
       )
     ) {
@@ -296,7 +316,7 @@ describe(
   "orchestrator-tool-service",
   () => {
     it(
-      "creates a pending task without starting a run",
+      "creates a pending Task using the persisted Conversation Team without exposing Team to the model",
       async () => {
         const created =
           task();
@@ -305,9 +325,12 @@ describe(
           created,
         );
 
+        const current =
+          conversation();
+
         const result =
           await executeOrchestratorTool(
-            conversation(),
+            current,
             {
               name:
                 "create_task",
@@ -322,9 +345,16 @@ describe(
 
         expect(
           mocks.createTask,
-        ).toHaveBeenCalledTimes(
-          1,
-        );
+        ).toHaveBeenCalledWith({
+          projectId:
+            "project-id",
+          teamId:
+            current.teamId,
+          title:
+            "Test task",
+          instruction:
+            "Implement test",
+        });
 
         expect(
           mocks.startTask,
@@ -342,7 +372,39 @@ describe(
     );
 
     it(
-      "starts an existing pending task through the workflow service",
+      "rejects a Task from the same Project but a different Team",
+      async () => {
+        const persistedTask =
+          task(
+            crypto.randomUUID(),
+            DEVELOPMENT_TEAM_ID,
+          );
+
+        mocks.getTask.mockResolvedValue(
+          persistedTask,
+        );
+
+        await expect(
+          executeOrchestratorTool(
+            conversation(),
+            {
+              name:
+                "get_task",
+              arguments: {
+                taskId:
+                  persistedTask.id,
+              },
+            },
+          ),
+        ).rejects.toMatchObject({
+          statusCode:
+            403,
+        });
+      },
+    );
+
+    it(
+      "starts an existing same-Team pending Task through the workflow service",
       async () => {
         const persistedTask =
           task();
@@ -363,6 +425,8 @@ describe(
           run: {
             id:
               runId,
+            teamId:
+              persistedTask.teamId,
             projectPath:
               persistedTask.projectPath,
             taskId:
@@ -415,6 +479,79 @@ describe(
     );
 
     it(
+      "rejects a Run from the same Project but a different Team",
+      async () => {
+        const runId =
+          crypto.randomUUID();
+
+        mocks.getRunDetail.mockResolvedValue(
+          runDetail(
+            runId,
+            [],
+            "/workspace/orc",
+            DEVELOPMENT_TEAM_ID,
+          ),
+        );
+
+        await expect(
+          executeOrchestratorTool(
+            conversation(),
+            {
+              name:
+                "get_run",
+              arguments: {
+                runId,
+              },
+            },
+          ),
+        ).rejects.toMatchObject({
+          statusCode:
+            403,
+        });
+      },
+    );
+
+    it(
+      "rejects a Run whose linked Task has inconsistent Project or Team scope",
+      async () => {
+        const runId =
+          crypto.randomUUID();
+
+        const linkedTask =
+          task(
+            crypto.randomUUID(),
+            DEVELOPMENT_TEAM_ID,
+          );
+
+        mocks.getRunDetail.mockResolvedValue(
+          runDetail(
+            runId,
+            [],
+            "/workspace/orc",
+            RESOLUTION_TEAM_ID,
+            linkedTask,
+          ),
+        );
+
+        await expect(
+          executeOrchestratorTool(
+            conversation(),
+            {
+              name:
+                "get_run",
+              arguments: {
+                runId,
+              },
+            },
+          ),
+        ).rejects.toMatchObject({
+          statusCode:
+            409,
+        });
+      },
+    );
+
+    it(
       "returns structured execution results without reading terminal data",
       async () => {
         const runId =
@@ -460,7 +597,7 @@ describe(
     );
 
     it(
-      "returns recent events only for the verified conversation run",
+      "returns recent events only for the verified Conversation Run",
       async () => {
         const runId =
           crypto.randomUUID();
@@ -472,24 +609,7 @@ describe(
         );
 
         mocks.listRecentRunEvents.mockResolvedValue(
-          [
-            {
-              id:
-                crypto.randomUUID(),
-              type:
-                "run.failed",
-              projectPath:
-                "/workspace/orc",
-              taskId:
-                null,
-              runId,
-              agentExecutionId:
-                null,
-              data: {},
-              createdAt:
-                new Date().toISOString(),
-            },
-          ],
+          [],
         );
 
         await executeOrchestratorTool(
@@ -515,7 +635,7 @@ describe(
     );
 
     it(
-      "rejects execution access when its run belongs to another project",
+      "rejects execution access when its Run belongs to another Project",
       async () => {
         const runId =
           crypto.randomUUID();
@@ -558,7 +678,7 @@ describe(
     );
 
     it(
-      "delegates stop through the existing workflow cancellation service",
+      "delegates Stop through the existing verified workflow cancellation service",
       async () => {
         const runId =
           crypto.randomUUID();
@@ -596,7 +716,7 @@ describe(
     );
 
     it(
-      "retries only the execution that is latest for its failed or blocked run",
+      "retries only the execution that is latest for its verified failed or blocked Run",
       async () => {
         const runId =
           crypto.randomUUID();
@@ -670,16 +790,14 @@ describe(
           ),
         );
 
-        mocks.sendInstructionToExecution.mockResolvedValue(
-          {
-            supported:
-              false,
-            delivered:
-              false,
-            reason:
-              "The active harness invocation does not support additional instructions.",
-          },
-        );
+        mocks.sendInstructionToExecution.mockResolvedValue({
+          supported:
+            false,
+          delivered:
+            false,
+          reason:
+            "The active harness invocation does not support additional instructions.",
+        });
 
         const result =
           await executeOrchestratorTool(

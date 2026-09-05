@@ -22,6 +22,9 @@ import {
   db,
 } from "../db/client.js";
 import {
+  RESOLUTION_TEAM_ID,
+} from "../db/seed-ids.js";
+import {
   agentExecutions,
   runs,
   systemSettings,
@@ -652,6 +655,8 @@ async function persistNotionCandidate(
     await db
       .insert(tasks)
       .values({
+        teamId:
+          RESOLUTION_TEAM_ID,
         projectPath:
           candidate.project.path,
         title:

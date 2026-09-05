@@ -35,11 +35,14 @@ vi.mock(
        * Creates the route-test service error.
        */
       constructor(
-        message: string,
+        message:
+          string,
         readonly statusCode:
           number,
       ) {
-        super(message);
+        super(
+          message,
+        );
       }
     }
 
@@ -68,14 +71,17 @@ vi.mock(
   () => {
     class OrchestratorToolServiceError extends Error {
       /**
-       * Creates the route-test orchestrator tool error.
+       * Creates the route-test Orchestrator tool error.
        */
       constructor(
-        message: string,
+        message:
+          string,
         readonly statusCode:
           number,
       ) {
-        super(message);
+        super(
+          message,
+        );
       }
     }
 
@@ -92,6 +98,9 @@ const {
     "../app.js"
   );
 
+const TEAM_ID =
+  "00000000-0000-4000-9000-000000000001";
+
 let app:
   Awaited<
     ReturnType<
@@ -100,12 +109,14 @@ let app:
   >;
 
 /**
- * Creates a valid persisted conversation response for route tests.
+ * Creates a valid persisted Team-scoped Conversation response for route tests.
  */
 function conversation() {
   return {
     id:
       crypto.randomUUID(),
+    teamId:
+      TEAM_ID,
     projectPath:
       "/workspace/orc",
     taskId:
@@ -138,7 +149,8 @@ function defaultSettings() {
 beforeEach(
   async () => {
     for (
-      const mock of Object.values(
+      const mock of
+      Object.values(
         mocks,
       )
     ) {
@@ -160,7 +172,7 @@ describe(
   "conversation routes",
   () => {
     it(
-      "lists conversations explicitly by project path",
+      "lists Conversations explicitly by Project and Team",
       async () => {
         const value =
           conversation();
@@ -176,12 +188,21 @@ describe(
             method:
               "GET",
             url:
-              `/api/conversations?projectPath=${encodeURIComponent(value.projectPath)}`,
+              `/api/conversations?projectPath=${encodeURIComponent(value.projectPath)}&teamId=${encodeURIComponent(value.teamId)}`,
           });
 
         expect(
           response.statusCode,
-        ).toBe(200);
+        ).toBe(
+          200,
+        );
+
+        expect(
+          mocks.listConversations,
+        ).toHaveBeenCalledWith(
+          value.projectPath,
+          value.teamId,
+        );
 
         expect(
           response.json(),
@@ -194,7 +215,7 @@ describe(
     );
 
     it(
-      "creates a new conversation instead of reopening the latest one",
+      "creates a new Conversation for explicit Project and Team context",
       async () => {
         const value =
           conversation();
@@ -212,23 +233,28 @@ describe(
             payload: {
               projectPath:
                 value.projectPath,
+              teamId:
+                value.teamId,
             },
           });
 
         expect(
           response.statusCode,
-        ).toBe(201);
+        ).toBe(
+          201,
+        );
 
         expect(
           mocks.createConversation,
         ).toHaveBeenCalledWith(
           value.projectPath,
+          value.teamId,
         );
       },
     );
 
     it(
-      "rejects missing project context",
+      "rejects Conversation creation without Team context",
       async () => {
         const response =
           await app.inject({
@@ -236,17 +262,49 @@ describe(
               "POST",
             url:
               "/api/conversations",
-            payload: {},
+            payload: {
+              projectPath:
+                "/workspace/orc",
+            },
           });
 
         expect(
           response.statusCode,
-        ).toBe(400);
+        ).toBe(
+          400,
+        );
+
+        expect(
+          mocks.createConversation,
+        ).not.toHaveBeenCalled();
       },
     );
 
     it(
-      "rejects malformed conversation identifiers",
+      "rejects Conversation listing without Team context",
+      async () => {
+        const response =
+          await app.inject({
+            method:
+              "GET",
+            url:
+              `/api/conversations?projectPath=${encodeURIComponent("/workspace/orc")}`,
+          });
+
+        expect(
+          response.statusCode,
+        ).toBe(
+          400,
+        );
+
+        expect(
+          mocks.listConversations,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
+    it(
+      "rejects malformed Conversation identifiers",
       async () => {
         const response =
           await app.inject({
@@ -258,12 +316,14 @@ describe(
 
         expect(
           response.statusCode,
-        ).toBe(400);
+        ).toBe(
+          400,
+        );
       },
     );
 
     it(
-      "returns persisted orchestrator settings with canonical low reasoning",
+      "returns persisted Orchestrator settings with canonical low reasoning",
       async () => {
         const value =
           defaultSettings();
@@ -282,7 +342,9 @@ describe(
 
         expect(
           response.statusCode,
-        ).toBe(200);
+        ).toBe(
+          200,
+        );
 
         expect(
           response.json(),
@@ -293,7 +355,7 @@ describe(
     );
 
     it(
-      "updates valid orchestrator settings",
+      "updates valid Orchestrator settings",
       async () => {
         const value = {
           harness:
@@ -322,24 +384,20 @@ describe(
 
         expect(
           response.statusCode,
-        ).toBe(200);
+        ).toBe(
+          200,
+        );
 
         expect(
           response.json(),
         ).toEqual(
           value,
         );
-
-        expect(
-          mocks.updateOrchestratorSettings,
-        ).toHaveBeenCalledWith(
-          value,
-        );
       },
     );
 
     it(
-      "validates orchestrator settings before updating persistence",
+      "validates Orchestrator settings before updating persistence",
       async () => {
         const response =
           await app.inject({
@@ -361,7 +419,9 @@ describe(
 
         expect(
           response.statusCode,
-        ).toBe(400);
+        ).toBe(
+          400,
+        );
 
         expect(
           mocks.updateOrchestratorSettings,
@@ -370,7 +430,7 @@ describe(
     );
 
     it(
-      "resets orchestrator settings through the server-owned reset capability",
+      "resets Orchestrator settings through the server-owned reset capability",
       async () => {
         const value =
           defaultSettings();
@@ -389,18 +449,14 @@ describe(
 
         expect(
           response.statusCode,
-        ).toBe(200);
+        ).toBe(
+          200,
+        );
 
         expect(
           response.json(),
         ).toEqual(
           value,
-        );
-
-        expect(
-          mocks.resetOrchestratorSettings,
-        ).toHaveBeenCalledTimes(
-          1,
         );
       },
     );

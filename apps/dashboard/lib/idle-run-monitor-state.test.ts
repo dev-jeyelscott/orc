@@ -14,6 +14,9 @@ import {
   selectIdleRunExecution,
 } from "./idle-run-monitor-state";
 
+const TEAM_ID =
+  "00000000-0000-4000-9000-000000000001";
+
 const RUN_ONE_ID =
   "10000000-0000-4000-8000-000000000001";
 
@@ -33,7 +36,7 @@ const AGENT_TWO_ID =
   "30000000-0000-4000-8000-000000000002";
 
 /**
- * Creates one deterministic persisted monitoring summary for idle-run tests.
+ * Creates one deterministic Team-scoped monitoring summary for idle-Run tests.
  */
 function createRunSummary(
   status:
@@ -43,13 +46,19 @@ function createRunSummary(
 ): RunMonitoringSummary {
   return {
     id,
-    taskId: null,
+    taskId:
+      null,
+    teamId:
+      TEAM_ID,
     projectPath:
       "/workspace/orc",
     status,
-    currentAgentId: null,
-    executionCount: 0,
-    terminalReason: null,
+    currentAgentId:
+      null,
+    executionCount:
+      0,
+    terminalReason:
+      null,
     createdAt:
       "2026-09-05T00:00:00.000Z",
     updatedAt:
@@ -58,7 +67,8 @@ function createRunSummary(
       "Idle monitor test",
     plannedExecutionCount:
       2,
-    currentAgent: null,
+    currentAgent:
+      null,
   };
 }
 
@@ -80,8 +90,10 @@ function createExecution(
       "Generic Worker",
     agentRole:
       "Implementation",
-    layer: 1,
-    executionOrder: 1,
+    layer:
+      1,
+    executionOrder:
+      1,
     harness:
       "codex",
     model:
@@ -90,12 +102,14 @@ function createExecution(
       "high",
     status:
       "completed",
-    pid: null,
+    pid:
+      null,
     startedAt:
       "2026-09-05T00:00:00.000Z",
     completedAt:
       "2026-09-05T00:05:00.000Z",
-    exitCode: 0,
+    exitCode:
+      0,
     resultStatus:
       "completed",
     resultPayload: {
@@ -108,12 +122,17 @@ function createExecution(
       filesChanged: [],
       commandsRun: [],
       validation: {},
-      commit: null,
+      commit:
+        null,
     },
-    tokenUsage: null,
-    contextUsage: null,
-    commitHash: null,
-    failureReason: null,
+    tokenUsage:
+      null,
+    contextUsage:
+      null,
+    commitHash:
+      null,
+    failureReason:
+      null,
     repairAttempted:
       false,
     createdAt:
@@ -125,7 +144,7 @@ function createExecution(
 }
 
 /**
- * Creates one deterministic monitoring detail aggregate for execution-selection tests.
+ * Creates one deterministic Team-scoped monitoring detail aggregate.
  */
 function createDetail(
   executions:
@@ -135,7 +154,10 @@ function createDetail(
     run: {
       id:
         RUN_ONE_ID,
-      taskId: null,
+      taskId:
+        null,
+      teamId:
+        TEAM_ID,
       projectPath:
         "/workspace/orc",
       status:
@@ -148,13 +170,15 @@ function createDetail(
         null,
       executionCount:
         executions.length,
-      terminalReason: null,
+      terminalReason:
+        null,
       createdAt:
         "2026-09-05T00:00:00.000Z",
       updatedAt:
         "2026-09-05T00:10:00.000Z",
     },
-    task: null,
+    task:
+      null,
     executions,
     events: [],
     executionPlan: [],
@@ -162,7 +186,7 @@ function createDetail(
 }
 
 /**
- * Verifies inactivity alone cannot open the dialog when no persisted run is active.
+ * Verifies inactivity alone cannot open the dialog when no persisted Run is active.
  */
 function testNoActiveRunWhileIdle(): void {
   const runs = [
@@ -182,8 +206,10 @@ function testNoActiveRunWhileIdle(): void {
     nextIdleDialogRunId({
       monitoringSucceeded:
         true,
-      openRunId: null,
-      activeRunId: null,
+      openRunId:
+        null,
+      activeRunId:
+        null,
       idleEligible:
         true,
     }),
@@ -192,7 +218,7 @@ function testNoActiveRunWhileIdle(): void {
 }
 
 /**
- * Verifies an active run opens only after the exact sixty-second threshold.
+ * Verifies an active Run opens only after the exact sixty-second threshold.
  */
 function testActiveRunBeforeAndAfterThreshold(): void {
   const beforeThreshold =
@@ -200,7 +226,8 @@ function testActiveRunBeforeAndAfterThreshold(): void {
       now:
         IDLE_RUN_THRESHOLD_MS -
         1,
-      lastActivityAt: 0,
+      lastActivityAt:
+        0,
       visibilityState:
         "visible",
     });
@@ -209,7 +236,8 @@ function testActiveRunBeforeAndAfterThreshold(): void {
     isIdleRunEligible({
       now:
         IDLE_RUN_THRESHOLD_MS,
-      lastActivityAt: 0,
+      lastActivityAt:
+        0,
       visibilityState:
         "visible",
     });
@@ -228,7 +256,8 @@ function testActiveRunBeforeAndAfterThreshold(): void {
     nextIdleDialogRunId({
       monitoringSucceeded:
         true,
-      openRunId: null,
+      openRunId:
+        null,
       activeRunId:
         RUN_ONE_ID,
       idleEligible:
@@ -241,7 +270,8 @@ function testActiveRunBeforeAndAfterThreshold(): void {
     nextIdleDialogRunId({
       monitoringSucceeded:
         true,
-      openRunId: null,
+      openRunId:
+        null,
       activeRunId:
         RUN_ONE_ID,
       idleEligible:
@@ -257,7 +287,8 @@ function testActiveRunBeforeAndAfterThreshold(): void {
 function testActivityResetsThreshold(): void {
   assert.equal(
     isIdleRunEligible({
-      now: 120_000,
+      now:
+        120_000,
       lastActivityAt:
         70_000,
       visibilityState:
@@ -268,7 +299,8 @@ function testActivityResetsThreshold(): void {
 
   assert.equal(
     isIdleRunEligible({
-      now: 130_000,
+      now:
+        130_000,
       lastActivityAt:
         70_000,
       visibilityState:
@@ -284,8 +316,10 @@ function testActivityResetsThreshold(): void {
 function testHiddenTabElapsedTime(): void {
   assert.equal(
     isIdleRunEligible({
-      now: 120_000,
-      lastActivityAt: 0,
+      now:
+        120_000,
+      lastActivityAt:
+        0,
       visibilityState:
         "hidden",
     }),
@@ -299,8 +333,10 @@ function testHiddenTabElapsedTime(): void {
 function testVisibleTabReturnEligibility(): void {
   assert.equal(
     isIdleRunEligible({
-      now: 120_000,
-      lastActivityAt: 0,
+      now:
+        120_000,
+      lastActivityAt:
+        0,
       visibilityState:
         "visible",
     }),
@@ -309,7 +345,7 @@ function testVisibleTabReturnEligibility(): void {
 }
 
 /**
- * Verifies manual dismissal behaves like new user activity before the same run may reopen.
+ * Verifies manual dismissal behaves like new user activity before the same Run may reopen.
  */
 function testManualCloseStartsFreshInactivityPeriod(): void {
   const closedAt =
@@ -344,7 +380,7 @@ function testManualCloseStartsFreshInactivityPeriod(): void {
 }
 
 /**
- * Verifies the terminal and inspector move to the newest active execution within one run.
+ * Verifies the terminal and inspector move to the newest active execution within one Run.
  */
 function testAgentExecutionChangesWithinRun(): void {
   const completed =
@@ -360,13 +396,18 @@ function testAgentExecutionChangesWithinRun(): void {
         "Next Worker",
       status:
         "running",
-      pid: 1234,
+      pid:
+        1234,
       startedAt:
         "2026-09-05T00:06:00.000Z",
-      completedAt: null,
-      exitCode: null,
-      resultStatus: null,
-      resultPayload: null,
+      completedAt:
+        null,
+      exitCode:
+        null,
+      resultStatus:
+        null,
+      resultPayload:
+        null,
       createdAt:
         "2026-09-05T00:06:00.000Z",
       updatedAt:
@@ -388,7 +429,7 @@ function testAgentExecutionChangesWithinRun(): void {
 }
 
 /**
- * Verifies authoritative terminal run state closes an already-open dialog.
+ * Verifies authoritative terminal Run state closes an already-open dialog.
  */
 function testActiveRunBecomesTerminal(): void {
   assert.equal(
@@ -397,7 +438,8 @@ function testActiveRunBecomesTerminal(): void {
         true,
       openRunId:
         RUN_ONE_ID,
-      activeRunId: null,
+      activeRunId:
+        null,
       idleEligible:
         true,
     }),
@@ -406,7 +448,7 @@ function testActiveRunBecomesTerminal(): void {
 }
 
 /**
- * Verifies a different active run replaces the prior run immediately when inactivity remains satisfied.
+ * Verifies a different active Run replaces the prior Run immediately when inactivity remains satisfied.
  */
 function testDifferentRunStartsWhileIdle(): void {
   assert.equal(
@@ -425,7 +467,7 @@ function testDifferentRunStartsWhileIdle(): void {
 }
 
 /**
- * Verifies a different run waits when recent interaction has reset inactivity.
+ * Verifies a different Run waits when recent interaction has reset inactivity.
  */
 function testDifferentRunStartsAfterRecentActivity(): void {
   assert.equal(
@@ -444,7 +486,7 @@ function testDifferentRunStartsAfterRecentActivity(): void {
 }
 
 /**
- * Verifies monitoring failure preserves the previously confirmed open run.
+ * Verifies monitoring failure preserves the previously confirmed open Run.
  */
 function testMonitoringFailureDoesNotCompleteRun(): void {
   assert.equal(
@@ -453,7 +495,8 @@ function testMonitoringFailureDoesNotCompleteRun(): void {
         false,
       openRunId:
         RUN_ONE_ID,
-      activeRunId: null,
+      activeRunId:
+        null,
       idleEligible:
         false,
     }),
@@ -462,7 +505,7 @@ function testMonitoringFailureDoesNotCompleteRun(): void {
 }
 
 /**
- * Verifies active-run selection uses persisted lifecycle state rather than terminal output.
+ * Verifies active-Run selection uses persisted lifecycle state rather than terminal output.
  */
 function testActiveRunSelection(): void {
   const completed =

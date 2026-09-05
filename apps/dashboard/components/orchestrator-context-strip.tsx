@@ -6,17 +6,26 @@ import type {
   Conversation,
   Project,
   RunDetail,
+  Team,
 } from "@orc/shared";
 import {
   MessageSquarePlusIcon,
   RefreshCcwIcon,
   SquareIcon,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import type {
+  ReactNode,
+} from "react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import {
+  Badge,
+} from "@/components/ui/badge";
+import {
+  Button,
+} from "@/components/ui/button";
+import {
+  Card,
+} from "@/components/ui/card";
 import {
   formatElapsedTime,
   isRunActive,
@@ -27,33 +36,59 @@ import {
   getLifecycleBadgeVariant,
   shortId,
 } from "@/lib/task-presentation";
-import { cn } from "@/lib/utils";
+import {
+  cn,
+} from "@/lib/utils";
 
 interface OrchestratorContextStripProps {
-  projects: Project[];
-  projectPath: string;
-  conversations: Conversation[];
-  conversation: Conversation | null;
-  runDetail: RunDetail | null;
-  activeExecution: AgentExecution | null;
-  busyAction: string | null;
-  now: number;
-  onProjectChange: (projectPath: string) => void;
-  onConversationChange: (conversationId: string) => void;
-  onNewConversation: () => void;
-  onStop: () => void;
-  onRetry: () => void;
+  projects:
+    Project[];
+  projectPath:
+    string;
+  teams:
+    Team[];
+  teamId:
+    string;
+  conversations:
+    Conversation[];
+  conversation:
+    Conversation | null;
+  runDetail:
+    RunDetail | null;
+  activeExecution:
+    AgentExecution | null;
+  busyAction:
+    string | null;
+  now:
+    number;
+  onProjectChange:
+    (projectPath: string) => void;
+  onTeamChange:
+    (teamId: string) => void;
+  onConversationChange:
+    (conversationId: string) => void;
+  onNewConversation:
+    () => void;
+  onStop:
+    () => void;
+  onRetry:
+    () => void;
 }
 
-/** Renders one compact contextual label and value inside the command bar. */
+/**
+ * Renders one compact contextual label and value inside the command bar.
+ */
 function ContextCell({
   label,
   children,
   className,
 }: {
-  label: string;
-  children: ReactNode;
-  className?: string;
+  label:
+    string;
+  children:
+    ReactNode;
+  className?:
+    string;
 }) {
   return (
     <div
@@ -73,10 +108,14 @@ function ContextCell({
   );
 }
 
-/** Renders the authoritative project, conversation, run context, Stop, and Retry command bar. */
+/**
+ * Renders authoritative Project, Team, Conversation, Run, Stop, and Retry context.
+ */
 export function OrchestratorContextStrip({
   projects,
   projectPath,
+  teams,
+  teamId,
   conversations,
   conversation,
   runDetail,
@@ -84,16 +123,19 @@ export function OrchestratorContextStrip({
   busyAction,
   now,
   onProjectChange,
+  onTeamChange,
   onConversationChange,
   onNewConversation,
   onStop,
   onRetry,
 }: OrchestratorContextStripProps) {
   const busy =
-    busyAction !== null;
+    busyAction !==
+    null;
 
   const run =
-    runDetail?.run ?? null;
+    runDetail?.run ??
+    null;
 
   const active =
     run
@@ -123,35 +165,96 @@ export function OrchestratorContextStrip({
   return (
     <Card className="shrink-0 gap-0 overflow-hidden p-0">
       <div className="overflow-x-auto">
-        <div className="grid min-w-[1180px] gap-px bg-divider grid-cols-[minmax(150px,0.95fr)_minmax(250px,1.5fr)_minmax(110px,0.75fr)_minmax(170px,1fr)_minmax(115px,0.75fr)_minmax(190px,1fr)_minmax(105px,0.7fr)_auto]">
+        <div className="grid min-w-[1340px] gap-px bg-divider grid-cols-[minmax(150px,0.95fr)_minmax(150px,0.9fr)_minmax(230px,1.4fr)_minmax(110px,0.7fr)_minmax(170px,1fr)_minmax(115px,0.7fr)_minmax(180px,1fr)_minmax(100px,0.65fr)_auto]">
           <ContextCell label="Project">
             <select
-              value={projectPath}
+              value={
+                projectPath
+              }
               disabled={
                 busy ||
-                projects.length === 0
+                projects.length ===
+                  0
               }
-              onChange={(event) =>
+              onChange={(
+                event,
+              ) =>
                 onProjectChange(
-                  event.target.value,
+                  event.target
+                    .value,
                 )
               }
               className="h-7 w-full min-w-0 rounded-md border border-border-default bg-surface-interactive px-2 text-xs text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
               aria-label="Selected project"
             >
-              {projects.length === 0 ? (
+              {projects.length ===
+              0 ? (
                 <option value="">
                   No projects
                 </option>
               ) : null}
 
               {projects.map(
-                (project) => (
+                (
+                  project,
+                ) => (
                   <option
-                    key={project.id}
-                    value={project.path}
+                    key={
+                      project.id
+                    }
+                    value={
+                      project.path
+                    }
                   >
                     {project.name}
+                  </option>
+                ),
+              )}
+            </select>
+          </ContextCell>
+
+          <ContextCell label="Team">
+            <select
+              value={
+                teamId
+              }
+              disabled={
+                busy ||
+                teams.length ===
+                  0 ||
+                !projectPath
+              }
+              onChange={(
+                event,
+              ) =>
+                onTeamChange(
+                  event.target
+                    .value,
+                )
+              }
+              className="h-7 w-full min-w-0 rounded-md border border-border-default bg-surface-interactive px-2 text-xs text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              aria-label="Selected team"
+            >
+              <option value="">
+                Select Team
+              </option>
+
+              {teams.map(
+                (
+                  team,
+                ) => (
+                  <option
+                    key={
+                      team.id
+                    }
+                    value={
+                      team.id
+                    }
+                  >
+                    {team.name}
+                    {!team.enabled
+                      ? " (disabled)"
+                      : ""}
                   </option>
                 ),
               )}
@@ -162,17 +265,23 @@ export function OrchestratorContextStrip({
             <span
               className="block truncate"
               title={
-                runDetail?.task?.title ??
-                conversation?.taskId ??
+                runDetail?.task
+                  ?.title ??
+                conversation
+                  ?.taskId ??
                 undefined
               }
             >
-              {runDetail?.task?.title ??
-                (conversation?.taskId
-                  ? shortId(
-                      conversation.taskId,
-                    )
-                  : "No linked task")}
+              {runDetail?.task
+                ?.title ??
+                (
+                  conversation
+                    ?.taskId
+                    ? shortId(
+                        conversation.taskId,
+                      )
+                    : "No linked task"
+                )}
             </span>
           </ContextCell>
 
@@ -181,9 +290,13 @@ export function OrchestratorContextStrip({
               <Link
                 href={`/runs/${run.id}`}
                 className="font-mono text-link hover:underline"
-                title={run.id}
+                title={
+                  run.id
+                }
               >
-                {shortId(run.id)}
+                {shortId(
+                  run.id,
+                )}
               </Link>
             ) : (
               <span className="text-text-muted">
@@ -196,33 +309,48 @@ export function OrchestratorContextStrip({
             <div className="flex min-w-0 items-center gap-1.5">
               <select
                 value={
-                  conversation?.id ?? ""
+                  conversation
+                    ?.id ??
+                  ""
                 }
                 disabled={
                   busy ||
-                  conversations.length === 0
+                  conversations.length ===
+                    0
                 }
-                onChange={(event) =>
+                onChange={(
+                  event,
+                ) =>
                   onConversationChange(
-                    event.target.value,
+                    event.target
+                      .value,
                   )
                 }
                 className="h-7 min-w-0 flex-1 rounded-md border border-border-default bg-surface-interactive px-2 font-mono text-[10px] text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                 aria-label="Selected conversation"
               >
-                {conversations.length === 0 ? (
+                {conversations.length ===
+                0 ? (
                   <option value="">
                     None
                   </option>
                 ) : null}
 
                 {conversations.map(
-                  (item) => (
+                  (
+                    item,
+                  ) => (
                     <option
-                      key={item.id}
-                      value={item.id}
+                      key={
+                        item.id
+                      }
+                      value={
+                        item.id
+                      }
                     >
-                      {shortId(item.id)}
+                      {shortId(
+                        item.id,
+                      )}
                     </option>
                   ),
                 )}
@@ -234,7 +362,8 @@ export function OrchestratorContextStrip({
                 size="icon-sm"
                 disabled={
                   busy ||
-                  !projectPath
+                  !projectPath ||
+                  !teamId
                 }
                 onClick={
                   onNewConversation
@@ -301,7 +430,9 @@ export function OrchestratorContextStrip({
                 busy ||
                 !active
               }
-              onClick={onStop}
+              onClick={
+                onStop
+              }
             >
               <SquareIcon className="size-3.5" />
               Stop
@@ -315,7 +446,9 @@ export function OrchestratorContextStrip({
                 busy ||
                 !retryable
               }
-              onClick={onRetry}
+              onClick={
+                onRetry
+              }
             >
               <RefreshCcwIcon className="size-3.5" />
               Retry

@@ -29,7 +29,7 @@ const idParams =
       z.string().uuid(),
   });
 
-const projectQuery =
+const conversationQuery =
   createConversationSchema;
 
 /**
@@ -67,7 +67,7 @@ function sendError(
 }
 
 /**
- * Registers persistent conversation and orchestrator-settings routes.
+ * Registers persistent Conversation and Orchestrator settings routes.
  */
 export async function conversationRoutes(
   app:
@@ -80,18 +80,16 @@ export async function conversationRoutes(
       reply,
     ) => {
       const parsed =
-        projectQuery.safeParse(
+        conversationQuery.safeParse(
           request.query,
         );
 
-      if (
-        !parsed.success
-      ) {
+      if (!parsed.success) {
         return reply
           .status(400)
           .send({
             error:
-              "projectPath is required",
+              "projectPath and teamId are required",
           });
       }
 
@@ -101,6 +99,8 @@ export async function conversationRoutes(
             await listConversations(
               parsed.data
                 .projectPath,
+              parsed.data
+                .teamId,
             ),
         };
       } catch (error) {
@@ -123,14 +123,12 @@ export async function conversationRoutes(
           request.body,
         );
 
-      if (
-        !parsed.success
-      ) {
+      if (!parsed.success) {
         return reply
           .status(400)
           .send({
             error:
-              "projectPath is required",
+              "projectPath and teamId are required",
           });
       }
 
@@ -141,6 +139,8 @@ export async function conversationRoutes(
             await createConversation(
               parsed.data
                 .projectPath,
+              parsed.data
+                .teamId,
             ),
           );
       } catch (error) {
@@ -163,9 +163,7 @@ export async function conversationRoutes(
           request.params,
         );
 
-      if (
-        !parsed.success
-      ) {
+      if (!parsed.success) {
         return reply
           .status(400)
           .send({
@@ -273,9 +271,7 @@ export async function conversationRoutes(
           request.body,
         );
 
-      if (
-        !parsed.success
-      ) {
+      if (!parsed.success) {
         return reply
           .status(400)
           .send({

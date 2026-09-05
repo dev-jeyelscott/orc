@@ -6,6 +6,7 @@ import type {
   OrchestratorSettings,
   Project,
   RunDetail,
+  Team,
 } from "@orc/shared";
 import {
   AlertTriangleIcon,
@@ -51,7 +52,12 @@ import {
   selectLatestResultExecution,
   selectTerminalExecution,
 } from "@/lib/orchestrator-presentation";
-import { getProjects } from "@/lib/projects";
+import {
+  getProjects,
+} from "@/lib/projects";
+import {
+  getTeams,
+} from "@/lib/teams";
 import {
   cancelRun,
   getRun,
@@ -61,6 +67,7 @@ import {
 type BusyAction =
   | "loading"
   | "project"
+  | "team"
   | "conversation"
   | "new-conversation"
   | "send"
@@ -73,19 +80,26 @@ type BusyAction =
 const DESKTOP_WORKSPACE_QUERY =
   "(min-width: 1280px)";
 
-/** Normalizes an unknown failure into a concise operator-facing error message. */
+/**
+ * Normalizes an unknown failure into a concise operator-facing error message.
+ */
 function errorMessage(
-  error: unknown,
-  fallback: string,
+  error:
+    unknown,
+  fallback:
+    string,
 ): string {
   return error instanceof Error
     ? error.message
     : fallback;
 }
 
-/** Subscribes to the responsive breakpoint used by the desktop inspector and workbench. */
+/**
+ * Subscribes to the responsive breakpoint used by the desktop inspector and workbench.
+ */
 function subscribeDesktopWorkspace(
-  callback: () => void,
+  callback:
+    () => void,
 ): () => void {
   const query =
     window.matchMedia(
@@ -105,19 +119,25 @@ function subscribeDesktopWorkspace(
   };
 }
 
-/** Returns whether the current browser viewport uses the desktop operator workspace. */
+/**
+ * Returns whether the current browser viewport uses the desktop operator workspace.
+ */
 function getDesktopWorkspaceSnapshot(): boolean {
   return window.matchMedia(
     DESKTOP_WORKSPACE_QUERY,
   ).matches;
 }
 
-/** Provides a stable server snapshot until the client viewport becomes available. */
+/**
+ * Provides a stable server snapshot until the client viewport becomes available.
+ */
 function getDesktopWorkspaceServerSnapshot(): boolean {
   return false;
 }
 
-/** Returns the current responsive workspace mode without duplicating state in an effect. */
+/**
+ * Returns the current responsive workspace mode without duplicating state in an effect.
+ */
 function useDesktopWorkspace(): boolean {
   return useSyncExternalStore(
     subscribeDesktopWorkspace,
@@ -126,112 +146,153 @@ function useDesktopWorkspace(): boolean {
   );
 }
 
-/** Coordinates persisted conversations, workflow actions, run observability, and terminal/result selection. */
+/**
+ * Coordinates Team-scoped persisted Conversations, workflow actions, observability, and result selection.
+ */
 export function OrchestratorChat() {
   const [
     projects,
     setProjects,
-  ] = useState<Project[]>([]);
+  ] =
+    useState<Project[]>(
+      [],
+    );
+
+  const [
+    teams,
+    setTeams,
+  ] =
+    useState<Team[]>(
+      [],
+    );
 
   const [
     workspaceError,
     setWorkspaceError,
-  ] = useState<string | null>(
-    null,
-  );
+  ] =
+    useState<
+      string | null
+    >(null);
 
   const [
     projectPath,
     setProjectPath,
-  ] = useState("");
+  ] =
+    useState("");
+
+  const [
+    teamId,
+    setTeamId,
+  ] =
+    useState("");
 
   const [
     conversations,
     setConversations,
-  ] = useState<
-    Conversation[]
-  >([]);
+  ] =
+    useState<
+      Conversation[]
+    >([]);
 
   const [
     conversation,
     setConversation,
-  ] = useState<
-    Conversation | null
-  >(null);
+  ] =
+    useState<
+      Conversation | null
+    >(null);
 
   const [
     messages,
     setMessages,
-  ] = useState<
-    ConversationMessage[]
-  >([]);
+  ] =
+    useState<
+      ConversationMessage[]
+    >([]);
 
   const [
     content,
     setContent,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     runDetail,
     setRunDetail,
-  ] = useState<
-    RunDetail | null
-  >(null);
+  ] =
+    useState<
+      RunDetail | null
+    >(null);
 
   const [
     runError,
     setRunError,
-  ] = useState<string | null>(
-    null,
-  );
+  ] =
+    useState<
+      string | null
+    >(null);
 
   const [
     settings,
     setSettings,
-  ] = useState<
-    OrchestratorSettings | null
-  >(null);
+  ] =
+    useState<
+      OrchestratorSettings | null
+    >(null);
 
   const [
     settingsError,
     setSettingsError,
-  ] = useState<string | null>(
-    null,
-  );
+  ] =
+    useState<
+      string | null
+    >(null);
 
   const [
     settingsSaving,
     setSettingsSaving,
-  ] = useState(false);
+  ] =
+    useState(
+      false,
+    );
 
   const [
     error,
     setError,
-  ] = useState<string | null>(
-    null,
-  );
+  ] =
+    useState<
+      string | null
+    >(null);
 
   const [
     busyAction,
     setBusyAction,
-  ] = useState<BusyAction>(
-    "loading",
-  );
+  ] =
+    useState<BusyAction>(
+      "loading",
+    );
 
   const [
     pendingMessage,
     setPendingMessage,
-  ] = useState<{
-    content: string;
-    createdAt: string;
-  } | null>(null);
+  ] =
+    useState<{
+      content:
+        string;
+      createdAt:
+        string;
+    } | null>(
+      null,
+    );
 
   const [
     now,
     setNow,
-  ] = useState(() =>
-    Date.now(),
-  );
+  ] =
+    useState(
+      () =>
+        Date.now(),
+    );
 
   const desktopWorkspace =
     useDesktopWorkspace();
@@ -247,29 +308,70 @@ export function OrchestratorChat() {
       ? runDetail.run.status
       : null;
 
-  /** Loads one project's persisted conversation list and opens its newest conversation when available. */
-  const loadProject =
+  /**
+   * Clears the active Conversation and Run workspace before another Project and Team scope is loaded.
+   */
+  const clearConversationWorkspace =
     useCallback(
-      async (
-        nextProjectPath: string,
-      ): Promise<void> => {
-        setBusyAction(
-          "project",
-        );
-
-        setError(null);
-        setProjectPath(
-          nextProjectPath,
-        );
+      (): void => {
+        setConversations([]);
         setConversation(null);
         setMessages([]);
         setRunDetail(null);
         setRunError(null);
+        setContent("");
+      },
+      [],
+    );
+
+  /**
+   * Loads persisted Conversations for one explicit Project and Team scope and opens its newest Conversation.
+   */
+  const loadScope =
+    useCallback(
+      async (
+        nextProjectPath:
+          string,
+        nextTeamId:
+          string,
+        action:
+          | "project"
+          | "team",
+      ): Promise<void> => {
+        setBusyAction(
+          action,
+        );
+
+        setError(
+          null,
+        );
+
+        setProjectPath(
+          nextProjectPath,
+        );
+
+        setTeamId(
+          nextTeamId,
+        );
+
+        clearConversationWorkspace();
+
+        if (
+          !nextProjectPath ||
+          !nextTeamId
+        ) {
+          setBusyAction(
+            null,
+          );
+
+          return;
+        }
 
         try {
           const response =
             await listConversations(
               nextProjectPath,
+              nextTeamId,
             );
 
           setConversations(
@@ -290,6 +392,19 @@ export function OrchestratorChat() {
               first.id,
             );
 
+          if (
+            detail.conversation
+              .projectPath !==
+                nextProjectPath ||
+            detail.conversation
+              .teamId !==
+                nextTeamId
+          ) {
+            throw new Error(
+              "Conversation scope does not match the selected Project and Team.",
+            );
+          }
+
           setConversation(
             detail.conversation,
           );
@@ -297,10 +412,10 @@ export function OrchestratorChat() {
           setMessages(
             detail.messages,
           );
-        } catch (value) {
-          setConversations([]);
-          setConversation(null);
-          setMessages([]);
+        } catch (
+          value
+        ) {
+          clearConversationWorkspace();
 
           setError(
             errorMessage(
@@ -309,212 +424,289 @@ export function OrchestratorChat() {
             ),
           );
         } finally {
-          setBusyAction(null);
+          setBusyAction(
+            null,
+          );
         }
       },
-      [],
+      [
+        clearConversationWorkspace,
+      ],
     );
 
-  useEffect(() => {
-    let disposed = false;
+  useEffect(
+    () => {
+      let disposed =
+        false;
 
-    /** Loads current filesystem-backed projects and selects the first available repository. */
-    const initialize =
-      async (): Promise<void> => {
-        setBusyAction(
-          "loading",
+      /**
+       * Loads filesystem-backed Projects and configured Teams without choosing a Team implicitly.
+       */
+      const initialize =
+        async (): Promise<void> => {
+          setBusyAction(
+            "loading",
+          );
+
+          try {
+            const [
+              projectResponse,
+              nextTeams,
+            ] =
+              await Promise.all([
+                getProjects(),
+                getTeams(),
+              ]);
+
+            if (disposed) {
+              return;
+            }
+
+            setProjects(
+              projectResponse.projects,
+            );
+
+            setTeams(
+              nextTeams,
+            );
+
+            setWorkspaceError(
+              projectResponse.error,
+            );
+
+            const firstProject =
+              projectResponse.projects.at(
+                0,
+              );
+
+            if (!firstProject) {
+              setProjectPath("");
+              setTeamId("");
+              clearConversationWorkspace();
+              setBusyAction(null);
+
+              return;
+            }
+
+            setProjectPath(
+              firstProject.path,
+            );
+
+            setTeamId("");
+
+            clearConversationWorkspace();
+
+            setBusyAction(
+              null,
+            );
+          } catch (
+            value
+          ) {
+            if (disposed) {
+              return;
+            }
+
+            setError(
+              errorMessage(
+                value,
+                "Failed to load Orchestrator workspace.",
+              ),
+            );
+
+            setBusyAction(
+              null,
+            );
+          }
+        };
+
+      void initialize();
+
+      return () => {
+        disposed =
+          true;
+      };
+    },
+    [
+      clearConversationWorkspace,
+    ],
+  );
+
+  useEffect(
+    () => {
+      let disposed =
+        false;
+
+      /**
+       * Loads separately persisted supervisor configuration without treating it as worker execution data.
+       */
+      const loadSettings =
+        async (): Promise<void> => {
+          try {
+            const value =
+              await getOrchestratorSettings();
+
+            if (!disposed) {
+              setSettings(
+                value,
+              );
+
+              setSettingsError(
+                null,
+              );
+            }
+          } catch (
+            value
+          ) {
+            if (!disposed) {
+              setSettings(
+                null,
+              );
+
+              setSettingsError(
+                errorMessage(
+                  value,
+                  "Orchestrator settings are unavailable.",
+                ),
+              );
+            }
+          }
+        };
+
+      void loadSettings();
+
+      return () => {
+        disposed =
+          true;
+      };
+    },
+    [],
+  );
+
+  useEffect(
+    () => {
+      const timer =
+        window.setInterval(
+          () => {
+            setNow(
+              Date.now(),
+            );
+          },
+          1_000,
         );
 
-        try {
-          const response =
-            await getProjects();
-
-          if (disposed) {
-            return;
-          }
-
-          setProjects(
-            response.projects,
-          );
-
-          setWorkspaceError(
-            response.error,
-          );
-
-          const first =
-            response.projects.at(
-              0,
-            );
-
-          if (!first) {
-            setProjectPath("");
-            setBusyAction(null);
-            return;
-          }
-
-          await loadProject(
-            first.path,
-          );
-        } catch (value) {
-          if (disposed) {
-            return;
-          }
-
-          setError(
-            errorMessage(
-              value,
-              "Failed to load projects.",
-            ),
-          );
-
-          setBusyAction(null);
-        }
-      };
-
-    void initialize();
-
-    return () => {
-      disposed = true;
-    };
-  }, [loadProject]);
-
-  useEffect(() => {
-    let disposed = false;
-
-    /** Loads separately persisted supervisor configuration without treating it as worker execution data. */
-    const loadSettings =
-      async (): Promise<void> => {
-        try {
-          const value =
-            await getOrchestratorSettings();
-
-          if (!disposed) {
-            setSettings(
-              value,
-            );
-
-            setSettingsError(
-              null,
-            );
-          }
-        } catch (value) {
-          if (!disposed) {
-            setSettings(null);
-
-            setSettingsError(
-              errorMessage(
-                value,
-                "Orchestrator settings are unavailable.",
-              ),
-            );
-          }
-        }
-      };
-
-    void loadSettings();
-
-    return () => {
-      disposed = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    const timer =
-      window.setInterval(
-        () => {
-          setNow(
-            Date.now(),
-          );
-        },
-        1_000,
-      );
-
-    return () => {
-      window.clearInterval(
-        timer,
-      );
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!linkedRunId) {
-      return;
-    }
-
-    let disposed = false;
-
-    /** Refreshes authoritative run detail used by every Orchestrator observability panel. */
-    const refresh =
-      async (): Promise<void> => {
-        try {
-          const detail =
-            await getRun(
-              linkedRunId,
-            );
-
-          if (!disposed) {
-            setRunDetail(
-              detail,
-            );
-
-            setRunError(
-              null,
-            );
-          }
-        } catch (value) {
-          if (!disposed) {
-            setRunError(
-              errorMessage(
-                value,
-                "Run state is unavailable.",
-              ),
-            );
-          }
-        }
-      };
-
-    void refresh();
-
-    const shouldPoll =
-      linkedRunStatus ===
-        null ||
-      isRunActive(
-        linkedRunStatus,
-      );
-
-    const timer =
-      shouldPoll
-        ? window.setInterval(
-            () => {
-              void refresh();
-            },
-            2_500,
-          )
-        : undefined;
-
-    return () => {
-      disposed = true;
-
-      if (timer) {
+      return () => {
         window.clearInterval(
           timer,
         );
-      }
-    };
-  }, [
-    linkedRunId,
-    linkedRunStatus,
-  ]);
+      };
+    },
+    [],
+  );
 
-  /** Refreshes one persisted conversation so optimistic message IDs are never fabricated client-side. */
+  useEffect(
+    () => {
+      if (!linkedRunId) {
+        return;
+      }
+
+      let disposed =
+        false;
+
+      /**
+       * Refreshes authoritative Run detail used by every Orchestrator observability panel.
+       */
+      const refresh =
+        async (): Promise<void> => {
+          try {
+            const detail =
+              await getRun(
+                linkedRunId,
+              );
+
+            if (!disposed) {
+              setRunDetail(
+                detail,
+              );
+
+              setRunError(
+                null,
+              );
+            }
+          } catch (
+            value
+          ) {
+            if (!disposed) {
+              setRunError(
+                errorMessage(
+                  value,
+                  "Run state is unavailable.",
+                ),
+              );
+            }
+          }
+        };
+
+      void refresh();
+
+      const shouldPoll =
+        linkedRunStatus ===
+          null ||
+        isRunActive(
+          linkedRunStatus,
+        );
+
+      const timer =
+        shouldPoll
+          ? window.setInterval(
+              () => {
+                void refresh();
+              },
+              2_500,
+            )
+          : undefined;
+
+      return () => {
+        disposed =
+          true;
+
+        if (timer) {
+          window.clearInterval(
+            timer,
+          );
+        }
+      };
+    },
+    [
+      linkedRunId,
+      linkedRunStatus,
+    ],
+  );
+
+  /**
+   * Refreshes one persisted Conversation and verifies it still belongs to the currently selected scope.
+   */
   const refreshConversation =
     async (
-      conversationId: string,
+      conversationId:
+        string,
     ): Promise<Conversation> => {
       const detail =
         await getConversation(
           conversationId,
         );
+
+      if (
+        detail.conversation
+          .projectPath !==
+            projectPath ||
+        detail.conversation
+          .teamId !==
+            teamId
+      ) {
+        throw new Error(
+          "Conversation scope does not match the selected Project and Team.",
+        );
+      }
 
       setConversation(
         detail.conversation,
@@ -536,16 +728,22 @@ export function OrchestratorChat() {
       return detail.conversation;
     };
 
-  /** Refreshes the conversation chooser after newly created messages change its persisted update order. */
+  /**
+   * Refreshes the Team-scoped Conversation chooser after message activity changes persisted ordering.
+   */
   const refreshConversationList =
     async (): Promise<void> => {
-      if (!projectPath) {
+      if (
+        !projectPath ||
+        !teamId
+      ) {
         return;
       }
 
       const response =
         await listConversations(
           projectPath,
+          teamId,
         );
 
       setConversations(
@@ -553,7 +751,9 @@ export function OrchestratorChat() {
       );
     };
 
-  /** Persists an operator-edited Orchestrator configuration and replaces local state with the validated server response. */
+  /**
+   * Persists an operator-edited Orchestrator configuration and replaces local state with the validated response.
+   */
   const handleSaveSettings =
     async (
       nextSettings:
@@ -562,6 +762,7 @@ export function OrchestratorChat() {
       setSettingsSaving(
         true,
       );
+
       setSettingsError(
         null,
       );
@@ -575,7 +776,9 @@ export function OrchestratorChat() {
         setSettings(
           saved,
         );
-      } catch (value) {
+      } catch (
+        value
+      ) {
         setSettingsError(
           errorMessage(
             value,
@@ -589,12 +792,15 @@ export function OrchestratorChat() {
       }
     };
 
-  /** Restores the Orchestrator configuration through the server-owned defaults endpoint. */
+  /**
+   * Restores the Orchestrator configuration through the server-owned defaults endpoint.
+   */
   const handleResetSettings =
     async (): Promise<void> => {
       setSettingsSaving(
         true,
       );
+
       setSettingsError(
         null,
       );
@@ -606,7 +812,9 @@ export function OrchestratorChat() {
         setSettings(
           reset,
         );
-      } catch (value) {
+      } catch (
+        value
+      ) {
         setSettingsError(
           errorMessage(
             value,
@@ -620,14 +828,18 @@ export function OrchestratorChat() {
       }
     };
 
-  /** Opens one explicitly selected persisted conversation. */
+  /**
+   * Opens one explicitly selected persisted Conversation inside the current Project and Team scope.
+   */
   const handleConversationChange =
     async (
-      conversationId: string,
+      conversationId:
+        string,
     ): Promise<void> => {
       if (
         !conversationId ||
-        busyAction !== null
+        busyAction !==
+          null
       ) {
         return;
       }
@@ -636,15 +848,25 @@ export function OrchestratorChat() {
         "conversation",
       );
 
-      setError(null);
-      setRunDetail(null);
-      setRunError(null);
+      setError(
+        null,
+      );
+
+      setRunDetail(
+        null,
+      );
+
+      setRunError(
+        null,
+      );
 
       try {
         await refreshConversation(
           conversationId,
         );
-      } catch (value) {
+      } catch (
+        value
+      ) {
         setError(
           errorMessage(
             value,
@@ -652,16 +874,22 @@ export function OrchestratorChat() {
           ),
         );
       } finally {
-        setBusyAction(null);
+        setBusyAction(
+          null,
+        );
       }
     };
 
-  /** Creates a new project-scoped persisted conversation and selects it. */
+  /**
+   * Creates a new Conversation for the currently selected Project and Team.
+   */
   const handleNewConversation =
     async (): Promise<void> => {
       if (
         !projectPath ||
-        busyAction !== null
+        !teamId ||
+        busyAction !==
+          null
       ) {
         return;
       }
@@ -670,12 +898,15 @@ export function OrchestratorChat() {
         "new-conversation",
       );
 
-      setError(null);
+      setError(
+        null,
+      );
 
       try {
         const created =
           await createConversation(
             projectPath,
+            teamId,
           );
 
         setConversation(
@@ -690,12 +921,15 @@ export function OrchestratorChat() {
         const response =
           await listConversations(
             projectPath,
+            teamId,
           );
 
         setConversations(
           response.conversations,
         );
-      } catch (value) {
+      } catch (
+        value
+      ) {
         setError(
           errorMessage(
             value,
@@ -703,25 +937,33 @@ export function OrchestratorChat() {
           ),
         );
       } finally {
-        setBusyAction(null);
+        setBusyAction(
+          null,
+        );
       }
     };
 
-  /** Sends one supervisor instruction and then reloads authoritative persisted transcript state. */
+  /**
+   * Sends one supervisor instruction and then reloads authoritative persisted transcript state.
+   */
   const sendSupervisorMessage =
     async (
-      message: string,
-      action: Exclude<
-        BusyAction,
-        | "loading"
-        | "project"
-        | "conversation"
-        | "new-conversation"
-        | "stop"
-        | "retry"
-        | null
-      >,
-      clearDraft: boolean,
+      message:
+        string,
+      action:
+        Exclude<
+          BusyAction,
+          | "loading"
+          | "project"
+          | "team"
+          | "conversation"
+          | "new-conversation"
+          | "stop"
+          | "retry"
+          | null
+        >,
+      clearDraft:
+        boolean,
     ): Promise<void> => {
       const trimmed =
         message.trim();
@@ -729,7 +971,8 @@ export function OrchestratorChat() {
       if (
         !conversation ||
         !trimmed ||
-        busyAction !== null
+        busyAction !==
+          null
       ) {
         return;
       }
@@ -738,8 +981,10 @@ export function OrchestratorChat() {
         conversation.id;
 
       setPendingMessage({
-        content: trimmed,
-        createdAt: new Date().toISOString(),
+        content:
+          trimmed,
+        createdAt:
+          new Date().toISOString(),
       });
 
       if (clearDraft) {
@@ -750,7 +995,9 @@ export function OrchestratorChat() {
         action,
       );
 
-      setError(null);
+      setError(
+        null,
+      );
 
       try {
         await postMessage(
@@ -765,9 +1012,11 @@ export function OrchestratorChat() {
         try {
           await refreshConversationList();
         } catch {
-          // The active persisted conversation remains authoritative even if the chooser refresh fails.
+          // The active persisted Conversation remains authoritative if chooser refresh fails.
         }
-      } catch (value) {
+      } catch (
+        value
+      ) {
         setError(
           errorMessage(
             value,
@@ -780,15 +1029,22 @@ export function OrchestratorChat() {
             conversationId,
           );
         } catch {
-          // Preserve the original mutation error when transcript recovery also fails.
+          // Preserve the original mutation failure if transcript recovery also fails.
         }
       } finally {
-        setBusyAction(null);
-        setPendingMessage(null);
+        setBusyAction(
+          null,
+        );
+
+        setPendingMessage(
+          null,
+        );
       }
     };
 
-  /** Handles the normal composer Send action. */
+  /**
+   * Handles the normal composer Send action.
+   */
   const handleSubmit =
     (
       event:
@@ -803,7 +1059,9 @@ export function OrchestratorChat() {
       );
     };
 
-  /** Explicitly asks the supervisor to create and start the engineering task represented by the current draft. */
+  /**
+   * Explicitly asks the supervisor to create and start the engineering Task represented by the current draft.
+   */
   const handleStartTask =
     (): void => {
       if (!content.trim()) {
@@ -817,7 +1075,9 @@ export function OrchestratorChat() {
       );
     };
 
-  /** Requests a grounded supervisor explanation of the current linked run. */
+  /**
+   * Requests a grounded supervisor explanation of the current linked Run.
+   */
   const handleExplainStatus =
     (): void => {
       void sendSupervisorMessage(
@@ -827,7 +1087,9 @@ export function OrchestratorChat() {
       );
     };
 
-  /** Cancels the linked active run through the existing workflow control API. */
+  /**
+   * Cancels the linked active Run through the existing workflow control API.
+   */
   const handleStop =
     async (): Promise<void> => {
       const runId =
@@ -835,7 +1097,8 @@ export function OrchestratorChat() {
 
       if (
         !runId ||
-        busyAction !== null ||
+        busyAction !==
+          null ||
         !runDetail ||
         !isRunActive(
           runDetail.run.status,
@@ -844,8 +1107,13 @@ export function OrchestratorChat() {
         return;
       }
 
-      setBusyAction("stop");
-      setError(null);
+      setBusyAction(
+        "stop",
+      );
+
+      setError(
+        null,
+      );
 
       try {
         await cancelRun(
@@ -858,8 +1126,12 @@ export function OrchestratorChat() {
           ),
         );
 
-        setRunError(null);
-      } catch (value) {
+        setRunError(
+          null,
+        );
+      } catch (
+        value
+      ) {
         setError(
           errorMessage(
             value,
@@ -867,11 +1139,15 @@ export function OrchestratorChat() {
           ),
         );
       } finally {
-        setBusyAction(null);
+        setBusyAction(
+          null,
+        );
       }
     };
 
-  /** Retries only the backend-supported final execution of a failed or blocked run. */
+  /**
+   * Retries only the backend-supported final execution of a failed or blocked Run.
+   */
   const handleRetry =
     async (): Promise<void> => {
       const runId =
@@ -879,13 +1155,19 @@ export function OrchestratorChat() {
 
       if (
         !runId ||
-        busyAction !== null
+        busyAction !==
+          null
       ) {
         return;
       }
 
-      setBusyAction("retry");
-      setError(null);
+      setBusyAction(
+        "retry",
+      );
+
+      setError(
+        null,
+      );
 
       try {
         await retryRun(
@@ -898,8 +1180,12 @@ export function OrchestratorChat() {
           ),
         );
 
-        setRunError(null);
-      } catch (value) {
+        setRunError(
+          null,
+        );
+      } catch (
+        value
+      ) {
         setError(
           errorMessage(
             value,
@@ -907,7 +1193,9 @@ export function OrchestratorChat() {
           ),
         );
       } finally {
-        setBusyAction(null);
+        setBusyAction(
+          null,
+        );
       }
     };
 
@@ -927,29 +1215,48 @@ export function OrchestratorChat() {
     );
 
   const switchingWorkspace =
-    busyAction === "loading" ||
-    busyAction === "project" ||
-    busyAction === "conversation";
+    busyAction ===
+      "loading" ||
+    busyAction ===
+      "project" ||
+    busyAction ===
+      "team" ||
+    busyAction ===
+      "conversation";
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
       <OrchestratorContextStrip
-        projects={projects}
-        projectPath={projectPath}
+        projects={
+          projects
+        }
+        projectPath={
+          projectPath
+        }
+        teams={
+          teams
+        }
+        teamId={
+          teamId
+        }
         conversations={
           conversations
         }
         conversation={
           conversation
         }
-        runDetail={runDetail}
+        runDetail={
+          runDetail
+        }
         activeExecution={
           activeExecution
         }
         busyAction={
           busyAction
         }
-        now={now}
+        now={
+          now
+        }
         onProjectChange={(
           value,
         ) => {
@@ -957,8 +1264,24 @@ export function OrchestratorChat() {
             busyAction ===
             null
           ) {
-            void loadProject(
+            void loadScope(
               value,
+              teamId,
+              "project",
+            );
+          }
+        }}
+        onTeamChange={(
+          value,
+        ) => {
+          if (
+            busyAction ===
+            null
+          ) {
+            void loadScope(
+              projectPath,
+              value,
+              "team",
             );
           }
         }}
@@ -1014,7 +1337,8 @@ export function OrchestratorChat() {
             </div>
           </CardContent>
         </Card>
-      ) : projects.length === 0 ? (
+      ) : projects.length ===
+        0 ? (
         <Card className="min-h-0 flex-1">
           <CardContent className="flex min-h-72 flex-1 items-center justify-center p-6 text-center">
             <div className="max-w-sm">
@@ -1026,6 +1350,39 @@ export function OrchestratorChat() {
 
               <p className="mt-1 text-xs leading-5 text-text-muted">
                 The Orchestrator requires a filesystem-discovered Git project before a conversation can be created.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : teams.length ===
+        0 ? (
+        <Card className="min-h-0 flex-1">
+          <CardContent className="flex min-h-72 flex-1 items-center justify-center p-6 text-center">
+            <div className="max-w-sm">
+              <BotIcon className="mx-auto size-8 text-text-muted" />
+
+              <h2 className="mt-3 text-sm font-semibold text-text-primary">
+                No Team available
+              </h2>
+
+              <p className="mt-1 text-xs leading-5 text-text-muted">
+                Configure at least one Team before creating a Team-scoped Orchestrator conversation.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : !teamId ? (
+        <Card className="min-h-0 flex-1">
+          <CardContent className="flex min-h-72 flex-1 items-center justify-center p-6 text-center">
+            <div className="max-w-sm">
+              <BotIcon className="mx-auto size-8 text-text-muted" />
+
+              <h2 className="mt-3 text-sm font-semibold text-text-primary">
+                Select a Team
+              </h2>
+
+              <p className="mt-1 text-xs leading-5 text-text-muted">
+                Choose the Team that owns this conversation before opening or creating Orchestrator work.
               </p>
             </div>
           </CardContent>
@@ -1107,7 +1464,9 @@ export function OrchestratorChat() {
                   onResetSettings={
                     handleResetSettings
                   }
-                  now={now}
+                  now={
+                    now
+                  }
                 />
               </div>
             </ResizablePanel>
@@ -1171,7 +1530,9 @@ export function OrchestratorChat() {
               onResetSettings={
                 handleResetSettings
               }
-              now={now}
+              now={
+                now
+              }
             />
           </div>
 

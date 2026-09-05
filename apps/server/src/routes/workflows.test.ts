@@ -68,6 +68,9 @@ const {
     "./workflows.js"
   );
 
+const TEAM_ID =
+  "00000000-0000-4000-9000-000000000001";
+
 let app:
   ReturnType<
     typeof Fastify
@@ -97,7 +100,7 @@ describe(
   "workflow task routes",
   () => {
     it(
-      "preserves the existing POST /api/tasks create-and-immediately-start contract",
+      "requires Team scope while preserving POST /api/tasks create-and-immediately-start behavior",
       async () => {
         const taskId =
           crypto.randomUUID();
@@ -110,6 +113,8 @@ describe(
             task: {
               id:
                 taskId,
+              teamId:
+                TEAM_ID,
               projectPath:
                 "/home/user/workspace/orc",
               title:
@@ -134,6 +139,8 @@ describe(
             run: {
               id:
                 runId,
+              teamId:
+                TEAM_ID,
               projectPath:
                 "/home/user/workspace/orc",
               taskId,
@@ -155,6 +162,8 @@ describe(
         const payload = {
           projectId:
             "existing-project-id",
+          teamId:
+            TEAM_ID,
           title:
             "Manual task",
           instruction:
@@ -188,6 +197,8 @@ describe(
           task: {
             id:
               taskId,
+            teamId:
+              TEAM_ID,
             source:
               "manual",
           },
@@ -195,8 +206,41 @@ describe(
             id:
               runId,
             taskId,
+            teamId:
+              TEAM_ID,
           },
         });
+      },
+    );
+
+    it(
+      "rejects manual Task creation without Team scope",
+      async () => {
+        const response =
+          await app.inject({
+            method:
+              "POST",
+            url:
+              "/api/tasks",
+            payload: {
+              projectId:
+                "existing-project-id",
+              title:
+                "Missing Team",
+              instruction:
+                "This payload must fail validation.",
+            },
+          });
+
+        expect(
+          response.statusCode,
+        ).toBe(
+          400,
+        );
+
+        expect(
+          mocks.createAndStartTask,
+        ).not.toHaveBeenCalled();
       },
     );
   },

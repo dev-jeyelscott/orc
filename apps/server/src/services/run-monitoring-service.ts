@@ -59,6 +59,7 @@ export async function listRunMonitoringSummaries(): Promise<
     .select({
       id: runs.id,
       taskId: runs.taskId,
+      teamId: runs.teamId,
       projectPath: runs.projectPath,
       status: runs.status,
       workflowSnapshot:
@@ -76,49 +77,63 @@ export async function listRunMonitoringSummaries(): Promise<
     .from(runs)
     .leftJoin(
       tasks,
-      eq(runs.taskId, tasks.id),
+      eq(
+        runs.taskId,
+        tasks.id,
+      ),
     )
     .orderBy(
-      desc(runs.createdAt),
+      desc(
+        runs.createdAt,
+      ),
     );
 
-  return rows.map((row) => {
-    const executionPlan =
-      projectExecutionPlan(
-        row.workflowSnapshot,
-      );
+  return rows.map(
+    (row) => {
+      const executionPlan =
+        projectExecutionPlan(
+          row.workflowSnapshot,
+        );
 
-    const currentAgent =
-      row.currentAgentId
-        ? executionPlan.find(
-            (agent) =>
-              agent.id ===
-              row.currentAgentId,
-          ) ?? null
-        : null;
+      const currentAgent =
+        row.currentAgentId
+          ? executionPlan.find(
+              (agent) =>
+                agent.id ===
+                row.currentAgentId,
+            ) ?? null
+          : null;
 
-    return {
-      id: row.id,
-      taskId: row.taskId ?? null,
-      projectPath: row.projectPath,
-      status: row.status,
-      currentAgentId:
-        row.currentAgentId ?? null,
-      executionCount:
-        row.executionCount,
-      terminalReason:
-        row.terminalReason ?? null,
-      createdAt:
-        row.createdAt.toISOString(),
-      updatedAt:
-        row.updatedAt.toISOString(),
-      taskTitle:
-        row.taskTitle ?? null,
-      plannedExecutionCount:
-        executionPlan.length,
-      currentAgent,
-    };
-  });
+      return {
+        id: row.id,
+        taskId:
+          row.taskId ?? null,
+        teamId:
+          row.teamId,
+        projectPath:
+          row.projectPath,
+        status:
+          row.status,
+        currentAgentId:
+          row.currentAgentId ??
+          null,
+        executionCount:
+          row.executionCount,
+        terminalReason:
+          row.terminalReason ??
+          null,
+        createdAt:
+          row.createdAt.toISOString(),
+        updatedAt:
+          row.updatedAt.toISOString(),
+        taskTitle:
+          row.taskTitle ?? null,
+        plannedExecutionCount:
+          executionPlan.length,
+        currentAgent,
+      };
+    },
+  );
 }
 
 /**
@@ -131,14 +146,21 @@ export async function getRunMonitoringDetail(
     detail,
     snapshotRows,
   ] = await Promise.all([
-    getRunDetail(id),
+    getRunDetail(
+      id,
+    ),
     db
       .select({
         workflowSnapshot:
           runs.workflowSnapshot,
       })
       .from(runs)
-      .where(eq(runs.id, id))
+      .where(
+        eq(
+          runs.id,
+          id,
+        ),
+      )
       .limit(1),
   ]);
 

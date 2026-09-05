@@ -10,6 +10,8 @@ import { runSchema } from "./run.js";
 export const createTaskSchema = z.object({
   projectId:
     z.string().trim().min(1),
+  teamId:
+    z.string().uuid(),
   title:
     z.string()
       .trim()
@@ -24,6 +26,8 @@ export const createTaskSchema = z.object({
 
 export const taskSchema = z.object({
   id:
+    z.string().uuid(),
+  teamId:
     z.string().uuid(),
   projectPath:
     z.string(),

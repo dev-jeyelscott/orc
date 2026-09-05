@@ -1,4 +1,5 @@
 import {
+  and,
   asc,
   desc,
   eq,
@@ -19,6 +20,7 @@ import {
   conversationMessages,
   conversations,
   orchestratorSettings,
+  teams,
 } from "../db/schema.js";
 import {
   getHarnessAdapter,
@@ -33,8 +35,10 @@ import {
 
 const SUPERVISOR_BLOCK_START =
   "<orc-supervisor>";
+
 const SUPERVISOR_BLOCK_END =
   "</orc-supervisor>";
+
 const MAX_ORCHESTRATOR_TOOL_ROUNDS =
   6;
 
@@ -53,12 +57,16 @@ const DEFAULT_ORCHESTRATOR_SETTINGS: OrchestratorSettings =
 type ToolHistoryItem = {
   tool:
     OrchestratorToolCall;
-  result: unknown;
+  result:
+    unknown;
 };
 
 type SupervisorContext = {
   conversation: {
-    id: string;
+    id:
+      string;
+    teamId:
+      string;
     projectPath:
       string;
     taskId:
@@ -94,6 +102,8 @@ function serializeConversation(
   return {
     id:
       row.id,
+    teamId:
+      row.teamId,
     projectPath:
       row.projectPath,
     taskId:
@@ -153,7 +163,8 @@ function serializeSettings(
  * Resolves and canonicalizes one project path through filesystem-backed discovery.
  */
 async function requireProject(
-  projectPath: string,
+  projectPath:
+    string,
 ) {
   const project =
     await getProjectByPath(
@@ -172,6 +183,34 @@ async function requireProject(
 }
 
 /**
+ * Verifies that one persisted Team exists before it can be used as Conversation scope.
+ */
+async function requireTeam(
+  teamId:
+    string,
+) {
+  const [team] =
+    await db
+      .select()
+      .from(teams)
+      .where(
+        eq(
+          teams.id,
+          teamId,
+        ),
+      );
+
+  if (!team) {
+    throw new ConversationServiceError(
+      "The selected team does not exist",
+      404,
+    );
+  }
+
+  return team;
+}
+
+/**
  * Ensures the singleton orchestrator settings row exists and returns its persisted value.
  */
 export async function getOrchestratorSettings(): Promise<OrchestratorSettings> {
@@ -180,7 +219,8 @@ export async function getOrchestratorSettings(): Promise<OrchestratorSettings> {
       orchestratorSettings,
     )
     .values({
-      id: 1,
+      id:
+        1,
       ...DEFAULT_ORCHESTRATOR_SETTINGS,
     })
     .onConflictDoNothing({
@@ -226,7 +266,8 @@ export async function updateOrchestratorSettings(
         orchestratorSettings,
       )
       .values({
-        id: 1,
+        id:
+          1,
         ...input,
         updatedAt:
           new Date(),
@@ -257,15 +298,22 @@ export async function resetOrchestratorSettings(): Promise<OrchestratorSettings>
 }
 
 /**
- * Creates a new persisted conversation for a currently discovered project.
+ * Creates a new persisted conversation for one currently discovered Project and Team.
  */
 export async function createConversation(
-  projectPath: string,
+  projectPath:
+    string,
+  teamId:
+    string,
 ): Promise<Conversation> {
   const project =
     await requireProject(
       projectPath,
     );
+
+  await requireTeam(
+    teamId,
+  );
 
   const [created] =
     await db
@@ -273,6 +321,7 @@ export async function createConversation(
         conversations,
       )
       .values({
+        teamId,
         projectPath:
           project.path,
       })
@@ -284,10 +333,13 @@ export async function createConversation(
 }
 
 /**
- * Lists persisted conversations for one currently discovered project newest first.
+ * Lists persisted conversations for one Project and Team scope newest first.
  */
 export async function listConversations(
-  projectPath: string,
+  projectPath:
+    string,
+  teamId:
+    string,
 ): Promise<
   Conversation[]
 > {
@@ -296,6 +348,10 @@ export async function listConversations(
       projectPath,
     );
 
+  await requireTeam(
+    teamId,
+  );
+
   return (
     await db
       .select()
@@ -303,9 +359,15 @@ export async function listConversations(
         conversations,
       )
       .where(
-        eq(
-          conversations.projectPath,
-          project.path,
+        and(
+          eq(
+            conversations.projectPath,
+            project.path,
+          ),
+          eq(
+            conversations.teamId,
+            teamId,
+          ),
         ),
       )
       .orderBy(
@@ -322,7 +384,8 @@ export async function listConversations(
  * Loads a persisted conversation with its ordered message history.
  */
 export async function getConversation(
-  id: string,
+  id:
+    string,
 ): Promise<{
   conversation:
     Conversation;
@@ -380,7 +443,8 @@ export async function getConversation(
  * Parses the exact supervisor envelope from provider-authored assistant text.
  */
 function parseSupervisorTurn(
-  text: string,
+  text:
+    string,
 ): OrchestratorTurn {
   const start =
     text.lastIndexOf(
@@ -416,7 +480,9 @@ function parseSupervisorTurn(
 
   try {
     parsedJson =
-      JSON.parse(raw);
+      JSON.parse(
+        raw,
+      );
   } catch {
     throw new ConversationServiceError(
       "Supervisor returned malformed JSON",
@@ -443,8 +509,10 @@ function parseSupervisorTurn(
  * Runs one non-interactive supervisor turn using persisted orchestrator configuration.
  */
 async function runSupervisorTurn(
-  projectPath: string,
-  content: string,
+  projectPath:
+    string,
+  content:
+    string,
   context:
     SupervisorContext,
 ): Promise<OrchestratorTurn> {
@@ -460,6 +528,7 @@ Hard rules:
 - Do not claim that an agent is editing, testing, waiting, blocked, failed, or complete unless a backend tool result in this turn proves it.
 - Use structured agent execution results for result and handoff summaries.
 - Never use terminal text as authoritative workflow state.
+- The persisted conversation projectPath and teamId are authoritative scope. Never invent, replace, or select a Team ID.
 - If toolResults is empty, you MUST return a tool_call. You may not return final.
 - Use only these tools: get_project, get_task, create_task, start_run, get_run, get_agent_execution, get_recent_events, send_instruction, stop_run, retry_execution.
 - Return exactly one JSON object inside ${SUPERVISOR_BLOCK_START} and ${SUPERVISOR_BLOCK_END}.
@@ -507,7 +576,9 @@ ${content}`;
           config.harness,
         );
 
-      let text = "";
+      let text =
+        "";
+
       let settled =
         false;
 
@@ -522,7 +593,9 @@ ${content}`;
           return;
         }
 
-        settled = true;
+        settled =
+          true;
+
         callback();
       };
 
@@ -549,6 +622,7 @@ ${content}`;
                     ),
                   ),
               );
+
               return;
             }
 
@@ -558,7 +632,8 @@ ${content}`;
               );
 
             if (value) {
-              text += value;
+              text +=
+                value;
             }
           }
 
@@ -579,6 +654,7 @@ ${content}`;
                   ),
                 ),
             );
+
             return;
           }
 
@@ -611,8 +687,7 @@ ${content}`;
 }
 
 /**
- * Preloads authoritative project, task, and run state into the supervisor context
- * to avoid unnecessary tool-call round trips for simple messages.
+ * Preloads authoritative Project, Task, and Run state into the supervisor context to avoid unnecessary tool-call round trips for simple messages.
  */
 async function preloadSupervisorContext(
   conversation:
@@ -620,19 +695,22 @@ async function preloadSupervisorContext(
   toolResults:
     ToolHistoryItem[],
 ): Promise<void> {
-  const preloadCalls: OrchestratorToolCall[] =
-    [
-      {
-        name: "get_project",
-        arguments: {},
-      },
-    ];
+  const preloadCalls:
+    OrchestratorToolCall[] =
+      [
+        {
+          name:
+            "get_project",
+          arguments: {},
+        },
+      ];
 
   if (
     conversation.taskId
   ) {
     preloadCalls.push({
-      name: "get_task",
+      name:
+        "get_task",
       arguments: {},
     });
   }
@@ -641,13 +719,15 @@ async function preloadSupervisorContext(
     conversation.runId
   ) {
     preloadCalls.push({
-      name: "get_run",
+      name:
+        "get_run",
       arguments: {},
     });
   }
 
   for (
-    const tool of preloadCalls
+    const tool of
+    preloadCalls
   ) {
     try {
       const execution =
@@ -662,17 +742,17 @@ async function preloadSupervisorContext(
           execution.result,
       });
     } catch {
-      // Preloading is a latency optimization only; the bounded tool loop can still
-      // request this state itself if a stale task/run reference makes it unavailable.
+      // Preloading is only a latency optimization. The bounded tool loop remains authoritative.
     }
   }
 }
 
 /**
- * Persists current task/run references after a successful orchestrator control action.
+ * Persists current Task and Run references after a successful orchestrator control action without changing Conversation Team scope.
  */
 async function persistConversationReferences(
-  id: string,
+  id:
+    string,
   taskId:
     | string
     | null,
@@ -705,8 +785,10 @@ async function persistConversationReferences(
  * Persists a user message, executes a bounded grounded tool loop, and stores the final supervisor response.
  */
 export async function postConversationMessage(
-  id: string,
-  content: string,
+  id:
+    string,
+  content:
+    string,
 ) {
   const found =
     await getConversation(
@@ -755,15 +837,16 @@ export async function postConversationMessage(
 
   const toolResults:
     ToolHistoryItem[] =
-    [];
+      [];
 
-  const initialConversation: Conversation =
-    {
-      ...found.conversation,
-      projectPath,
-      taskId,
-      runId,
-    };
+  const initialConversation:
+    Conversation =
+      {
+        ...found.conversation,
+        projectPath,
+        taskId,
+        runId,
+      };
 
   await preloadSupervisorContext(
     initialConversation,
@@ -784,13 +867,14 @@ export async function postConversationMessage(
     projectPath =
       project.path;
 
-    const conversationContext: Conversation =
-      {
-        ...found.conversation,
-        projectPath,
-        taskId,
-        runId,
-      };
+    const conversationContext:
+      Conversation =
+        {
+          ...found.conversation,
+          projectPath,
+          taskId,
+          runId,
+        };
 
     const turn =
       await runSupervisorTurn(
@@ -799,6 +883,9 @@ export async function postConversationMessage(
         {
           conversation: {
             id,
+            teamId:
+              found.conversation
+                .teamId,
             projectPath,
             taskId,
             runId,

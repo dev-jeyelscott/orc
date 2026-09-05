@@ -17,40 +17,53 @@ import {
   normalizeTokenUsage,
 } from "./run-observability";
 
+const TEAM_ID =
+  "00000000-0000-4000-9000-000000000001";
+
 /**
- * Creates a deterministic monitoring summary for pure helper verification.
+ * Creates a deterministic Team-scoped monitoring summary for pure helper verification.
  */
 function createRun(
-  input: Partial<RunMonitoringSummary> = {},
+  input:
+    Partial<RunMonitoringSummary> = {},
 ): RunMonitoringSummary {
   return {
     id:
       crypto.randomUUID(),
     taskId:
       crypto.randomUUID(),
+    teamId:
+      TEAM_ID,
     projectPath:
       "/workspace/shop-portal",
-    status: "completed",
-    currentAgentId: null,
-    executionCount: 1,
-    terminalReason: null,
+    status:
+      "completed",
+    currentAgentId:
+      null,
+    executionCount:
+      1,
+    terminalReason:
+      null,
     createdAt:
       "2026-09-04T00:00:00.000Z",
     updatedAt:
       "2026-09-04T00:10:00.000Z",
     taskTitle:
       "Implement checkout retry flow",
-    plannedExecutionCount: 3,
-    currentAgent: null,
+    plannedExecutionCount:
+      3,
+    currentAgent:
+      null,
     ...input,
   };
 }
 
 /**
- * Creates a deterministic workflow-plan agent.
+ * Creates a deterministic workflow-plan Agent.
  */
 function createPlanAgent(
-  input: Partial<WorkflowPlanAgent> = {},
+  input:
+    Partial<WorkflowPlanAgent> = {},
 ): WorkflowPlanAgent {
   return {
     id:
@@ -59,11 +72,16 @@ function createPlanAgent(
       "Generic Worker",
     role:
       "Implementation",
-    layer: 1,
-    executionOrder: 1,
-    harness: "codex",
-    model: "default",
-    reasoning: "high",
+    layer:
+      1,
+    executionOrder:
+      1,
+    harness:
+      "codex",
+    model:
+      "default",
+    reasoning:
+      "high",
     ...input,
   };
 }
@@ -72,49 +90,67 @@ function createPlanAgent(
  * Creates a deterministic persisted execution.
  */
 function createExecution(
-  agent: WorkflowPlanAgent,
-  input: Partial<AgentExecution> = {},
+  agent:
+    WorkflowPlanAgent,
+  input:
+    Partial<AgentExecution> = {},
 ): AgentExecution {
   return {
     id:
       crypto.randomUUID(),
     runId:
       crypto.randomUUID(),
-    agentId: agent.id,
-    agentName: agent.name,
-    agentRole: agent.role,
-    layer: agent.layer,
+    agentId:
+      agent.id,
+    agentName:
+      agent.name,
+    agentRole:
+      agent.role,
+    layer:
+      agent.layer,
     executionOrder:
       agent.executionOrder,
     harness:
       agent.harness,
-    model: agent.model,
+    model:
+      agent.model,
     reasoning:
       agent.reasoning,
-    status: "completed",
-    pid: 1234,
+    status:
+      "completed",
+    pid:
+      1234,
     startedAt:
       "2026-09-04T00:00:00.000Z",
     completedAt:
       "2026-09-04T00:05:00.000Z",
-    exitCode: 0,
+    exitCode:
+      0,
     resultStatus:
       "completed",
     resultPayload: {
-      status: "completed",
-      summary: "Done",
+      status:
+        "completed",
+      summary:
+        "Done",
       details: {},
       findings: [],
       filesChanged: [],
       commandsRun: [],
       validation: {},
-      commit: null,
+      commit:
+        null,
     },
-    tokenUsage: null,
-    contextUsage: null,
-    commitHash: null,
-    failureReason: null,
-    repairAttempted: false,
+    tokenUsage:
+      null,
+    contextUsage:
+      null,
+    commitHash:
+      null,
+    failureReason:
+      null,
+    repairAttempted:
+      false,
     createdAt:
       "2026-09-04T00:00:00.000Z",
     updatedAt:
@@ -138,7 +174,8 @@ function testFiltering(): void {
         "Fix payment timeout",
       projectPath:
         "/workspace/billing-api",
-      status: "failed",
+      status:
+        "failed",
     });
 
   assert.deepEqual(
@@ -150,10 +187,14 @@ function testFiltering(): void {
       "payment",
       "all",
     ).map(
-      (run) =>
+      (
+        run,
+      ) =>
         run.id,
     ),
-    [failed.id],
+    [
+      failed.id,
+    ],
   );
 
   assert.deepEqual(
@@ -165,10 +206,14 @@ function testFiltering(): void {
       "",
       "completed",
     ).map(
-      (run) =>
+      (
+        run,
+      ) =>
         run.id,
     ),
-    [completed.id],
+    [
+      completed.id,
+    ],
   );
 }
 
@@ -184,12 +229,14 @@ function testMetrics(): void {
         "2026-09-04T00:10:00.000Z",
     }),
     createRun({
-      status: "failed",
+      status:
+        "failed",
       updatedAt:
         "2026-09-04T00:20:00.000Z",
     }),
     createRun({
-      status: "blocked",
+      status:
+        "blocked",
       updatedAt:
         "2026-09-04T00:30:00.000Z",
     }),
@@ -231,33 +278,45 @@ function testMetrics(): void {
 function testUsage(): void {
   assert.deepEqual(
     normalizeTokenUsage({
-      input_tokens: 100,
-      output_tokens: 50,
+      input_tokens:
+        100,
+      output_tokens:
+        50,
     }),
     {
-      inputTokens: 100,
-      outputTokens: 50,
-      cachedTokens: null,
-      totalTokens: 150,
+      inputTokens:
+        100,
+      outputTokens:
+        50,
+      cachedTokens:
+        null,
+      totalTokens:
+        150,
     },
   );
 
   assert.equal(
     normalizeTokenUsage({
-      mystery: 100,
+      mystery:
+        100,
     }),
     null,
   );
 
   assert.deepEqual(
     normalizeContextUsage({
-      used_tokens: 500,
-      limit_tokens: 1000,
+      used_tokens:
+        500,
+      limit_tokens:
+        1000,
     }),
     {
-      percent: 50,
-      usedTokens: 500,
-      limitTokens: 1000,
+      percent:
+        50,
+      usedTokens:
+        500,
+      limitTokens:
+        1000,
     },
   );
 
@@ -270,12 +329,16 @@ function testUsage(): void {
         agent,
         {
           tokenUsage: {
-            input_tokens: 100,
-            output_tokens: 50,
+            input_tokens:
+              100,
+            output_tokens:
+              50,
           },
           contextUsage: {
-            used_tokens: 500,
-            limit_tokens: 1000,
+            used_tokens:
+              500,
+            limit_tokens:
+              1000,
           },
         },
       ),
@@ -300,16 +363,22 @@ function testUsage(): void {
 function testWorkflowPlan(): void {
   const first =
     createPlanAgent({
-      name: "Worker A",
-      layer: 1,
-      executionOrder: 1,
+      name:
+        "Worker A",
+      layer:
+        1,
+      executionOrder:
+        1,
     });
 
   const second =
     createPlanAgent({
-      name: "Worker B",
-      layer: 2,
-      executionOrder: 1,
+      name:
+        "Worker B",
+      layer:
+        2,
+      executionOrder:
+        1,
     });
 
   const runId =
@@ -323,34 +392,42 @@ function testWorkflowPlan(): void {
       },
     );
 
-  const detail: RunMonitoringDetail =
-    {
-      run: {
-        id: runId,
-        taskId:
-          crypto.randomUUID(),
-        projectPath:
-          "/workspace/test",
-        status: "running",
-        currentAgentId:
-          second.id,
-        executionCount: 2,
-        terminalReason: null,
-        createdAt:
-          "2026-09-04T00:00:00.000Z",
-        updatedAt:
-          "2026-09-04T00:05:00.000Z",
-      },
-      task: null,
-      executions: [
-        execution,
-      ],
-      events: [],
-      executionPlan: [
-        first,
-        second,
-      ],
-    };
+  const detail:
+    RunMonitoringDetail =
+      {
+        run: {
+          id:
+            runId,
+          taskId:
+            crypto.randomUUID(),
+          teamId:
+            TEAM_ID,
+          projectPath:
+            "/workspace/test",
+          status:
+            "running",
+          currentAgentId:
+            second.id,
+          executionCount:
+            2,
+          terminalReason:
+            null,
+          createdAt:
+            "2026-09-04T00:00:00.000Z",
+          updatedAt:
+            "2026-09-04T00:05:00.000Z",
+        },
+        task:
+          null,
+        executions: [
+          execution,
+        ],
+        events: [],
+        executionPlan: [
+          first,
+          second,
+        ],
+      };
 
   const steps =
     deriveWorkflowSteps(
@@ -372,7 +449,7 @@ function testWorkflowPlan(): void {
 }
 
 /**
- * Verifies chart bucketing counts only persisted run creation timestamps inside the window.
+ * Verifies chart bucketing counts only persisted Run creation timestamps inside the window.
  */
 function testChartBuckets(): void {
   const now =
@@ -399,7 +476,10 @@ function testChartBuckets(): void {
 
   assert.equal(
     buckets.reduce(
-      (total, bucket) =>
+      (
+        total,
+        bucket,
+      ) =>
         total +
         bucket.count,
       0,
