@@ -814,7 +814,7 @@ export function AgentExecutionTerminal({
   return (
     <div
       className={cn(
-        "flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border-default bg-bg-app shadow-xs",
+        "neon-surface flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border-default bg-bg-app shadow-xs",
         expanded &&
           "fixed inset-3 z-50 bg-bg-app shadow-lg sm:inset-6",
         className,

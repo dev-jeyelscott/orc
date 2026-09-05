@@ -55,6 +55,8 @@
   --color-link: var(--link);
   --color-focus-ring: var(--focus-ring);
   --color-brand-accent: var(--brand-accent);
+  --color-neon-cyan: var(--neon-cyan);
+  --color-neon-violet: var(--neon-violet);
 
   /* Semantic status tokens */
   --color-status-running: var(--status-running);
@@ -96,6 +98,13 @@
   --link: #2563eb;
   --focus-ring: #7c3aed;
   --brand-accent: #7c3aed;
+  --neon-cyan: #06b6d4;
+  --neon-violet: #8b5cf6;
+  --neon-border: color-mix(in srgb, var(--neon-cyan) 44%, var(--border-default));
+  --neon-border-strong: color-mix(in srgb, var(--neon-violet) 54%, var(--neon-cyan));
+  --neon-glow: 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 12%, transparent), 0 0 14px color-mix(in srgb, var(--neon-cyan) 11%, transparent), 0 0 22px color-mix(in srgb, var(--neon-violet) 7%, transparent);
+  --neon-glow-active: 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 36%, transparent), 0 0 18px color-mix(in srgb, var(--neon-cyan) 20%, transparent), 0 0 30px color-mix(in srgb, var(--neon-violet) 16%, transparent);
+  --neon-inset: inset 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 16%, transparent), inset 0 0 18px color-mix(in srgb, var(--neon-violet) 4%, transparent);
 
   /* Semantic status tokens, light */
   --status-running: #2563eb;
@@ -156,6 +165,13 @@
   --link: #61aaff;
   --focus-ring: #7c3aed;
   --brand-accent: #7c3aed;
+  --neon-cyan: #22d3ee;
+  --neon-violet: #a78bfa;
+  --neon-border: color-mix(in srgb, var(--neon-cyan) 46%, var(--border-default));
+  --neon-border-strong: color-mix(in srgb, var(--neon-violet) 55%, var(--neon-cyan));
+  --neon-glow: 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 16%, transparent), 0 0 16px color-mix(in srgb, var(--neon-cyan) 15%, transparent), 0 0 28px color-mix(in srgb, var(--neon-violet) 10%, transparent);
+  --neon-glow-active: 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 42%, transparent), 0 0 20px color-mix(in srgb, var(--neon-cyan) 25%, transparent), 0 0 34px color-mix(in srgb, var(--neon-violet) 20%, transparent);
+  --neon-inset: inset 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 20%, transparent), inset 0 0 22px color-mix(in srgb, var(--neon-violet) 7%, transparent);
 
   /* Semantic status tokens, dark */
   --status-running: #3b82f6;
@@ -240,6 +256,55 @@
 }
 
 @layer components {
+  .neon-surface {
+    border-color: var(--neon-border) !important;
+    box-shadow: var(--neon-glow) !important;
+    transition: border-color 180ms ease, box-shadow 180ms ease;
+  }
+
+  .neon-surface:hover,
+  .neon-surface:focus-within {
+    border-color: var(--neon-border-strong) !important;
+    box-shadow: var(--neon-glow-active) !important;
+  }
+
+  .neon-table-surface {
+    border-color: var(--neon-border) !important;
+    box-shadow: var(--neon-inset) !important;
+  }
+
+  .neon-chart-surface {
+    border-radius: var(--radius-md);
+    box-shadow: var(--neon-inset) !important;
+  }
+
+  .neon-tooltip {
+    border-color: var(--neon-border) !important;
+    box-shadow: var(--neon-glow-active) !important;
+  }
+
+  .neon-terminal-surface {
+    border-color: var(--neon-cyan) !important;
+    box-shadow: var(--neon-glow) !important;
+  }
+
+  [data-slot="drawer-popup"],
+  [data-slot="sheet-content"],
+  [data-slot="sidebar-container"] {
+    border-color: var(--neon-border) !important;
+    box-shadow: var(--neon-glow) !important;
+  }
+
+  [data-slot="chart"] .recharts-cartesian-grid line,
+  [data-slot="chart"] .recharts-polar-grid line {
+    stroke: color-mix(in srgb, var(--neon-cyan) 32%, transparent);
+  }
+
+  [data-slot="chart"] .recharts-active-dot,
+  [data-slot="chart"] .recharts-dot {
+    filter: drop-shadow(0 0 3px color-mix(in srgb, var(--neon-cyan) 65%, transparent));
+  }
+
   .agents-react-flow .react-flow__pane {
     cursor: grab;
   }
@@ -255,10 +320,10 @@
 
   .agents-react-flow .react-flow__controls {
     overflow: hidden;
-    border: 1px solid var(--border-default);
+    border: 1px solid var(--neon-border);
     border-radius: var(--radius-md);
     background: var(--surface-elevated);
-    box-shadow: var(--shadow-sm);
+    box-shadow: var(--neon-glow);
   }
 
   .agents-react-flow .react-flow__controls-button {

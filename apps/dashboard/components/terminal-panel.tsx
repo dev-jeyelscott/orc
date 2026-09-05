@@ -23,7 +23,7 @@ function TerminalPanel({ title, lines, className }: TerminalPanelProps) {
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-lg border border-[#2A3342] bg-[#0B0F14]",
+        "neon-terminal-surface overflow-hidden rounded-lg border border-[#2A3342] bg-[#0B0F14]",
         className
       )}
     >
