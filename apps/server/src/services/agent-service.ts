@@ -1,4 +1,12 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import type {
   Agent,
@@ -10,11 +18,24 @@ import type {
   UpdateAgentRoute,
 } from "@orc/shared";
 
-import { db } from "../db/client.js";
-import { agents, agentRoutes, runs } from "../db/schema.js";
+import {
+  db,
+} from "../db/client.js";
+import {
+  agents,
+  agentRoutes,
+  runs,
+  teams,
+} from "../db/schema.js";
 
 export class AgentServiceError extends Error {
-  constructor(message: string, readonly statusCode: number) {
+  /**
+   * Creates an Agent service error carrying its HTTP status.
+   */
+  constructor(
+    message: string,
+    readonly statusCode: number,
+  ) {
     super(message);
   }
 }
@@ -22,46 +43,91 @@ export class AgentServiceError extends Error {
 /**
  * Converts an agent database row into the shared API representation.
  */
-function serializeAgent(row: typeof agents.$inferSelect): Agent {
+function serializeAgent(
+  row:
+    typeof agents.$inferSelect,
+): Agent {
   return {
     ...row,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
+    createdAt:
+      row.createdAt.toISOString(),
+    updatedAt:
+      row.updatedAt.toISOString(),
   };
 }
 
 /**
  * Converts an agent route database row into the shared API representation.
  */
-function serializeRoute(row: typeof agentRoutes.$inferSelect): AgentRoute {
+function serializeRoute(
+  row:
+    typeof agentRoutes.$inferSelect,
+): AgentRoute {
   return {
     ...row,
-    targetAgentId: row.targetAgentId ?? null,
-    terminalAction: row.terminalAction ?? null,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
+    targetAgentId:
+      row.targetAgentId ??
+      null,
+    terminalAction:
+      row.terminalAction ??
+      null,
+    createdAt:
+      row.createdAt.toISOString(),
+    updatedAt:
+      row.updatedAt.toISOString(),
   };
 }
 
 /**
  * Maps expected PostgreSQL constraint errors into stable service errors.
  */
-function translateDatabaseError(error: unknown): never {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    const code = (error as { code?: string }).code;
+function translateDatabaseError(
+  error: unknown,
+): never {
+  if (
+    error instanceof
+    AgentServiceError
+  ) {
+    throw error;
+  }
 
-    if (code === "23505") {
+  if (
+    typeof error ===
+      "object" &&
+    error !== null &&
+    "code" in error
+  ) {
+    const code =
+      (
+        error as {
+          code?: string;
+        }
+      ).code;
+
+    if (
+      code ===
+      "23505"
+    ) {
       throw new AgentServiceError(
-        "An agent slug, layer/order, or route outcome already exists",
+        "An agent slug, Team layer/order slot, or route outcome already exists",
         409,
       );
     }
 
-    if (code === "23503") {
-      throw new AgentServiceError("The referenced agent does not exist", 400);
+    if (
+      code ===
+      "23503"
+    ) {
+      throw new AgentServiceError(
+        "The referenced Team or agent does not exist",
+        400,
+      );
     }
 
-    if (code === "23514") {
+    if (
+      code ===
+      "23514"
+    ) {
       throw new AgentServiceError(
         "The agent or route configuration is invalid",
         400,
@@ -76,165 +142,645 @@ function translateDatabaseError(error: unknown): never {
  * Returns whether a persisted workflow snapshot contains the requested agent.
  */
 function workflowSnapshotContainsAgent(
-  snapshot: unknown,
-  agentId: string,
+  snapshot:
+    unknown,
+  agentId:
+    string,
 ): boolean {
   if (
-    typeof snapshot !== "object" ||
-    snapshot === null ||
-    !("agents" in snapshot)
+    typeof snapshot !==
+      "object" ||
+    snapshot ===
+      null ||
+    !(
+      "agents" in
+      snapshot
+    )
   ) {
     return false;
   }
 
-  const snapshotAgents = (snapshot as { agents?: unknown }).agents;
-  if (!Array.isArray(snapshotAgents)) return false;
+  const snapshotAgents =
+    (
+      snapshot as {
+        agents?: unknown;
+      }
+    ).agents;
+
+  if (
+    !Array.isArray(
+      snapshotAgents,
+    )
+  ) {
+    return false;
+  }
 
   return snapshotAgents.some(
-    (candidate) =>
-      typeof candidate === "object" &&
-      candidate !== null &&
-      "id" in candidate &&
-      candidate.id === agentId,
+    (
+      candidate,
+    ) =>
+      typeof candidate ===
+        "object" &&
+      candidate !==
+        null &&
+      "id" in
+        candidate &&
+      candidate.id ===
+        agentId,
   );
 }
 
 /**
- * Ensures a route target exists and is currently available for new runs.
+ * Ensures a Team exists before an Agent is assigned to it.
  */
-async function assertAvailableTarget(targetAgentId: string | null) {
-  if (!targetAgentId) return;
+async function assertTeamExists(
+  teamId:
+    string,
+) {
+  const [team] =
+    await db
+      .select({
+        id:
+          teams.id,
+      })
+      .from(teams)
+      .where(
+        eq(
+          teams.id,
+          teamId,
+        ),
+      );
 
-  const [target] = await db
-    .select({ enabled: agents.enabled })
-    .from(agents)
-    .where(eq(agents.id, targetAgentId));
-
-  if (!target) {
-    throw new AgentServiceError("The target agent does not exist", 400);
-  }
-
-  if (!target.enabled) {
+  if (
+    !team
+  ) {
     throw new AgentServiceError(
-      "Routes cannot target a disabled agent",
+      "The selected Team does not exist",
       400,
     );
   }
 }
 
 /**
- * Lists every configured agent using deterministic workflow ordering.
+ * Lists every configured agent using deterministic Team and workflow ordering.
  */
-export async function listAgents(): Promise<Agent[]> {
+export async function listAgents(): Promise<
+  Agent[]
+> {
   return (
     await db
       .select()
       .from(agents)
-      .orderBy(asc(agents.layer), asc(agents.executionOrder))
-  ).map(serializeAgent);
+      .orderBy(
+        asc(
+          agents.teamId,
+        ),
+        asc(
+          agents.layer,
+        ),
+        asc(
+          agents.executionOrder,
+        ),
+        asc(
+          agents.name,
+        ),
+      )
+  ).map(
+    serializeAgent,
+  );
 }
 
 /**
  * Returns one agent together with its configured routing records.
  */
-export async function getAgent(id: string): Promise<AgentWithRoutes | null> {
-  const [agent] = await db.select().from(agents).where(eq(agents.id, id));
-  if (!agent) return null;
+export async function getAgent(
+  id:
+    string,
+): Promise<
+  AgentWithRoutes | null
+> {
+  const [agent] =
+    await db
+      .select()
+      .from(agents)
+      .where(
+        eq(
+          agents.id,
+          id,
+        ),
+      );
 
-  const routes = await db
-    .select()
-    .from(agentRoutes)
-    .where(eq(agentRoutes.sourceAgentId, id));
+  if (
+    !agent
+  ) {
+    return null;
+  }
+
+  const routes =
+    await db
+      .select()
+      .from(
+        agentRoutes,
+      )
+      .where(
+        eq(
+          agentRoutes.sourceAgentId,
+          id,
+        ),
+      );
 
   return {
-    ...serializeAgent(agent),
-    routes: routes.map(serializeRoute),
+    ...serializeAgent(
+      agent,
+    ),
+    routes:
+      routes.map(
+        serializeRoute,
+      ),
   };
 }
 
 /**
- * Creates a new dynamic worker-agent configuration.
+ * Creates a new dynamic worker-agent configuration inside an existing Team.
  */
-export async function createAgent(input: CreateAgent): Promise<Agent> {
+export async function createAgent(
+  input:
+    CreateAgent,
+): Promise<Agent> {
   try {
-    const [agent] = await db.insert(agents).values(input).returning();
-    return serializeAgent(agent);
+    await assertTeamExists(
+      input.teamId,
+    );
+
+    const [agent] =
+      await db
+        .insert(agents)
+        .values(input)
+        .returning();
+
+    return serializeAgent(
+      agent,
+    );
   } catch (error) {
-    return translateDatabaseError(error);
+    return translateDatabaseError(
+      error,
+    );
   }
 }
 
 /**
- * Updates agent configuration without mutating persisted route enabled states.
+ * Updates agent configuration and validates routing before Team reassignment or target deactivation.
  */
 export async function updateAgent(
-  id: string,
-  input: UpdateAgent,
-): Promise<Agent | null> {
+  id:
+    string,
+  input:
+    UpdateAgent,
+): Promise<
+  Agent | null
+> {
   try {
-    const [agent] = await db
-      .update(agents)
-      .set({ ...input, updatedAt: new Date() })
-      .where(eq(agents.id, id))
-      .returning();
+    const requiresRouteValidation =
+      input.teamId !==
+        undefined ||
+      input.enabled ===
+        false;
 
-    return agent ? serializeAgent(agent) : null;
+    if (
+      !requiresRouteValidation
+    ) {
+      const [agent] =
+        await db
+          .update(agents)
+          .set({
+            ...input,
+            updatedAt:
+              new Date(),
+          })
+          .where(
+            eq(
+              agents.id,
+              id,
+            ),
+          )
+          .returning();
+
+      return agent
+        ? serializeAgent(
+            agent,
+          )
+        : null;
+    }
+
+    return await db.transaction(
+      async (
+        tx,
+      ) => {
+        await tx.execute(
+          sql`LOCK TABLE ${agents} IN SHARE ROW EXCLUSIVE MODE`,
+        );
+
+        await tx.execute(
+          sql`LOCK TABLE ${agentRoutes} IN SHARE ROW EXCLUSIVE MODE`,
+        );
+
+        const [existing] =
+          await tx
+            .select()
+            .from(agents)
+            .where(
+              eq(
+                agents.id,
+                id,
+              ),
+            );
+
+        if (
+          !existing
+        ) {
+          return null;
+        }
+
+        const destinationTeamId =
+          input.teamId ??
+          existing.teamId;
+
+        const destinationLayer =
+          input.layer ??
+          existing.layer;
+
+        const destinationExecutionOrder =
+          input.executionOrder ??
+          existing.executionOrder;
+
+        const [destinationTeam] =
+          await tx
+            .select({
+              id:
+                teams.id,
+            })
+            .from(teams)
+            .where(
+              eq(
+                teams.id,
+                destinationTeamId,
+              ),
+            );
+
+        if (
+          !destinationTeam
+        ) {
+          throw new AgentServiceError(
+            "The destination Team does not exist",
+            400,
+          );
+        }
+
+        const [slotConflict] =
+          await tx
+            .select({
+              id:
+                agents.id,
+            })
+            .from(agents)
+            .where(
+              and(
+                eq(
+                  agents.teamId,
+                  destinationTeamId,
+                ),
+                eq(
+                  agents.layer,
+                  destinationLayer,
+                ),
+                eq(
+                  agents.executionOrder,
+                  destinationExecutionOrder,
+                ),
+                ne(
+                  agents.id,
+                  id,
+                ),
+              ),
+            )
+            .limit(1);
+
+        if (
+          slotConflict
+        ) {
+          throw new AgentServiceError(
+            `The destination Team already has an agent in layer ${destinationLayer}, execution order ${destinationExecutionOrder}`,
+            409,
+          );
+        }
+
+        if (
+          input.enabled ===
+            false &&
+          existing.enabled
+        ) {
+          const [enabledIncomingRoute] =
+            await tx
+              .select({
+                id:
+                  agentRoutes.id,
+              })
+              .from(
+                agentRoutes,
+              )
+              .where(
+                and(
+                  eq(
+                    agentRoutes.targetAgentId,
+                    id,
+                  ),
+                  eq(
+                    agentRoutes.enabled,
+                    true,
+                  ),
+                ),
+              )
+              .limit(1);
+
+          if (
+            enabledIncomingRoute
+          ) {
+            throw new AgentServiceError(
+              "Disable incoming enabled routes before disabling this target agent",
+              409,
+            );
+          }
+        }
+
+        if (
+          destinationTeamId !==
+          existing.teamId
+        ) {
+          const relatedRoutes =
+            await tx
+              .select()
+              .from(
+                agentRoutes,
+              )
+              .where(
+                or(
+                  eq(
+                    agentRoutes.sourceAgentId,
+                    id,
+                  ),
+                  eq(
+                    agentRoutes.targetAgentId,
+                    id,
+                  ),
+                ),
+              );
+
+          const relatedAgentIds =
+            new Set<string>();
+
+          for (
+            const route of
+            relatedRoutes
+          ) {
+            if (
+              route.sourceAgentId ===
+                id &&
+              route.targetAgentId
+            ) {
+              relatedAgentIds.add(
+                route.targetAgentId,
+              );
+            }
+
+            if (
+              route.targetAgentId ===
+              id
+            ) {
+              relatedAgentIds.add(
+                route.sourceAgentId,
+              );
+            }
+          }
+
+          const relatedAgents =
+            relatedAgentIds.size >
+            0
+              ? await tx
+                  .select({
+                    id:
+                      agents.id,
+                    teamId:
+                      agents.teamId,
+                  })
+                  .from(
+                    agents,
+                  )
+                  .where(
+                    inArray(
+                      agents.id,
+                      [
+                        ...relatedAgentIds,
+                      ],
+                    ),
+                  )
+              : [];
+
+          const teamByAgentId =
+            new Map(
+              relatedAgents.map(
+                (
+                  agent,
+                ) => [
+                  agent.id,
+                  agent.teamId,
+                ],
+              ),
+            );
+
+          const incompatibleRoute =
+            relatedRoutes.find(
+              (
+                route,
+              ) => {
+                if (
+                  route.sourceAgentId ===
+                    id &&
+                  route.targetAgentId
+                ) {
+                  return (
+                    teamByAgentId.get(
+                      route.targetAgentId,
+                    ) !==
+                    destinationTeamId
+                  );
+                }
+
+                if (
+                  route.targetAgentId ===
+                  id
+                ) {
+                  return (
+                    teamByAgentId.get(
+                      route.sourceAgentId,
+                    ) !==
+                    destinationTeamId
+                  );
+                }
+
+                return false;
+              },
+            );
+
+          if (
+            incompatibleRoute
+          ) {
+            throw new AgentServiceError(
+              "Agent cannot move Teams because an incoming or outgoing route would become cross-Team",
+              409,
+            );
+          }
+        }
+
+        const [agent] =
+          await tx
+            .update(agents)
+            .set({
+              ...input,
+              updatedAt:
+                new Date(),
+            })
+            .where(
+              eq(
+                agents.id,
+                id,
+              ),
+            )
+            .returning();
+
+        return agent
+          ? serializeAgent(
+              agent,
+            )
+          : null;
+      },
+    );
   } catch (error) {
-    return translateDatabaseError(error);
+    return translateDatabaseError(
+      error,
+    );
   }
 }
 
 /**
  * Permanently deletes an agent only when no active workflow snapshot contains it.
  *
- * A short SHARE lock prevents new or transitioning workflow rows from racing
- * the active-snapshot check. Historical workflow snapshots are never updated.
- * Database foreign keys remove routes and null historical execution references.
+ * Historical workflow snapshots are never updated. Database foreign keys remove
+ * routes and null historical execution references.
  */
-export async function deleteAgent(id: string): Promise<boolean> {
+export async function deleteAgent(
+  id:
+    string,
+): Promise<boolean> {
   try {
-    return await db.transaction(async (tx) => {
-      await tx.execute(sql`LOCK TABLE ${runs} IN SHARE MODE`);
-
-      const [existing] = await tx
-        .select({ id: agents.id })
-        .from(agents)
-        .where(eq(agents.id, id));
-
-      if (!existing) return false;
-
-      const activeRuns = await tx
-        .select({
-          id: runs.id,
-          workflowSnapshot: runs.workflowSnapshot,
-        })
-        .from(runs)
-        .where(inArray(runs.status, ["pending", "running"]));
-
-      const conflictingRun = activeRuns.find((run) =>
-        workflowSnapshotContainsAgent(run.workflowSnapshot, id),
-      );
-
-      if (conflictingRun) {
-        throw new AgentServiceError(
-          `Agent cannot be deleted because active run ${conflictingRun.id} contains it in its workflow snapshot`,
-          409,
+    return await db.transaction(
+      async (
+        tx,
+      ) => {
+        await tx.execute(
+          sql`LOCK TABLE ${runs} IN SHARE MODE`,
         );
-      }
 
-      const [deleted] = await tx
-        .delete(agents)
-        .where(eq(agents.id, id))
-        .returning({ id: agents.id });
+        const [existing] =
+          await tx
+            .select({
+              id:
+                agents.id,
+            })
+            .from(agents)
+            .where(
+              eq(
+                agents.id,
+                id,
+              ),
+            );
 
-      return Boolean(deleted);
-    });
+        if (
+          !existing
+        ) {
+          return false;
+        }
+
+        const activeRuns =
+          await tx
+            .select({
+              id:
+                runs.id,
+              workflowSnapshot:
+                runs.workflowSnapshot,
+            })
+            .from(runs)
+            .where(
+              inArray(
+                runs.status,
+                [
+                  "pending",
+                  "running",
+                ],
+              ),
+            );
+
+        const conflictingRun =
+          activeRuns.find(
+            (
+              run,
+            ) =>
+              workflowSnapshotContainsAgent(
+                run.workflowSnapshot,
+                id,
+              ),
+          );
+
+        if (
+          conflictingRun
+        ) {
+          throw new AgentServiceError(
+            `Agent cannot be deleted because active run ${conflictingRun.id} contains it in its workflow snapshot`,
+            409,
+          );
+        }
+
+        const [deleted] =
+          await tx
+            .delete(agents)
+            .where(
+              eq(
+                agents.id,
+                id,
+              ),
+            )
+            .returning({
+              id:
+                agents.id,
+            });
+
+        return Boolean(
+          deleted,
+        );
+      },
+    );
   } catch (error) {
     if (
-      typeof error === "object" &&
-      error !== null &&
+      typeof error ===
+        "object" &&
+      error !==
+        null &&
       "code" in error &&
-      (error as { code?: string }).code === "23503"
+      (
+        error as {
+          code?: string;
+        }
+      ).code ===
+        "23503"
     ) {
       throw new AgentServiceError(
         "Agent cannot be deleted because related data still references it",
@@ -242,93 +788,306 @@ export async function deleteAgent(id: string): Promise<boolean> {
       );
     }
 
-    return translateDatabaseError(error);
+    return translateDatabaseError(
+      error,
+    );
   }
 }
 
 /**
- * Creates a route for an existing source agent.
- *
- * Source-agent enabled state is deliberately independent from route enabled
- * state so routes can remain configured while the source agent is disabled.
+ * Creates an explicit outcome route while enforcing Team and enabled-target invariants.
  */
 export async function createAgentRoute(
-  sourceAgentId: string,
-  input: CreateAgentRoute,
+  sourceAgentId:
+    string,
+  input:
+    CreateAgentRoute,
 ): Promise<AgentRoute> {
   try {
-    const [source] = await db
-      .select({ id: agents.id })
-      .from(agents)
-      .where(eq(agents.id, sourceAgentId));
+    return await db.transaction(
+      async (
+        tx,
+      ) => {
+        await tx.execute(
+          sql`LOCK TABLE ${agents} IN SHARE ROW EXCLUSIVE MODE`,
+        );
 
-    if (!source) {
-      throw new AgentServiceError("The source agent does not exist", 404);
-    }
+        await tx.execute(
+          sql`LOCK TABLE ${agentRoutes} IN SHARE ROW EXCLUSIVE MODE`,
+        );
 
-    await assertAvailableTarget(input.targetAgentId);
+        const [source] =
+          await tx
+            .select({
+              id:
+                agents.id,
+              teamId:
+                agents.teamId,
+            })
+            .from(agents)
+            .where(
+              eq(
+                agents.id,
+                sourceAgentId,
+              ),
+            );
 
-    const [route] = await db
-      .insert(agentRoutes)
-      .values({ ...input, sourceAgentId })
-      .returning();
+        if (
+          !source
+        ) {
+          throw new AgentServiceError(
+            "The source agent does not exist",
+            404,
+          );
+        }
 
-    return serializeRoute(route);
+        if (
+          input.targetAgentId
+        ) {
+          const [target] =
+            await tx
+              .select({
+                id:
+                  agents.id,
+                teamId:
+                  agents.teamId,
+                enabled:
+                  agents.enabled,
+              })
+              .from(agents)
+              .where(
+                eq(
+                  agents.id,
+                  input.targetAgentId,
+                ),
+              );
+
+          if (
+            !target
+          ) {
+            throw new AgentServiceError(
+              "The target agent does not exist",
+              400,
+            );
+          }
+
+          if (
+            target.teamId !==
+            source.teamId
+          ) {
+            throw new AgentServiceError(
+              "Routes cannot target an agent in another Team",
+              400,
+            );
+          }
+
+          if (
+            input.enabled &&
+            !target.enabled
+          ) {
+            throw new AgentServiceError(
+              "Enabled routes cannot target a disabled agent",
+              400,
+            );
+          }
+        }
+
+        const [route] =
+          await tx
+            .insert(
+              agentRoutes,
+            )
+            .values({
+              ...input,
+              sourceAgentId,
+            })
+            .returning();
+
+        return serializeRoute(
+          route,
+        );
+      },
+    );
   } catch (error) {
-    return translateDatabaseError(error);
+    return translateDatabaseError(
+      error,
+    );
   }
 }
 
 /**
- * Updates an existing route while preserving the exactly-one-destination rule.
- *
- * A route that currently points at an unavailable target may still be disabled,
- * but it cannot be enabled or saved as an active route until its target is
- * available again or the destination is changed.
+ * Updates an existing route while preserving destination, Team, and enabled-target rules.
  */
 export async function updateAgentRoute(
-  agentId: string,
-  routeId: string,
-  input: UpdateAgentRoute,
-): Promise<AgentRoute | null> {
+  agentId:
+    string,
+  routeId:
+    string,
+  input:
+    UpdateAgentRoute,
+): Promise<
+  AgentRoute | null
+> {
   try {
-    const [existing] = await db
-      .select()
-      .from(agentRoutes)
-      .where(
-        and(
-          eq(agentRoutes.id, routeId),
-          eq(agentRoutes.sourceAgentId, agentId),
-        ),
-      );
+    return await db.transaction(
+      async (
+        tx,
+      ) => {
+        await tx.execute(
+          sql`LOCK TABLE ${agents} IN SHARE ROW EXCLUSIVE MODE`,
+        );
 
-    if (!existing) return null;
+        await tx.execute(
+          sql`LOCK TABLE ${agentRoutes} IN SHARE ROW EXCLUSIVE MODE`,
+        );
 
-    const merged = { ...existing, ...input };
+        const [existing] =
+          await tx
+            .select()
+            .from(
+              agentRoutes,
+            )
+            .where(
+              and(
+                eq(
+                  agentRoutes.id,
+                  routeId,
+                ),
+                eq(
+                  agentRoutes.sourceAgentId,
+                  agentId,
+                ),
+              ),
+            );
 
-    if (
-      (merged.targetAgentId === null) ===
-      (merged.terminalAction === null)
-    ) {
-      throw new AgentServiceError(
-        "Set exactly one target agent or terminal action",
-        400,
-      );
-    }
+        if (
+          !existing
+        ) {
+          return null;
+        }
 
-    if (input.enabled !== false) {
-      await assertAvailableTarget(merged.targetAgentId);
-    }
+        const merged = {
+          ...existing,
+          ...input,
+        };
 
-    const [route] = await db
-      .update(agentRoutes)
-      .set({ ...input, updatedAt: new Date() })
-      .where(eq(agentRoutes.id, routeId))
-      .returning();
+        if (
+          (
+            merged.targetAgentId ===
+            null
+          ) ===
+          (
+            merged.terminalAction ===
+            null
+          )
+        ) {
+          throw new AgentServiceError(
+            "Set exactly one target agent or terminal action",
+            400,
+          );
+        }
 
-    return serializeRoute(route);
+        const [source] =
+          await tx
+            .select({
+              teamId:
+                agents.teamId,
+            })
+            .from(agents)
+            .where(
+              eq(
+                agents.id,
+                agentId,
+              ),
+            );
+
+        if (
+          !source
+        ) {
+          throw new AgentServiceError(
+            "The source agent does not exist",
+            404,
+          );
+        }
+
+        if (
+          merged.targetAgentId
+        ) {
+          const [target] =
+            await tx
+              .select({
+                teamId:
+                  agents.teamId,
+                enabled:
+                  agents.enabled,
+              })
+              .from(agents)
+              .where(
+                eq(
+                  agents.id,
+                  merged.targetAgentId,
+                ),
+              );
+
+          if (
+            !target
+          ) {
+            throw new AgentServiceError(
+              "The target agent does not exist",
+              400,
+            );
+          }
+
+          if (
+            target.teamId !==
+            source.teamId
+          ) {
+            throw new AgentServiceError(
+              "Routes cannot target an agent in another Team",
+              400,
+            );
+          }
+
+          if (
+            merged.enabled &&
+            !target.enabled
+          ) {
+            throw new AgentServiceError(
+              "Enabled routes cannot target a disabled agent",
+              400,
+            );
+          }
+        }
+
+        const [route] =
+          await tx
+            .update(
+              agentRoutes,
+            )
+            .set({
+              ...input,
+              updatedAt:
+                new Date(),
+            })
+            .where(
+              eq(
+                agentRoutes.id,
+                routeId,
+              ),
+            )
+            .returning();
+
+        return route
+          ? serializeRoute(
+              route,
+            )
+          : null;
+      },
+    );
   } catch (error) {
-    return translateDatabaseError(error);
+    return translateDatabaseError(
+      error,
+    );
   }
 }
 
@@ -336,31 +1095,67 @@ export async function updateAgentRoute(
  * Removes one route owned by the requested source agent.
  */
 export async function deleteAgentRoute(
-  agentId: string,
-  routeId: string,
+  agentId:
+    string,
+  routeId:
+    string,
 ): Promise<boolean> {
-  const deleted = await db
-    .delete(agentRoutes)
-    .where(
-      and(
-        eq(agentRoutes.id, routeId),
-        eq(agentRoutes.sourceAgentId, agentId),
-      ),
-    )
-    .returning({ id: agentRoutes.id });
+  const deleted =
+    await db
+      .delete(
+        agentRoutes,
+      )
+      .where(
+        and(
+          eq(
+            agentRoutes.id,
+            routeId,
+          ),
+          eq(
+            agentRoutes.sourceAgentId,
+            agentId,
+          ),
+        ),
+      )
+      .returning({
+        id:
+          agentRoutes.id,
+      });
 
-  return deleted.length > 0;
+  return (
+    deleted.length >
+    0
+  );
 }
 
 /**
- * Returns only agents eligible to participate in newly-created workflow runs.
+ * Returns only agents currently enabled for future run configuration.
  */
-export async function listEnabledAgentsForFutureRuns(): Promise<Agent[]> {
+export async function listEnabledAgentsForFutureRuns(): Promise<
+  Agent[]
+> {
   return (
     await db
       .select()
       .from(agents)
-      .where(eq(agents.enabled, true))
-      .orderBy(asc(agents.layer), asc(agents.executionOrder))
-  ).map(serializeAgent);
+      .where(
+        eq(
+          agents.enabled,
+          true,
+        ),
+      )
+      .orderBy(
+        asc(
+          agents.teamId,
+        ),
+        asc(
+          agents.layer,
+        ),
+        asc(
+          agents.executionOrder,
+        ),
+      )
+  ).map(
+    serializeAgent,
+  );
 }

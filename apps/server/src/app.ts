@@ -32,6 +32,9 @@ import {
   projectRoutes,
 } from "./routes/projects.js";
 import {
+  teamRoutes,
+} from "./routes/teams.js";
+import {
   workflowRoutes,
 } from "./routes/workflows.js";
 import {
@@ -66,6 +69,10 @@ export async function buildApp() {
 
   await app.register(
     projectRoutes,
+  );
+
+  await app.register(
+    teamRoutes,
   );
 
   await app.register(

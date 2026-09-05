@@ -15,6 +15,10 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+import {
+  RESOLUTION_TEAM_ID,
+} from "./seed-ids.js";
+
 export const harnessEnum =
   pgEnum(
     "harness",
@@ -117,6 +121,37 @@ const timestamps = {
       .defaultNow(),
 };
 
+export const teams =
+  pgTable(
+    "teams",
+    {
+      id:
+        uuid("id")
+          .primaryKey()
+          .defaultRandom(),
+      slug:
+        text("slug")
+          .notNull()
+          .unique(),
+      name:
+        text("name")
+          .notNull(),
+      description:
+        text(
+          "description",
+        )
+          .notNull()
+          .default(""),
+      enabled:
+        boolean(
+          "enabled",
+        )
+          .notNull()
+          .default(true),
+      ...timestamps,
+    },
+  );
+
 export const agents =
   pgTable(
     "agents",
@@ -125,6 +160,22 @@ export const agents =
         uuid("id")
           .primaryKey()
           .defaultRandom(),
+      teamId:
+        uuid(
+          "team_id",
+        )
+          .notNull()
+          .default(
+            RESOLUTION_TEAM_ID,
+          )
+          .references(
+            () =>
+              teams.id,
+            {
+              onDelete:
+                "restrict",
+            },
+          ),
       slug:
         text("slug")
           .notNull()
@@ -192,8 +243,9 @@ export const agents =
     },
     (table) => [
       unique(
-        "agents_layer_execution_order_unique",
+        "agents_team_layer_execution_order_unique",
       ).on(
+        table.teamId,
         table.layer,
         table.executionOrder,
       ),
@@ -282,6 +334,22 @@ export const runs =
         uuid(
           "task_id",
         ),
+      teamId:
+        uuid(
+          "team_id",
+        )
+          .notNull()
+          .default(
+            RESOLUTION_TEAM_ID,
+          )
+          .references(
+            () =>
+              teams.id,
+            {
+              onDelete:
+                "restrict",
+            },
+          ),
       projectPath:
         text(
           "project_path",
@@ -324,6 +392,22 @@ export const tasks =
         uuid("id")
           .primaryKey()
           .defaultRandom(),
+      teamId:
+        uuid(
+          "team_id",
+        )
+          .notNull()
+          .default(
+            RESOLUTION_TEAM_ID,
+          )
+          .references(
+            () =>
+              teams.id,
+            {
+              onDelete:
+                "restrict",
+            },
+          ),
       projectPath:
         text(
           "project_path",
@@ -644,6 +728,22 @@ export const conversations =
         uuid("id")
           .primaryKey()
           .defaultRandom(),
+      teamId:
+        uuid(
+          "team_id",
+        )
+          .notNull()
+          .default(
+            RESOLUTION_TEAM_ID,
+          )
+          .references(
+            () =>
+              teams.id,
+            {
+              onDelete:
+                "restrict",
+            },
+          ),
       projectPath:
         text(
           "project_path",
