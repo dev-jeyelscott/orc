@@ -15,9 +15,13 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import {
-  RESOLUTION_TEAM_ID,
-} from "./seed-ids.js";
+/*
+ * Keep this schema-local compatibility default synchronized with seed-ids.ts.
+ * Drizzle Kit evaluates schema.ts directly and cannot resolve NodeNext .js
+ * source imports before TypeScript compilation.
+ */
+const RESOLUTION_TEAM_ID =
+  "00000000-0000-4000-9000-000000000001";
 
 export const harnessEnum =
   pgEnum(
