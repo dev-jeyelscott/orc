@@ -287,6 +287,254 @@ describe.sequential(
     );
 
     it(
+      "recovers a newer high-priority task before an older low-priority task",
+      async () => {
+        const lowPriorityExternalId =
+          crypto.randomUUID();
+
+        const highPriorityExternalId =
+          crypto.randomUUID();
+
+        const [lowPriorityTask] =
+          await db
+            .insert(tasks)
+            .values({
+              projectPath:
+                project.path,
+              title:
+                "Older low-priority task",
+              instruction:
+                "This task must wait for higher priority work.",
+              status:
+                "pending",
+              source:
+                "notion",
+              externalId:
+                lowPriorityExternalId,
+              externalUrl:
+                `https://www.notion.so/${lowPriorityExternalId}`,
+              priority:
+                10,
+              createdAt:
+                new Date(
+                  "2099-01-01T00:00:00.000Z",
+                ),
+              updatedAt:
+                new Date(
+                  "2099-01-01T00:00:00.000Z",
+                ),
+            })
+            .returning();
+
+        const [highPriorityTask] =
+          await db
+            .insert(tasks)
+            .values({
+              projectPath:
+                project.path,
+              title:
+                "Newer high-priority task",
+              instruction:
+                "This task must run before lower priority work.",
+              status:
+                "pending",
+              source:
+                "notion",
+              externalId:
+                highPriorityExternalId,
+              externalUrl:
+                `https://www.notion.so/${highPriorityExternalId}`,
+              priority:
+                100,
+              createdAt:
+                new Date(
+                  "2099-01-02T00:00:00.000Z",
+                ),
+              updatedAt:
+                new Date(
+                  "2099-01-02T00:00:00.000Z",
+                ),
+            })
+            .returning();
+
+        const mocks =
+          createAdapter(
+            null,
+          );
+
+        const startExistingTask =
+          vi.fn()
+            .mockResolvedValue(
+              {},
+            );
+
+        await runCycle(
+          mocks.adapter,
+          startExistingTask,
+        );
+
+        expect(
+          mocks.getNextReadyTask,
+        ).not.toHaveBeenCalled();
+
+        expect(
+          mocks.updateStatus,
+        ).toHaveBeenCalledTimes(
+          1,
+        );
+
+        expect(
+          mocks.updateStatus,
+        ).toHaveBeenCalledWith(
+          highPriorityExternalId,
+          "In Progress",
+        );
+
+        expect(
+          startExistingTask,
+        ).toHaveBeenCalledTimes(
+          1,
+        );
+
+        expect(
+          startExistingTask,
+        ).toHaveBeenCalledWith(
+          highPriorityTask.id,
+        );
+
+        expect(
+          startExistingTask,
+        ).not.toHaveBeenCalledWith(
+          lowPriorityTask.id,
+        );
+      },
+    );
+
+    it(
+      "recovers the oldest task first when pending Notion tasks have equal priority",
+      async () => {
+        const olderExternalId =
+          crypto.randomUUID();
+
+        const newerExternalId =
+          crypto.randomUUID();
+
+        const [olderTask] =
+          await db
+            .insert(tasks)
+            .values({
+              projectPath:
+                project.path,
+              title:
+                "Older equal-priority task",
+              instruction:
+                "This equal-priority task should run first.",
+              status:
+                "pending",
+              source:
+                "notion",
+              externalId:
+                olderExternalId,
+              externalUrl:
+                `https://www.notion.so/${olderExternalId}`,
+              priority:
+                100,
+              createdAt:
+                new Date(
+                  "2099-02-01T00:00:00.000Z",
+                ),
+              updatedAt:
+                new Date(
+                  "2099-02-01T00:00:00.000Z",
+                ),
+            })
+            .returning();
+
+        const [newerTask] =
+          await db
+            .insert(tasks)
+            .values({
+              projectPath:
+                project.path,
+              title:
+                "Newer equal-priority task",
+              instruction:
+                "This equal-priority task should run second.",
+              status:
+                "pending",
+              source:
+                "notion",
+              externalId:
+                newerExternalId,
+              externalUrl:
+                `https://www.notion.so/${newerExternalId}`,
+              priority:
+                100,
+              createdAt:
+                new Date(
+                  "2099-02-02T00:00:00.000Z",
+                ),
+              updatedAt:
+                new Date(
+                  "2099-02-02T00:00:00.000Z",
+                ),
+            })
+            .returning();
+
+        const mocks =
+          createAdapter(
+            null,
+          );
+
+        const startExistingTask =
+          vi.fn()
+            .mockResolvedValue(
+              {},
+            );
+
+        await runCycle(
+          mocks.adapter,
+          startExistingTask,
+        );
+
+        expect(
+          mocks.getNextReadyTask,
+        ).not.toHaveBeenCalled();
+
+        expect(
+          mocks.updateStatus,
+        ).toHaveBeenCalledTimes(
+          1,
+        );
+
+        expect(
+          mocks.updateStatus,
+        ).toHaveBeenCalledWith(
+          olderExternalId,
+          "In Progress",
+        );
+
+        expect(
+          startExistingTask,
+        ).toHaveBeenCalledTimes(
+          1,
+        );
+
+        expect(
+          startExistingTask,
+        ).toHaveBeenCalledWith(
+          olderTask.id,
+        );
+
+        expect(
+          startExistingTask,
+        ).not.toHaveBeenCalledWith(
+          newerTask.id,
+        );
+      },
+    );
+
+    it(
       "persists the local task before updating Notion to In Progress",
       async () => {
         const candidate =

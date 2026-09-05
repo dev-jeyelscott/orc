@@ -574,7 +574,7 @@ export async function getAutomationStatus(): Promise<AutomationStatus> {
 }
 
 /**
- * Finds the oldest locally persisted pending Notion task that has never acquired a run.
+ * Finds the highest-priority locally persisted pending Notion task that has never acquired a run, with oldest-first deterministic tie-breaking.
  */
 async function findRecoverablePendingNotionTask(): Promise<PersistedTask | null> {
   const [task] =
@@ -593,6 +593,9 @@ async function findRecoverablePendingNotionTask(): Promise<PersistedTask | null>
         `,
       )
       .orderBy(
+        desc(
+          tasks.priority,
+        ),
         asc(
           tasks.createdAt,
         ),
