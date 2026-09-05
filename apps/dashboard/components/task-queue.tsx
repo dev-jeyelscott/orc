@@ -151,7 +151,7 @@ export function TaskQueue({
 
   return (
     <section
-      className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border-default bg-surface-elevated shadow-xs"
+      className="neon-surface flex min-h-0 flex-col overflow-hidden rounded-lg border border-border-default bg-surface-elevated shadow-xs"
       aria-label="Task queue"
     >
       <div className="border-b border-divider p-3">
@@ -290,6 +290,7 @@ function TaskQueueItem({
       }
       className={cn(
         "group w-full rounded-lg border border-border-default bg-surface-card p-2.5 text-left transition-colors hover:bg-surface-interactive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+        !selected && "neon-surface",
         selected &&
           "border-status-running/70 bg-status-running/5 ring-1 ring-status-running/25",
       )}

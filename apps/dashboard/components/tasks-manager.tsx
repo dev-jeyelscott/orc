@@ -986,7 +986,7 @@ export function TasksManager() {
             </Button>
           ) : null}
 
-          <div className="flex h-9 items-center gap-2 rounded-lg border border-border-default bg-surface-elevated px-3 shadow-xs">
+          <div className="neon-surface flex h-9 items-center gap-2 rounded-lg border border-border-default bg-surface-elevated px-3 shadow-xs">
             <span className="text-sm font-medium text-text-primary">
               Auto Mode
             </span>
@@ -1082,7 +1082,7 @@ export function TasksManager() {
       {loading &&
       tasks.length ===
         0 ? (
-        <section className="flex min-h-[34rem] items-center justify-center rounded-lg border border-border-default bg-surface-elevated shadow-xs">
+        <section className="neon-surface flex min-h-[34rem] items-center justify-center rounded-lg border border-border-default bg-surface-elevated shadow-xs">
           <div className="flex items-center gap-2 text-sm text-text-muted">
             <Spinner className="size-4" />
 

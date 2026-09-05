@@ -109,7 +109,7 @@ export function TaskObservabilityPanel({
 }: TaskObservabilityPanelProps) {
   if (!latestRunId) {
     return (
-      <section className="flex min-h-[38rem] items-center justify-center rounded-lg border border-border-default bg-surface-elevated p-8 text-center shadow-xs">
+      <section className="neon-surface flex min-h-[38rem] items-center justify-center rounded-lg border border-border-default bg-surface-elevated p-8 text-center shadow-xs">
         <div>
           <p className="text-sm font-medium text-text-secondary">
             No run
@@ -133,7 +133,7 @@ export function TaskObservabilityPanel({
     !detail
   ) {
     return (
-      <section className="flex min-h-[38rem] items-center justify-center rounded-lg border border-border-default bg-surface-elevated p-8 text-center shadow-xs">
+      <section className="neon-surface flex min-h-[38rem] items-center justify-center rounded-lg border border-border-default bg-surface-elevated p-8 text-center shadow-xs">
         <div className="flex items-center gap-2 text-sm text-text-muted">
           <Loader2Icon
             className="size-4 animate-spin motion-reduce:animate-none"
@@ -231,7 +231,7 @@ export function TaskObservabilityPanel({
       className="min-w-0 space-y-3"
       aria-label="Selected task observability"
     >
-      <section className="overflow-hidden rounded-lg border border-border-default bg-surface-elevated shadow-xs">
+      <section className="neon-surface overflow-hidden rounded-lg border border-border-default bg-surface-elevated shadow-xs">
         <div className="flex items-center justify-between gap-2 border-b border-divider px-3 py-2.5">
           <div className="flex items-center gap-2">
             <CircleDotIcon
@@ -563,7 +563,7 @@ export function TaskObservabilityPanel({
         />
       </div>
 
-      <section className="rounded-lg border border-border-default bg-surface-elevated shadow-xs">
+      <section className="neon-surface rounded-lg border border-border-default bg-surface-elevated shadow-xs">
         <div className="flex items-center justify-between gap-2 border-b border-divider px-3 py-2.5">
           <div className="flex items-center gap-2">
             <GitCommitHorizontalIcon
@@ -611,7 +611,7 @@ export function TaskObservabilityPanel({
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-lg border border-border-default bg-surface-elevated shadow-xs">
+      <section className="neon-surface overflow-hidden rounded-lg border border-border-default bg-surface-elevated shadow-xs">
         <div className="flex items-center justify-between gap-2 border-b border-divider px-3 py-2.5">
           <div className="flex items-center gap-2">
             {runActive ? (
@@ -704,7 +704,7 @@ function TelemetryCard({
   children?: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-border-default bg-surface-elevated p-3 shadow-xs">
+    <section className="neon-surface rounded-lg border border-border-default bg-surface-elevated p-3 shadow-xs">
       <h2 className="text-xs font-medium text-text-secondary">
         {title}
       </h2>
@@ -738,7 +738,7 @@ function MetricStateCard({
     | "neutral";
 }) {
   return (
-    <section className="min-w-0 rounded-lg border border-border-default bg-surface-elevated p-3 shadow-xs">
+    <section className="neon-surface min-w-0 rounded-lg border border-border-default bg-surface-elevated p-3 shadow-xs">
       <h2 className="text-[11px] font-medium text-text-muted">
         {title}
       </h2>

@@ -109,7 +109,7 @@ export function TaskDetailPanel({
 }: TaskDetailPanelProps) {
   if (!task) {
     return (
-      <section className="flex min-h-[38rem] items-center justify-center rounded-lg border border-border-default bg-surface-elevated p-8 text-center shadow-xs">
+      <section className="neon-surface flex min-h-[38rem] items-center justify-center rounded-lg border border-border-default bg-surface-elevated p-8 text-center shadow-xs">
         <div>
           <p className="text-sm font-medium text-text-secondary">
             No task selected
@@ -136,7 +136,7 @@ export function TaskDetailPanel({
     null;
 
   return (
-    <section className="min-w-0 overflow-hidden rounded-lg border border-border-default bg-surface-elevated shadow-xs">
+    <section className="neon-surface min-w-0 overflow-hidden rounded-lg border border-border-default bg-surface-elevated shadow-xs">
       <header className="border-b border-divider px-4 py-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -258,14 +258,14 @@ export function TaskDetailPanel({
                 </Button>
               </div>
 
-              <div className="max-h-52 overflow-auto rounded-lg border border-border-default bg-bg-app p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-text-secondary">
+              <div className="neon-surface max-h-52 overflow-auto rounded-lg border border-border-default bg-bg-app p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-text-secondary">
                 {
                   task.instruction
                 }
               </div>
             </section>
 
-            <section className="grid overflow-hidden rounded-lg border border-border-default md:grid-cols-2">
+            <section className="neon-surface grid overflow-hidden rounded-lg border border-border-default md:grid-cols-2">
               <MetadataItem
                 label="Task ID"
                 value={task.id}
@@ -459,7 +459,7 @@ export function TaskDetailPanel({
                       key={
                         event.id
                       }
-                      className="rounded-lg border border-border-default bg-surface-card p-3"
+                      className="neon-surface rounded-lg border border-border-default bg-surface-card p-3"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <span className="font-mono text-xs font-medium text-link">
@@ -563,7 +563,7 @@ function RelatedRunCard({
     run.id;
 
   return (
-    <div className="rounded-lg border border-border-default bg-surface-card p-3">
+    <div className="neon-surface rounded-lg border border-border-default bg-surface-card p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <PlayIcon

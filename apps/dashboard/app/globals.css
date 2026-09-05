@@ -100,11 +100,11 @@
   --brand-accent: #7c3aed;
   --neon-cyan: #06b6d4;
   --neon-violet: #8b5cf6;
-  --neon-border: color-mix(in srgb, var(--neon-cyan) 44%, var(--border-default));
-  --neon-border-strong: color-mix(in srgb, var(--neon-violet) 54%, var(--neon-cyan));
-  --neon-glow: 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 12%, transparent), 0 0 14px color-mix(in srgb, var(--neon-cyan) 11%, transparent), 0 0 22px color-mix(in srgb, var(--neon-violet) 7%, transparent);
-  --neon-glow-active: 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 36%, transparent), 0 0 18px color-mix(in srgb, var(--neon-cyan) 20%, transparent), 0 0 30px color-mix(in srgb, var(--neon-violet) 16%, transparent);
-  --neon-inset: inset 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 16%, transparent), inset 0 0 18px color-mix(in srgb, var(--neon-violet) 4%, transparent);
+  --neon-border: color-mix(in srgb, var(--neon-cyan) 32%, var(--border-default));
+  --neon-border-strong: color-mix(in srgb, var(--neon-violet) 44%, var(--neon-cyan));
+  --neon-glow: 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 7%, transparent), 0 0 8px color-mix(in srgb, var(--neon-cyan) 6%, transparent), 0 0 14px color-mix(in srgb, var(--neon-violet) 3%, transparent);
+  --neon-glow-active: 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 22%, transparent), 0 0 12px color-mix(in srgb, var(--neon-cyan) 11%, transparent), 0 0 20px color-mix(in srgb, var(--neon-violet) 8%, transparent);
+  --neon-inset: inset 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 10%, transparent), inset 0 0 12px color-mix(in srgb, var(--neon-violet) 2%, transparent);
 
   /* Semantic status tokens, light */
   --status-running: #2563eb;
@@ -167,11 +167,11 @@
   --brand-accent: #7c3aed;
   --neon-cyan: #22d3ee;
   --neon-violet: #a78bfa;
-  --neon-border: color-mix(in srgb, var(--neon-cyan) 46%, var(--border-default));
-  --neon-border-strong: color-mix(in srgb, var(--neon-violet) 55%, var(--neon-cyan));
-  --neon-glow: 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 16%, transparent), 0 0 16px color-mix(in srgb, var(--neon-cyan) 15%, transparent), 0 0 28px color-mix(in srgb, var(--neon-violet) 10%, transparent);
-  --neon-glow-active: 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 42%, transparent), 0 0 20px color-mix(in srgb, var(--neon-cyan) 25%, transparent), 0 0 34px color-mix(in srgb, var(--neon-violet) 20%, transparent);
-  --neon-inset: inset 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 20%, transparent), inset 0 0 22px color-mix(in srgb, var(--neon-violet) 7%, transparent);
+  --neon-border: color-mix(in srgb, var(--neon-cyan) 35%, var(--border-default));
+  --neon-border-strong: color-mix(in srgb, var(--neon-violet) 46%, var(--neon-cyan));
+  --neon-glow: 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 9%, transparent), 0 0 10px color-mix(in srgb, var(--neon-cyan) 8%, transparent), 0 0 16px color-mix(in srgb, var(--neon-violet) 5%, transparent);
+  --neon-glow-active: 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 26%, transparent), 0 0 14px color-mix(in srgb, var(--neon-cyan) 14%, transparent), 0 0 22px color-mix(in srgb, var(--neon-violet) 10%, transparent);
+  --neon-inset: inset 0 0 0 1px color-mix(in srgb, var(--neon-cyan) 12%, transparent), inset 0 0 14px color-mix(in srgb, var(--neon-violet) 3%, transparent);
 
   /* Semantic status tokens, dark */
   --status-running: #3b82f6;
