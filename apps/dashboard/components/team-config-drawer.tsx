@@ -7,7 +7,6 @@ import {
   XIcon,
 } from "lucide-react";
 import {
-  useEffect,
   useState,
   type CSSProperties,
   type FormEvent,
@@ -148,31 +147,6 @@ export function TeamConfigDrawer({
     useState<string | null>(
       null,
     );
-
-  useEffect(
-    () => {
-      if (!open) {
-        return;
-      }
-
-      setDraft(
-        createDraft(
-          mode === "edit"
-            ? team
-            : null,
-        ),
-      );
-
-      setError(
-        null,
-      );
-    },
-    [
-      open,
-      mode,
-      team,
-    ],
-  );
 
   /**
    * Updates one Team field in the local form draft.

@@ -139,6 +139,12 @@ export function TeamsManager() {
     >("create");
 
   const [
+    drawerSession,
+    setDrawerSession,
+  ] =
+    useState(0);
+
+  const [
     selectedTeamId,
     setSelectedTeamId,
   ] =
@@ -226,7 +232,21 @@ export function TeamsManager() {
 
   useEffect(
     () => {
-      void loadWorkspace();
+      let disposed =
+        false;
+
+      queueMicrotask(
+        () => {
+          if (!disposed) {
+            void loadWorkspace();
+          }
+        },
+      );
+
+      return () => {
+        disposed =
+          true;
+      };
     },
     [
       loadWorkspace,
@@ -361,13 +381,18 @@ export function TeamsManager() {
       "create",
     );
 
+    setDrawerSession(
+      (current) =>
+        current + 1,
+    );
+
     setDrawerOpen(
       true,
     );
   }
 
   /**
-   * Opens the selected Team in edit mode.
+   * Opens the selected Team in a fresh edit drawer session.
    */
   function openEdit(
     teamId: string,
@@ -378,6 +403,11 @@ export function TeamsManager() {
 
     setDrawerMode(
       "edit",
+    );
+
+    setDrawerSession(
+      (current) =>
+        current + 1,
     );
 
     setDrawerOpen(
@@ -675,7 +705,7 @@ export function TeamsManager() {
       )}
 
       <TeamConfigDrawer
-        key={`${drawerMode}:${selectedTeam?.id ?? "new"}`}
+        key={`${drawerSession}:${drawerMode}:${selectedTeam?.id ?? "new"}`}
         open={
           drawerOpen
         }
