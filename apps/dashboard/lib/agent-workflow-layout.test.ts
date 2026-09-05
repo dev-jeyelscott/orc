@@ -14,6 +14,9 @@ import {
   terminalWorkflowNodeId,
 } from "./agent-workflow-layout";
 
+const TEST_TEAM_ID =
+  "00000000-0000-4000-9000-000000000001";
+
 const AGENT_IDS = {
   first:
     "00000000-0000-4000-8000-000000000001",
@@ -26,14 +29,18 @@ const AGENT_IDS = {
 } as const;
 
 /**
- * Builds one deterministic generic agent fixture for workflow-layout tests.
+ * Builds one deterministic generic Agent fixture for workflow-layout tests.
  */
 function createAgent(
   id: string,
-  input: Partial<AgentWithRoutes> = {},
+  input: Partial<
+    AgentWithRoutes
+  > = {},
 ): AgentWithRoutes {
   return {
     id,
+    teamId:
+      TEST_TEAM_ID,
     slug:
       `worker-${id.slice(
         -4,
@@ -69,7 +76,9 @@ function createAgent(
 function createRoute(
   id: string,
   sourceAgentId: string,
-  input: Partial<AgentRoute> = {},
+  input: Partial<
+    AgentRoute
+  > = {},
 ): AgentRoute {
   return {
     id,
@@ -100,8 +109,11 @@ function requireNode(
 ) {
   const node =
     nodes.find(
-      (candidate) =>
-        candidate.id === id,
+      (
+        candidate,
+      ) =>
+        candidate.id ===
+        id,
     );
 
   assert.ok(
@@ -184,7 +196,7 @@ function testSequentialLayers(): void {
 }
 
 /**
- * Verifies same-layer agents align horizontally in execution order.
+ * Verifies same-layer Agents align horizontally in execution order.
  */
 function testSameLayerOrdering(): void {
   const first =
@@ -192,7 +204,8 @@ function testSameLayerOrdering(): void {
       AGENT_IDS.first,
       {
         layer: 2,
-        executionOrder: 1,
+        executionOrder:
+          1,
       },
     );
 
@@ -201,7 +214,8 @@ function testSameLayerOrdering(): void {
       AGENT_IDS.second,
       {
         layer: 2,
-        executionOrder: 2,
+        executionOrder:
+          2,
       },
     );
 
@@ -242,7 +256,9 @@ function testSameLayerOrdering(): void {
 
   const defaultEdge =
     layout.edges.find(
-      (edge) =>
+      (
+        edge,
+      ) =>
         edge.data
           ?.kind ===
         "default",
@@ -262,7 +278,7 @@ function testSameLayerOrdering(): void {
 }
 
 /**
- * Verifies disabled agents remain visible while default progression still follows enabled agents only.
+ * Verifies disabled Agents remain visible while default progression follows enabled Agents only.
  */
 function testDisabledAgentPresentation(): void {
   const first =
@@ -278,7 +294,8 @@ function testDisabledAgentPresentation(): void {
       AGENT_IDS.second,
       {
         layer: 2,
-        enabled: false,
+        enabled:
+          false,
       },
     );
 
@@ -306,7 +323,9 @@ function testDisabledAgentPresentation(): void {
 
   assert.ok(
     layout.nodes.some(
-      (node) =>
+      (
+        node,
+      ) =>
         node.id ===
         disabled.id,
     ),
@@ -314,7 +333,9 @@ function testDisabledAgentPresentation(): void {
 
   const defaultEdges =
     layout.edges.filter(
-      (edge) =>
+      (
+        edge,
+      ) =>
         edge.data
           ?.kind ===
         "default",
@@ -339,7 +360,7 @@ function testDisabledAgentPresentation(): void {
 }
 
 /**
- * Verifies backward explicit routes are preserved and use side handles for readable routing.
+ * Verifies backward explicit routes remain preserved with readable side handles.
  */
 function testBackwardExplicitRoute(): void {
   const first =
@@ -386,7 +407,9 @@ function testBackwardExplicitRoute(): void {
 
   const explicit =
     layout.edges.find(
-      (edge) =>
+      (
+        edge,
+      ) =>
         edge.data
           ?.kind ===
         "explicit",
@@ -452,7 +475,9 @@ function testTerminalRoute(): void {
 
   assert.ok(
     layout.nodes.some(
-      (node) =>
+      (
+        node,
+      ) =>
         node.id ===
         terminalId,
     ),
@@ -460,7 +485,9 @@ function testTerminalRoute(): void {
 
   assert.ok(
     layout.edges.some(
-      (edge) =>
+      (
+        edge,
+      ) =>
         edge.target ===
         terminalId,
     ),
@@ -538,7 +565,9 @@ function testMultipleTerminalActions(): void {
   ) {
     assert.ok(
       layout.nodes.some(
-        (node) =>
+        (
+          node,
+        ) =>
           node.id ===
           terminalWorkflowNodeId(
             action,
@@ -549,7 +578,7 @@ function testMultipleTerminalActions(): void {
 }
 
 /**
- * Verifies equivalent input produces stable node coordinates and topology regardless of source-array ordering.
+ * Verifies equivalent input produces stable coordinates and topology regardless of array ordering.
  */
 function testDeterministicLayout(): void {
   const first =
@@ -606,15 +635,21 @@ function testDeterministicLayout(): void {
 
   assert.deepEqual(
     forwardLayout.nodes.map(
-      (node) => ({
-        id: node.id,
+      (
+        node,
+      ) => ({
+        id:
+          node.id,
         position:
           node.position,
       }),
     ),
     reversedLayout.nodes.map(
-      (node) => ({
-        id: node.id,
+      (
+        node,
+      ) => ({
+        id:
+          node.id,
         position:
           node.position,
       }),
@@ -623,8 +658,11 @@ function testDeterministicLayout(): void {
 
   assert.deepEqual(
     forwardLayout.edges.map(
-      (edge) => ({
-        id: edge.id,
+      (
+        edge,
+      ) => ({
+        id:
+          edge.id,
         source:
           edge.source,
         target:
@@ -632,8 +670,11 @@ function testDeterministicLayout(): void {
       }),
     ),
     reversedLayout.edges.map(
-      (edge) => ({
-        id: edge.id,
+      (
+        edge,
+      ) => ({
+        id:
+          edge.id,
         source:
           edge.source,
         target:
@@ -653,7 +694,8 @@ function testRoleIndependence(): void {
       {
         role:
           "Arbitrary Role A",
-        layer: 1,
+        layer:
+          1,
       },
     );
 
@@ -663,7 +705,8 @@ function testRoleIndependence(): void {
       {
         role:
           "Arbitrary Role B",
-        layer: 2,
+        layer:
+          2,
       },
     );
 
@@ -704,15 +747,21 @@ function testRoleIndependence(): void {
 
   assert.deepEqual(
     originalLayout.nodes.map(
-      (node) => ({
-        id: node.id,
+      (
+        node,
+      ) => ({
+        id:
+          node.id,
         position:
           node.position,
       }),
     ),
     renamedLayout.nodes.map(
-      (node) => ({
-        id: node.id,
+      (
+        node,
+      ) => ({
+        id:
+          node.id,
         position:
           node.position,
       }),
@@ -721,8 +770,11 @@ function testRoleIndependence(): void {
 
   assert.deepEqual(
     originalLayout.edges.map(
-      (edge) => ({
-        id: edge.id,
+      (
+        edge,
+      ) => ({
+        id:
+          edge.id,
         source:
           edge.source,
         target:
@@ -730,8 +782,11 @@ function testRoleIndependence(): void {
       }),
     ),
     renamedLayout.edges.map(
-      (edge) => ({
-        id: edge.id,
+      (
+        edge,
+      ) => ({
+        id:
+          edge.id,
         source:
           edge.source,
         target:

@@ -9,11 +9,10 @@ const SERVER_URL =
   "http://localhost:4000";
 
 /**
- * Reads the backend error payload into a stable client-facing message.
+ * Reads a backend Team error response into stable operator-facing text.
  */
 async function readErrorMessage(
-  response:
-    Response,
+  response: Response,
 ): Promise<string> {
   const body =
     (
@@ -33,7 +32,7 @@ async function readErrorMessage(
 }
 
 /**
- * Loads all Team configurations for Agent assignment.
+ * Loads every configured Team for Agent assignment.
  */
 export async function getTeams(): Promise<
   Team[]

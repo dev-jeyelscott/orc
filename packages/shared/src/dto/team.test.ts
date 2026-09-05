@@ -10,6 +10,9 @@ import {
   updateTeamSchema,
 } from "./team.js";
 
+const TEST_TEAM_ID =
+  "00000000-0000-4000-9000-000000009999";
+
 describe(
   "Team DTO contracts",
   () => {
@@ -69,12 +72,14 @@ describe(
       "validates persisted Team responses",
       () => {
         const timestamp =
-          new Date().toISOString();
+          new Date(
+            "2026-09-05T00:00:00.000Z",
+          ).toISOString();
 
         expect(
           teamSchema.parse({
             id:
-              crypto.randomUUID(),
+              TEST_TEAM_ID,
             slug:
               "development",
             name:

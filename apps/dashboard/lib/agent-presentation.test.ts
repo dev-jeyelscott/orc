@@ -13,8 +13,11 @@ import {
   groupAgentsByLayer,
 } from "./agent-presentation";
 
+const TEST_TEAM_ID =
+  "00000000-0000-4000-9000-000000000001";
+
 /**
- * Creates a generic agent with deterministic test defaults.
+ * Creates a generic Agent with deterministic test defaults.
  */
 function createAgent(
   input: Partial<
@@ -27,6 +30,8 @@ function createAgent(
 
   return {
     id,
+    teamId:
+      TEST_TEAM_ID,
     slug:
       `worker-${id.slice(
         0,
@@ -186,7 +191,7 @@ function testFiltering(): void {
 }
 
 /**
- * Verifies approval rate follows the requested approved versus changes-requested denominator.
+ * Verifies approval rate follows the approved versus changes-requested denominator.
  */
 function testApprovalRate(): void {
   assert.equal(
@@ -257,8 +262,10 @@ function testRouteHealth(): void {
         1,
       enabledTerminalRoutes:
         1,
-      disabledRoutes: 1,
-      total: 3,
+      disabledRoutes:
+        1,
+      total:
+        3,
     },
   );
 }

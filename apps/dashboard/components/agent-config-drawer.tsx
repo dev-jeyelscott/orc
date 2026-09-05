@@ -7,6 +7,7 @@ import {
   XIcon,
 } from "lucide-react";
 import {
+  useEffect,
   useMemo,
   useState,
   type CSSProperties,
@@ -18,6 +19,7 @@ import type {
   AgentRouteOutcome,
   AgentWithRoutes,
   CreateAgent,
+  Team,
   TerminalAction,
 } from "@orc/shared";
 
@@ -32,6 +34,9 @@ import {
 import {
   harnessOptions,
 } from "@/lib/harness-options";
+import {
+  getTeams,
+} from "@/lib/teams";
 
 import {
   Button,
@@ -86,6 +91,7 @@ type Harness =
 
 const blankAgent:
   CreateAgent = {
+    teamId: "",
     slug: "",
     name: "",
     role: "",
@@ -137,19 +143,23 @@ function errorMessage(
 }
 
 /**
- * Copies a persisted agent into an editable create/update payload.
+ * Copies a persisted Agent into an editable create/update payload.
  */
 function createDraft(
   agent:
     AgentWithRoutes | null,
 ): CreateAgent {
-  if (!agent) {
+  if (
+    !agent
+  ) {
     return {
       ...blankAgent,
     };
   }
 
   return {
+    teamId:
+      agent.teamId,
     slug:
       agent.slug,
     name:
@@ -199,11 +209,26 @@ export function AgentConfigDrawer({
     useState<CreateAgent>(
       () =>
         createDraft(
-          mode === "edit"
+          mode ===
+            "edit"
             ? agent
             : null,
         ),
     );
+
+  const [
+    teams,
+    setTeams,
+  ] =
+    useState<Team[]>(
+      [],
+    );
+
+  const [
+    teamsLoading,
+    setTeamsLoading,
+  ] =
+    useState(false);
 
   const [
     saving,
@@ -219,6 +244,113 @@ export function AgentConfigDrawer({
       null,
     );
 
+  useEffect(
+    () => {
+      if (
+        !open
+      ) {
+        return;
+      }
+
+      let cancelled =
+        false;
+
+      /**
+       * Loads Team configuration and selects Resolution for a fresh Agent when available.
+       */
+      async function loadTeamOptions() {
+        setTeamsLoading(
+          true,
+        );
+
+        try {
+          const nextTeams =
+            await getTeams();
+
+          if (
+            cancelled
+          ) {
+            return;
+          }
+
+          setTeams(
+            nextTeams,
+          );
+
+          if (
+            mode ===
+            "create"
+          ) {
+            setDraft(
+              (
+                current,
+              ) => {
+                if (
+                  current.teamId
+                ) {
+                  return current;
+                }
+
+                const defaultTeam =
+                  nextTeams.find(
+                    (
+                      candidate,
+                    ) =>
+                      candidate.slug ===
+                      "resolution",
+                  ) ??
+                  nextTeams[0];
+
+                if (
+                  !defaultTeam
+                ) {
+                  return current;
+                }
+
+                return {
+                  ...current,
+                  teamId:
+                    defaultTeam.id,
+                };
+              },
+            );
+          }
+        } catch (
+          caught
+        ) {
+          if (
+            !cancelled
+          ) {
+            setError(
+              errorMessage(
+                caught,
+              ),
+            );
+          }
+        } finally {
+          if (
+            !cancelled
+          ) {
+            setTeamsLoading(
+              false,
+            );
+          }
+        }
+      }
+
+      void loadTeamOptions();
+
+      return () => {
+        cancelled =
+          true;
+      };
+    },
+    [
+      open,
+      mode,
+    ],
+  );
+
   const selectedHarness =
     (
       draft.harness ??
@@ -231,7 +363,7 @@ export function AgentConfigDrawer({
     ];
 
   /**
-   * Updates one field in the local agent draft.
+   * Updates one field in the local Agent draft.
    */
   function update<
     K extends keyof CreateAgent,
@@ -241,9 +373,12 @@ export function AgentConfigDrawer({
       CreateAgent[K],
   ) {
     setDraft(
-      (current) => ({
+      (
+        current,
+      ) => ({
         ...current,
-        [key]: value,
+        [key]:
+          value,
       }),
     );
   }
@@ -252,7 +387,8 @@ export function AgentConfigDrawer({
    * Changes harness and resets provider-specific model and reasoning selections.
    */
   function changeHarness(
-    harness: Harness,
+    harness:
+      Harness,
   ) {
     const next =
       harnessOptions[
@@ -260,7 +396,9 @@ export function AgentConfigDrawer({
       ];
 
     setDraft(
-      (current) => ({
+      (
+        current,
+      ) => ({
         ...current,
         harness,
         model:
@@ -272,7 +410,7 @@ export function AgentConfigDrawer({
   }
 
   /**
-   * Creates or updates the current agent after preserving the existing disable confirmation.
+   * Creates or updates the current Agent after validating required Team membership.
    */
   async function submit(
     event:
@@ -281,7 +419,18 @@ export function AgentConfigDrawer({
     event.preventDefault();
 
     if (
-      mode === "edit" &&
+      !draft.teamId
+    ) {
+      setError(
+        "Select a Team before saving the agent.",
+      );
+
+      return;
+    }
+
+    if (
+      mode ===
+        "edit" &&
       agent?.enabled &&
       !draft.enabled
     ) {
@@ -290,17 +439,25 @@ export function AgentConfigDrawer({
           `Disable ${agent.name} for future runs? Existing active run snapshots will not change.`,
         );
 
-      if (!confirmed) {
+      if (
+        !confirmed
+      ) {
         return;
       }
     }
 
-    setSaving(true);
-    setError(null);
+    setSaving(
+      true,
+    );
+
+    setError(
+      null,
+    );
 
     try {
       const saved =
-        mode === "create"
+        mode ===
+        "create"
           ? await createAgent(
               draft,
             )
@@ -313,23 +470,31 @@ export function AgentConfigDrawer({
         saved.id,
       );
 
-      onOpenChange(false);
-    } catch (caught) {
+      onOpenChange(
+        false,
+      );
+    } catch (
+      caught
+    ) {
       setError(
         errorMessage(
           caught,
         ),
       );
     } finally {
-      setSaving(false);
+      setSaving(
+        false,
+      );
     }
   }
 
   /**
-   * Permanently deletes the selected agent only after explicit destructive confirmation.
+   * Permanently deletes the selected Agent only after explicit destructive confirmation.
    */
   async function removeAgent() {
-    if (!agent) {
+    if (
+      !agent
+    ) {
       return;
     }
 
@@ -338,12 +503,19 @@ export function AgentConfigDrawer({
         `Permanently delete ${agent.name}? Historical executions and immutable run snapshots are preserved, but current routing references are removed.`,
       );
 
-    if (!confirmed) {
+    if (
+      !confirmed
+    ) {
       return;
     }
 
-    setSaving(true);
-    setError(null);
+    setSaving(
+      true,
+    );
+
+    setError(
+      null,
+    );
 
     try {
       await deleteAgent(
@@ -354,21 +526,29 @@ export function AgentConfigDrawer({
         null,
       );
 
-      onOpenChange(false);
-    } catch (caught) {
+      onOpenChange(
+        false,
+      );
+    } catch (
+      caught
+    ) {
       setError(
         errorMessage(
           caught,
         ),
       );
     } finally {
-      setSaving(false);
+      setSaving(
+        false,
+      );
     }
   }
 
   return (
     <Drawer
-      open={open}
+      open={
+        open
+      }
       onOpenChange={
         onOpenChange
       }
@@ -377,10 +557,14 @@ export function AgentConfigDrawer({
       swipeDirection="right"
     >
       <DrawerContent
-        style={drawerStyle}
+        style={
+          drawerStyle
+        }
       >
         <form
-          onSubmit={submit}
+          onSubmit={
+            submit
+          }
           className="flex min-h-0 flex-1 flex-col"
         >
           <DrawerHeader className="border-b border-divider p-4">
@@ -438,9 +622,7 @@ export function AgentConfigDrawer({
                     ) =>
                       update(
                         "name",
-                        event
-                          .target
-                          .value,
+                        event.target.value,
                       )
                     }
                     required
@@ -467,9 +649,7 @@ export function AgentConfigDrawer({
                     ) =>
                       update(
                         "slug",
-                        event
-                          .target
-                          .value,
+                        event.target.value,
                       )
                     }
                     required
@@ -497,9 +677,7 @@ export function AgentConfigDrawer({
                     ) =>
                       update(
                         "role",
-                        event
-                          .target
-                          .value,
+                        event.target.value,
                       )
                     }
                     required
@@ -526,9 +704,7 @@ export function AgentConfigDrawer({
                     ) =>
                       update(
                         "description",
-                        event
-                          .target
-                          .value,
+                        event.target.value,
                       )
                     }
                     maxLength={
@@ -538,6 +714,72 @@ export function AgentConfigDrawer({
                       saving
                     }
                   />
+                </label>
+
+                <label className="grid gap-1.5 text-sm md:col-span-2">
+                  <span className="font-medium text-text-secondary">
+                    Team
+                  </span>
+
+                  <Select
+                    value={
+                      draft.teamId
+                    }
+                    onValueChange={(
+                      value,
+                    ) => {
+                      if (
+                        value
+                      ) {
+                        update(
+                          "teamId",
+                          value,
+                        );
+                      }
+                    }}
+                  >
+                    <SelectTrigger
+                      className="w-full"
+                      disabled={
+                        saving ||
+                        teamsLoading
+                      }
+                      aria-label="Select Team"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+
+                    <SelectContent align="start">
+                      {teams.map(
+                        (
+                          team,
+                        ) => (
+                          <SelectItem
+                            key={
+                              team.id
+                            }
+                            value={
+                              team.id
+                            }
+                          >
+                            {team.name}
+                            {!team.enabled
+                              ? " (disabled)"
+                              : ""}
+                          </SelectItem>
+                        ),
+                      )}
+                    </SelectContent>
+                  </Select>
+
+                  {!teamsLoading &&
+                  teams.length ===
+                    0 ? (
+                    <span className="text-xs text-status-error">
+                      No Teams are
+                      available.
+                    </span>
+                  ) : null}
                 </label>
 
                 <label className="grid gap-1.5 text-sm">
@@ -557,9 +799,7 @@ export function AgentConfigDrawer({
                       update(
                         "layer",
                         Number(
-                          event
-                            .target
-                            .value,
+                          event.target.value,
                         ),
                       )
                     }
@@ -588,9 +828,7 @@ export function AgentConfigDrawer({
                       update(
                         "executionOrder",
                         Number(
-                          event
-                            .target
-                            .value,
+                          event.target.value,
                         ),
                       )
                     }
@@ -687,9 +925,7 @@ export function AgentConfigDrawer({
                               model
                             }
                           >
-                            {
-                              model
-                            }
+                            {model}
                           </SelectItem>
                         ),
                       )}
@@ -741,9 +977,7 @@ export function AgentConfigDrawer({
                               value
                             }
                           >
-                            {
-                              value
-                            }
+                            {value}
                           </SelectItem>
                         ),
                       )}
@@ -847,9 +1081,7 @@ export function AgentConfigDrawer({
                     ) =>
                       update(
                         "systemPrompt",
-                        event
-                          .target
-                          .value,
+                        event.target.value,
                       )
                     }
                     required
@@ -910,8 +1142,7 @@ export function AgentConfigDrawer({
                   }
                 >
                   <Trash2Icon />
-                  Delete
-                  Agent
+                  Delete Agent
                 </Button>
               ) : null}
             </div>
@@ -935,7 +1166,9 @@ export function AgentConfigDrawer({
               <Button
                 type="submit"
                 disabled={
-                  saving
+                  saving ||
+                  teamsLoading ||
+                  !draft.teamId
                 }
               >
                 {mode ===
@@ -1028,7 +1261,7 @@ type AgentRoutesEditorProps = {
 };
 
 /**
- * Renders editable persisted routing overrides for the selected agent.
+ * Renders editable persisted routing overrides for the selected Agent.
  */
 function AgentRoutesEditor({
   agent,
@@ -1049,7 +1282,9 @@ function AgentRoutesEditor({
     destination,
     setDestination,
   ] =
-    useState("terminal");
+    useState(
+      "terminal",
+    );
 
   const [
     terminalAction,
@@ -1063,29 +1298,37 @@ function AgentRoutesEditor({
     useMemo(
       () =>
         agents.filter(
-          (candidate) =>
+          (
+            candidate,
+          ) =>
             candidate.enabled &&
+            candidate.teamId ===
+              agent.teamId &&
             candidate.id !==
               agent.id,
         ),
       [
         agents,
         agent.id,
+        agent.teamId,
       ],
     );
 
   /**
-   * Creates one new explicit route using the current destination mode.
+   * Creates one explicit route using only valid same-Team targets.
    */
   async function addRoute() {
-    report(null);
+    report(
+      null,
+    );
 
     try {
       await createAgentRoute(
         agent.id,
         {
           outcome,
-          enabled: true,
+          enabled:
+            true,
           targetAgentId:
             destination ===
             "terminal"
@@ -1102,7 +1345,9 @@ function AgentRoutesEditor({
       await onRefresh(
         agent.id,
       );
-    } catch (caught) {
+    } catch (
+      caught
+    ) {
       report(
         errorMessage(
           caught,
@@ -1137,7 +1382,9 @@ function AgentRoutesEditor({
       ) : null}
 
       {agent.routes.map(
-        (route) => (
+        (
+          route,
+        ) => (
           <RouteRowEditor
             key={`${route.id}:${route.updatedAt}`}
             agent={
@@ -1199,9 +1446,7 @@ function AgentRoutesEditor({
                       value
                     }
                   >
-                    {
-                      value
-                    }
+                    {value}
                   </SelectItem>
                 ),
               )}
@@ -1231,8 +1476,7 @@ function AgentRoutesEditor({
 
             <SelectContent align="start">
               <SelectItem value="terminal">
-                Terminal
-                Action
+                Terminal Action
               </SelectItem>
 
               {availableTargets.map(
@@ -1247,9 +1491,7 @@ function AgentRoutesEditor({
                       candidate.id
                     }
                   >
-                    {
-                      candidate.name
-                    }
+                    {candidate.name}
                   </SelectItem>
                 ),
               )}
@@ -1297,9 +1539,7 @@ function AgentRoutesEditor({
                       action
                     }
                   >
-                    {
-                      action
-                    }
+                    {action}
                   </SelectItem>
                 ),
               )}
@@ -1347,7 +1587,7 @@ type RouteRowEditorProps = {
 };
 
 /**
- * Edits one persisted route without requiring destructive delete-and-recreate behavior.
+ * Edits one persisted route while exposing only enabled same-Team targets.
  */
 function RouteRowEditor({
   agent,
@@ -1395,12 +1635,18 @@ function RouteRowEditor({
     saving,
     setSaving,
   ] =
-    useState(false);
+    useState(
+      false,
+    );
 
   const availableTargets =
     agents.filter(
-      (candidate) =>
+      (
+        candidate,
+      ) =>
         candidate.enabled &&
+        candidate.teamId ===
+          agent.teamId &&
         candidate.id !==
           agent.id,
     );
@@ -1408,16 +1654,22 @@ function RouteRowEditor({
   const currentTarget =
     route.targetAgentId
       ? agents.find(
-          (candidate) =>
+          (
+            candidate,
+          ) =>
             candidate.id ===
             route.targetAgentId,
-        ) ?? null
+        ) ??
+        null
       : null;
 
   const currentTargetAvailable =
-    currentTarget !== null &&
+    currentTarget !==
+      null &&
     availableTargets.some(
-      (candidate) =>
+      (
+        candidate,
+      ) =>
         candidate.id ===
         currentTarget.id,
     );
@@ -1426,8 +1678,13 @@ function RouteRowEditor({
    * Saves all editable route fields through the existing PATCH route.
    */
   async function saveRoute() {
-    setSaving(true);
-    report(null);
+    setSaving(
+      true,
+    );
+
+    report(
+      null,
+    );
 
     try {
       await updateAgentRoute(
@@ -1452,22 +1709,28 @@ function RouteRowEditor({
       await onRefresh(
         agent.id,
       );
-    } catch (caught) {
+    } catch (
+      caught
+    ) {
       report(
         errorMessage(
           caught,
         ),
       );
     } finally {
-      setSaving(false);
+      setSaving(
+        false,
+      );
     }
   }
 
   /**
-   * Removes this explicit routing override after the operator chooses the delete control.
+   * Removes this explicit routing override.
    */
   async function removeRoute() {
-    report(null);
+    report(
+      null,
+    );
 
     try {
       await deleteAgentRoute(
@@ -1478,7 +1741,9 @@ function RouteRowEditor({
       await onRefresh(
         agent.id,
       );
-    } catch (caught) {
+    } catch (
+      caught
+    ) {
       report(
         errorMessage(
           caught,
@@ -1525,9 +1790,7 @@ function RouteRowEditor({
                     value
                   }
                 >
-                  {
-                    value
-                  }
+                  {value}
                 </SelectItem>
               ),
             )}
@@ -1557,8 +1820,7 @@ function RouteRowEditor({
 
           <SelectContent align="start">
             <SelectItem value="terminal">
-              Terminal
-              Action
+              Terminal Action
             </SelectItem>
 
             {route.targetAgentId &&
@@ -1586,9 +1848,7 @@ function RouteRowEditor({
                     candidate.id
                   }
                 >
-                  {
-                    candidate.name
-                  }
+                  {candidate.name}
                 </SelectItem>
               ),
             )}
@@ -1636,9 +1896,7 @@ function RouteRowEditor({
                     action
                   }
                 >
-                  {
-                    action
-                  }
+                  {action}
                 </SelectItem>
               ),
             )}
