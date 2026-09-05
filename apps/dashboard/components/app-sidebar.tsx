@@ -9,6 +9,7 @@ import {
   ListTodoIcon,
   MessageSquareIcon,
   PlayIcon,
+  UsersIcon,
 } from "lucide-react";
 
 import { HealthStatus } from "@/components/health-status";
@@ -47,6 +48,11 @@ const navigation = [
     icon: PlayIcon,
   },
   {
+    title: "Teams",
+    url: "/teams",
+    icon: UsersIcon,
+  },
+  {
     title: "Agents",
     url: "/agents",
     icon: BotIcon,
@@ -71,7 +77,9 @@ function isNavigationActive(
 
   return (
     pathname === url ||
-    pathname.startsWith(`${url}/`)
+    pathname.startsWith(
+      `${url}/`,
+    )
   );
 }
 
@@ -79,7 +87,8 @@ function isNavigationActive(
  * Renders the compact application navigation using the existing shared sidebar primitive.
  */
 export function AppSidebar() {
-  const pathname = usePathname();
+  const pathname =
+    usePathname();
 
   return (
     <Sidebar collapsible="icon">
@@ -102,37 +111,45 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu className="gap-1">
-              {navigation.map((item) => (
-                <SidebarMenuItem
-                  key={item.title}
-                >
-                  <SidebarMenuButton
-                    isActive={isNavigationActive(
-                      pathname,
-                      item.url,
-                    )}
-                    tooltip={item.title}
-                    render={
-                      <Link
-                        href={item.url}
-                        aria-current={
-                          isNavigationActive(
-                            pathname,
-                            item.url,
-                          )
-                            ? "page"
-                            : undefined
-                        }
-                      >
-                        <item.icon />
-                        <span>
-                          {item.title}
-                        </span>
-                      </Link>
+              {navigation.map(
+                (item) => (
+                  <SidebarMenuItem
+                    key={
+                      item.title
                     }
-                  />
-                </SidebarMenuItem>
-              ))}
+                  >
+                    <SidebarMenuButton
+                      isActive={isNavigationActive(
+                        pathname,
+                        item.url,
+                      )}
+                      tooltip={
+                        item.title
+                      }
+                      render={
+                        <Link
+                          href={
+                            item.url
+                          }
+                          aria-current={
+                            isNavigationActive(
+                              pathname,
+                              item.url,
+                            )
+                              ? "page"
+                              : undefined
+                          }
+                        >
+                          <item.icon />
+                          <span>
+                            {item.title}
+                          </span>
+                        </Link>
+                      }
+                    />
+                  </SidebarMenuItem>
+                ),
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -143,6 +160,7 @@ export function AppSidebar() {
           <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">
             System Health
           </p>
+
           <HealthStatus compact />
         </div>
       </SidebarFooter>
