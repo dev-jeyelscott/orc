@@ -650,7 +650,12 @@ export function buildAgentWorkflowLayout(
       type: "smoothstep",
       label,
       selectable: false,
-      animated: false,
+      animated: true,
+      className:
+        edge.kind ===
+        "explicit"
+          ? "orc-workflow-edge-explicit"
+          : "orc-workflow-edge-default",
       data: {
         kind: edge.kind,
         outcome:
@@ -668,11 +673,6 @@ export function buildAgentWorkflowLayout(
           "explicit"
             ? 1.8
             : 1.4,
-        strokeDasharray:
-          edge.kind ===
-          "explicit"
-            ? "6 5"
-            : undefined,
         opacity:
           edge.active
             ? 0.9

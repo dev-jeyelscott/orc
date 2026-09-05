@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
 } from "react";
 import {
   AlertTriangleIcon,
@@ -15,7 +16,6 @@ import {
 import {
   Background,
   BackgroundVariant,
-  Controls,
   Handle,
   MarkerType,
   Position,
@@ -446,12 +446,15 @@ const nodeTypes: NodeTypes = {
 };
 
 /**
- * Refits the graph after persisted topology or configured layer placement changes.
+ * Refits the graph after persisted topology or configured layer placement changes, and
+ * whenever the surrounding container is resized, so the diagram always stays on fit view.
  */
 function FitViewOnChange({
   topologyKey,
+  containerRef,
 }: {
   topologyKey: string;
+  containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const {
     fitView,
@@ -459,27 +462,54 @@ function FitViewOnChange({
     useReactFlow();
 
   useEffect(() => {
+    const runFitView =
+      () => {
+        void fitView({
+          padding:
+            0.16,
+          maxZoom:
+            1.15,
+          duration:
+            0,
+        });
+      };
+
     const frame =
       requestAnimationFrame(
-        () => {
-          void fitView({
-            padding:
-              0.16,
-            maxZoom:
-              1.15,
-            duration:
-              0,
-          });
-        },
+        runFitView,
       );
 
-    return () =>
+    const container =
+      containerRef.current;
+
+    const observer =
+      container &&
+      typeof ResizeObserver !==
+        "undefined"
+        ? new ResizeObserver(
+            runFitView,
+          )
+        : null;
+
+    if (
+      observer &&
+      container
+    ) {
+      observer.observe(
+        container,
+      );
+    }
+
+    return () => {
       cancelAnimationFrame(
         frame,
       );
+      observer?.disconnect();
+    };
   }, [
     fitView,
     topologyKey,
+    containerRef,
   ]);
 
   return null;
@@ -564,6 +594,11 @@ export function AgentWorkflowView({
       ],
     );
 
+  const flowContainerRef =
+    useRef<HTMLDivElement | null>(
+      null,
+    );
+
   return (
     <Card
       size="sm"
@@ -619,6 +654,9 @@ export function AgentWorkflowView({
             }
           >
             <div
+              ref={
+                flowContainerRef
+              }
               className="agents-react-flow w-full overflow-hidden bg-bg-app/30"
               style={{
                 height:
@@ -642,12 +680,6 @@ export function AgentWorkflowView({
                   maxZoom:
                     1.15,
                 }}
-                minZoom={
-                  0.4
-                }
-                maxZoom={
-                  1.5
-                }
                 nodesDraggable={
                   false
                 }
@@ -660,10 +692,19 @@ export function AgentWorkflowView({
                 edgesFocusable={
                   false
                 }
-                panOnDrag
-                zoomOnScroll
-                zoomOnPinch
+                panOnDrag={
+                  false
+                }
+                zoomOnScroll={
+                  false
+                }
+                zoomOnPinch={
+                  false
+                }
                 zoomOnDoubleClick={
+                  false
+                }
+                preventScrolling={
                   false
                 }
                 deleteKeyCode={
@@ -675,10 +716,6 @@ export function AgentWorkflowView({
                 multiSelectionKeyCode={
                   null
                 }
-                defaultEdgeOptions={{
-                  animated:
-                    false,
-                }}
               >
                 <Background
                   variant={
@@ -693,15 +730,12 @@ export function AgentWorkflowView({
                   color="var(--divider)"
                 />
 
-                <Controls
-                  showInteractive={
-                    false
-                  }
-                />
-
                 <FitViewOnChange
                   topologyKey={
                     layout.topologyKey
+                  }
+                  containerRef={
+                    flowContainerRef
                   }
                 />
               </ReactFlow>

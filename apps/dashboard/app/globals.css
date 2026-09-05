@@ -318,6 +318,24 @@
     stroke-linejoin: round;
   }
 
+  .agents-react-flow .orc-workflow-edge-default .react-flow__edge-path {
+    stroke-dasharray: 5 5 !important;
+  }
+
+  .agents-react-flow .orc-workflow-edge-explicit .react-flow__edge-path {
+    stroke-dasharray: 7 5 !important;
+  }
+
+  .agents-react-flow .react-flow__edge.animated .react-flow__edge-path {
+    animation: orc-workflow-edge-flow 0.9s linear infinite !important;
+  }
+
+  @keyframes orc-workflow-edge-flow {
+    to {
+      stroke-dashoffset: -20;
+    }
+  }
+
   .agents-react-flow .react-flow__controls {
     overflow: hidden;
     border: 1px solid var(--neon-border);
