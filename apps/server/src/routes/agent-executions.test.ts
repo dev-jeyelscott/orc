@@ -201,6 +201,9 @@ const {
   terminalChunks,
 } = await import("../db/schema.js");
 const {
+  RESOLUTION_TEAM_ID,
+} = await import("../db/seed-ids.js");
+const {
   subscribeToExecutionTerminal,
 } = await import(
   "../services/agent-execution-service.js"
@@ -355,6 +358,10 @@ describe("agent-execution routes", () => {
   }
 
   beforeEach(async () => {
+    runId = "";
+    agentId = "";
+    projectPath = "";
+
     app = await buildApp();
     await app.listen({
       port: 0,
@@ -375,6 +382,7 @@ describe("agent-execution routes", () => {
     const [agent] = await db
       .insert(agents)
       .values({
+        teamId: RESOLUTION_TEAM_ID,
         slug: `test-route-agent-${crypto.randomUUID()}`,
         name: "Route Test Agent",
         role: "Tester",
@@ -399,9 +407,15 @@ describe("agent-execution routes", () => {
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({ projectPath }),
+        body: JSON.stringify({
+          teamId: RESOLUTION_TEAM_ID,
+          projectPath,
+        }),
       },
     );
+
+    expect(runResponse.status).toBe(201);
+
     const run = (await runResponse.json()) as {
       id: string;
     };
@@ -412,36 +426,44 @@ describe("agent-execution routes", () => {
   afterEach(async () => {
     await app.close();
 
-    const executions = await db
-      .select({ id: agentExecutions.id })
-      .from(agentExecutions)
-      .where(eq(agentExecutions.runId, runId));
+    if (runId) {
+      const executions = await db
+        .select({ id: agentExecutions.id })
+        .from(agentExecutions)
+        .where(eq(agentExecutions.runId, runId));
 
-    for (const execution of executions) {
+      for (const execution of executions) {
+        await db
+          .delete(terminalChunks)
+          .where(
+            eq(
+              terminalChunks.agentExecutionId,
+              execution.id,
+            ),
+          );
+      }
+
       await db
-        .delete(terminalChunks)
-        .where(
-          eq(
-            terminalChunks.agentExecutionId,
-            execution.id,
-          ),
-        );
+        .delete(agentExecutions)
+        .where(eq(agentExecutions.runId, runId));
+
+      await db
+        .delete(runs)
+        .where(eq(runs.id, runId));
     }
 
-    await db
-      .delete(agentExecutions)
-      .where(eq(agentExecutions.runId, runId));
-    await db
-      .delete(runs)
-      .where(eq(runs.id, runId));
-    await db
-      .delete(agents)
-      .where(eq(agents.id, agentId));
+    if (agentId) {
+      await db
+        .delete(agents)
+        .where(eq(agents.id, agentId));
+    }
 
-    fs.rmSync(projectPath, {
-      recursive: true,
-      force: true,
-    });
+    if (projectPath) {
+      fs.rmSync(projectPath, {
+        recursive: true,
+        force: true,
+      });
+    }
 
     activePty = undefined;
     ptyInstances = [];
@@ -455,7 +477,10 @@ describe("agent-execution routes", () => {
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({ projectPath }),
+        body: JSON.stringify({
+          teamId: RESOLUTION_TEAM_ID,
+          projectPath,
+        }),
       },
     );
 
@@ -463,11 +488,13 @@ describe("agent-execution routes", () => {
 
     const body = (await response.json()) as {
       id: string;
+      teamId: string;
       projectPath: string;
       status: string;
     };
 
     expect(body).toMatchObject({
+      teamId: RESOLUTION_TEAM_ID,
       projectPath,
       status: "pending",
     });
@@ -485,7 +512,10 @@ describe("agent-execution routes", () => {
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({ projectPath: "" }),
+        body: JSON.stringify({
+          teamId: RESOLUTION_TEAM_ID,
+          projectPath: "",
+        }),
       },
     );
 

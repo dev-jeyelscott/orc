@@ -2491,16 +2491,6 @@ export async function retryLastExecution(
     );
   }
 
-  if (
-    run.executionCount >=
-    env.MAX_WORKFLOW_EXECUTIONS
-  ) {
-    throw new WorkflowServiceError(
-      `Workflow execution limit (${env.MAX_WORKFLOW_EXECUTIONS}) reached.`,
-      409,
-    );
-  }
-
   const updated =
     await db.transaction(
       async (tx) => {
@@ -2517,6 +2507,11 @@ export async function retryLastExecution(
                 null,
               terminalReason:
                 null,
+              executionCount:
+                run.executionCount >=
+                  env.MAX_WORKFLOW_EXECUTIONS
+                  ? 0
+                  : run.executionCount,
               updatedAt:
                 now,
             })
@@ -2588,6 +2583,14 @@ export async function retryLastExecution(
                 override
                   ? {
                       override,
+                    }
+                  : {}
+              ),
+              ...(
+                run.executionCount >=
+                env.MAX_WORKFLOW_EXECUTIONS
+                  ? {
+                      executionBudgetReset: true,
                     }
                   : {}
               ),

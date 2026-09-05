@@ -1102,5 +1102,54 @@ describe(
         });
       },
     );
+
+    it(
+      "restarts a manually retried terminal run after its workflow budget is exhausted",
+      async () => {
+        const worker =
+          await createTestAgent({
+            label:
+              "Exhausted Retry Worker",
+            relativeLayer: 1,
+            executionOrder: 1,
+          });
+
+        const { run } =
+          await createRetryableRun(
+            [
+              toSnapshotAgent(
+                worker,
+              ),
+            ],
+            [],
+          );
+
+        await db
+          .update(runs)
+          .set({
+            executionCount:
+              env.MAX_WORKFLOW_EXECUTIONS,
+          })
+          .where(
+            eq(
+              runs.id,
+              run.id,
+            ),
+          );
+
+        const finalRun =
+          await executePreparedRun(
+            run.id,
+          );
+
+        expect(finalRun.status).toBe(
+          "completed",
+        );
+
+        expect(
+          finalRun.executionCount,
+        ).toBe(1);
+      },
+    );
   },
 );
