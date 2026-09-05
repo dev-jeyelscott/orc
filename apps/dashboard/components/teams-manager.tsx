@@ -241,7 +241,23 @@ export function TeamsManager() {
 
   useEffect(
     () => {
-      void loadWorkspace();
+      let disposed =
+        false;
+
+      queueMicrotask(
+        () => {
+          if (
+            !disposed
+          ) {
+            void loadWorkspace();
+          }
+        },
+      );
+
+      return () => {
+        disposed =
+          true;
+      };
     },
     [
       loadWorkspace,

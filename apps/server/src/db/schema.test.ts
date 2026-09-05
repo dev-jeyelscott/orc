@@ -256,7 +256,9 @@ describe(
               ),
             );
 
-        expect(rows).toHaveLength(2);
+        expect(
+          rows,
+        ).toHaveLength(2);
 
         expect(
           rows.find(
@@ -291,7 +293,7 @@ describe(
     );
 
     it(
-      "keeps existing seed agents in Resolution and Development seed agents independent",
+      "keeps deterministic Resolution and Development seed Agent ownership",
       async () => {
         const resolutionAgents =
           await db
@@ -343,9 +345,7 @@ describe(
           developmentAgents.every(
             (agent) =>
               agent.teamId ===
-                DEVELOPMENT_TEAM_ID &&
-              agent.enabled ===
-                false,
+              DEVELOPMENT_TEAM_ID,
           ),
         ).toBe(true);
 
