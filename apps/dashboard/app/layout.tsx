@@ -10,6 +10,9 @@ import {
   AppSidebar,
 } from "@/components/app-sidebar";
 import {
+  IdleRunMonitor,
+} from "@/components/idle-run-monitor";
+import {
   ThemeProvider,
 } from "@/components/theme-provider";
 import {
@@ -59,7 +62,7 @@ export const metadata:
 };
 
 /**
- * Provides the shared theme, typography, responsive sidebar, and application content shell.
+ * Provides the shared theme, persistent idle-run monitor, typography, responsive sidebar, and application content shell.
  */
 export default function Layout({
   children,
@@ -85,6 +88,8 @@ export default function Layout({
         <ThemeProvider>
           <SidebarProvider>
             <AppSidebar />
+
+            <IdleRunMonitor />
 
             <main className="min-w-0 flex-1">
               <div className="sticky top-0 z-30 flex h-12 items-center gap-3 border-b bg-bg-app/95 px-3 backdrop-blur md:hidden">
