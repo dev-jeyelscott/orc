@@ -2,6 +2,14 @@ import { z } from "zod";
 
 import { harnessSchema } from "../enums/harness.js";
 
+import {
+  MAX_KNOWLEDGE_EXCERPT_CHARS,
+  MAX_KNOWLEDGE_HEADING_CHARS,
+  MAX_KNOWLEDGE_QUERY_CHARS,
+  MAX_KNOWLEDGE_SEARCH_RESULTS,
+  knowledgePathSchema,
+} from "./knowledge.js";
+
 export const conversationSchema = z.object({
   id: z.string().uuid(),
   teamId: z.string().uuid(),
@@ -174,6 +182,93 @@ const retryExecutionToolSchema = z
   })
   .strict();
 
+const searchKnowledgeToolSchema = z
+  .object({
+    name:
+      z.literal(
+        "search_knowledge",
+      ),
+    arguments:
+      z
+        .object({
+          query:
+            z
+              .string()
+              .trim()
+              .min(1)
+              .max(
+                MAX_KNOWLEDGE_QUERY_CHARS,
+              ),
+          area:
+            z
+              .enum([
+                "project",
+                "wiki",
+              ])
+              .default(
+                "project",
+              ),
+          scope:
+            z
+              .enum([
+                "default",
+                "tier2",
+              ])
+              .default(
+                "default",
+              ),
+          limit:
+            z
+              .number()
+              .int()
+              .min(1)
+              .max(
+                MAX_KNOWLEDGE_SEARCH_RESULTS,
+              )
+              .default(
+                MAX_KNOWLEDGE_SEARCH_RESULTS,
+              ),
+        })
+        .strict(),
+  })
+  .strict();
+
+const getKnowledgeSectionToolSchema = z
+  .object({
+    name:
+      z.literal(
+        "get_knowledge_section",
+      ),
+    arguments:
+      z
+        .object({
+          path:
+            knowledgePathSchema,
+          heading:
+            z
+              .string()
+              .trim()
+              .min(1)
+              .max(
+                MAX_KNOWLEDGE_HEADING_CHARS,
+              )
+              .optional(),
+          maxChars:
+            z
+              .number()
+              .int()
+              .min(1)
+              .max(
+                MAX_KNOWLEDGE_EXCERPT_CHARS,
+              )
+              .default(
+                MAX_KNOWLEDGE_EXCERPT_CHARS,
+              ),
+        })
+        .strict(),
+  })
+  .strict();
+
 export const orchestratorToolCallSchema = z.discriminatedUnion(
   "name",
   [
@@ -187,6 +282,8 @@ export const orchestratorToolCallSchema = z.discriminatedUnion(
     sendInstructionToolSchema,
     stopRunToolSchema,
     retryExecutionToolSchema,
+    searchKnowledgeToolSchema,
+    getKnowledgeSectionToolSchema,
   ],
 );
 

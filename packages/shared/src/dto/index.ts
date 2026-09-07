@@ -7,6 +7,7 @@ export * from "./task.js";
 export * from "./agent-execution.js";
 export * from "./agent-result.js";
 export * from "./conversation.js";
+export * from "./knowledge.js";
 export * from "./event.js";
 export * from "./dashboard.js";
 export * from "./run-monitoring.js";

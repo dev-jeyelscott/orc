@@ -1,18 +1,27 @@
 import {
   buildApp,
 } from "./app.js";
+
 import {
   env,
 } from "./config/env.js";
+
 import {
   logger,
 } from "./logger.js";
+
 import {
   createAutoModeScheduler,
 } from "./services/auto-mode-scheduler.js";
+
 import {
   registerAutoModeCycleRequester,
 } from "./services/auto-mode-signal.js";
+
+import {
+  closeKnowledgeMcpClient,
+} from "./services/knowledge-mcp-client.js";
+
 import {
   recoverInterruptedWorkflows,
 } from "./services/workflow-service.js";
@@ -41,6 +50,8 @@ async function main() {
     async () => {
       unregisterCycleRequester();
       scheduler.stop();
+
+      await closeKnowledgeMcpClient();
     },
   );
 

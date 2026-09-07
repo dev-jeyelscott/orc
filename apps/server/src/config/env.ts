@@ -70,6 +70,12 @@ const envSchema =
         .int()
         .positive()
         .default(10),
+    KNOWLEDGE_MCP_COMMAND:
+      z.string()
+        .trim()
+        .min(1)
+        .max(4_096)
+        .optional(),
     NOTION_API_KEY:
       z.string()
         .trim()

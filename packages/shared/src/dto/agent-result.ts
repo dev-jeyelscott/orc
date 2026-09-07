@@ -2,6 +2,10 @@ import { z } from "zod";
 
 import { agentResultStatusSchema } from "../enums/agent-result-status.js";
 
+import {
+  knowledgeRefCollectionSchema,
+} from "./knowledge.js";
+
 const commitHashSchema = z
   .string()
   .trim()
@@ -23,6 +27,9 @@ export const agentResultSchema = z.strictObject({
   commandsRun: z.array(z.string()).default([]),
   validation: z.record(z.string(), z.unknown()).default({}),
   commit: commitHashSchema.nullable().default(null),
+  knowledgeRefs:
+    knowledgeRefCollectionSchema
+      .optional(),
 });
 
 export type AgentResult = z.infer<typeof agentResultSchema>;

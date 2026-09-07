@@ -7,18 +7,25 @@ import {
   sql,
 } from "drizzle-orm";
 
-import type {
-  AgentExecution,
-  AgentResultStatus,
-  CreateTask,
-  RetryRun,
-  Run,
-  Task,
-  TaskWithRun,
+import {
+  agentResultSchema,
+  knowledgeRefCollectionSchema,
+  MAX_KNOWLEDGE_REFS,
+  type AgentExecution,
+  type AgentResult,
+  type AgentResultStatus,
+  type CreateTask,
+  type KnowledgeRef,
+  type RetryRun,
+  type Run,
+  type Task,
+  type TaskWithRun,
 } from "@orc/shared";
 
 import { env } from "../config/env.js";
+
 import { db } from "../db/client.js";
+
 import {
   agentExecutions,
   agentRoutes,
@@ -28,16 +35,32 @@ import {
   tasks,
   teams,
 } from "../db/schema.js";
-import { composeHandoffNote } from "../runtime/index.js";
+
+import {
+  composeHandoffNote,
+  composeKnowledgeContext,
+} from "../runtime/index.js";
+
 import {
   cancelLiveExecution,
   startSnapshotAgentExecution,
   type ExecutionFinalization,
   type SnapshotAgent,
 } from "./agent-execution-service.js";
-import { listRunEvents, recordEvent } from "./event-service.js";
-import { getProject, getProjectByPath } from "./project-discovery.js";
-import { requestAutoModeCycle } from "./auto-mode-signal.js";
+
+import {
+  listRunEvents,
+  recordEvent,
+} from "./event-service.js";
+
+import {
+  getProject,
+  getProjectByPath,
+} from "./project-discovery.js";
+
+import {
+  requestAutoModeCycle,
+} from "./auto-mode-signal.js";
 
 type TerminalAction =
   | "complete_run"
@@ -59,6 +82,8 @@ type SnapshotRoute = {
 type WorkflowSnapshot = {
   agents: SnapshotAgent[];
   routes: SnapshotRoute[];
+  knowledgeContext:
+    KnowledgeRef[];
 };
 
 type TransitionOrigin =
@@ -96,6 +121,8 @@ type AppliedWorkflowTransition = {
   sourceAgent: SnapshotAgent | null;
   targetAgent: SnapshotAgent | null;
   transition: WorkflowTransition;
+  result:
+    AgentResult | null;
 };
 
 export class WorkflowServiceError extends Error {
@@ -128,6 +155,150 @@ export function orderWorkflowAgents<
       left.executionOrder -
         right.executionOrder,
   );
+}
+
+/**
+ * Validates bounded run-owned knowledge context with an error status appropriate to
+ * either caller input or persisted snapshot corruption.
+ */
+function parseKnowledgeContext(
+  value:
+    unknown,
+  statusCode:
+    number,
+): KnowledgeRef[] {
+  const parsed =
+    knowledgeRefCollectionSchema.safeParse(
+      value,
+    );
+
+  if (
+    !parsed.success
+  ) {
+    throw new WorkflowServiceError(
+      "Run knowledge context is invalid",
+      statusCode,
+    );
+  }
+
+  return parsed.data;
+}
+
+/**
+ * Converts one knowledge reference to downstream-safe provenance without carrying
+ * the selected excerpt into every later workflow execution.
+ */
+function provenanceRef(
+  ref:
+    KnowledgeRef,
+): KnowledgeRef {
+  return {
+    source:
+      ref.source,
+    path:
+      ref.path,
+    ...(
+      ref.heading
+        ? {
+            heading:
+              ref.heading,
+          }
+        : {}
+    ),
+  };
+}
+
+/**
+ * Merges immutable first-worker knowledge provenance into the validated structured
+ * result while preserving any valid worker-reported references and configured limits.
+ */
+function mergeInitialKnowledgeProvenance(
+  snapshot:
+    WorkflowSnapshot,
+  sourceAgentId:
+    string,
+  result:
+    AgentResult | null,
+): AgentResult | null {
+  if (
+    !result ||
+    snapshot
+      .knowledgeContext
+      .length ===
+      0 ||
+    snapshot
+      .agents[0]
+      ?.id !==
+      sourceAgentId
+  ) {
+    return result;
+  }
+
+  const merged:
+    KnowledgeRef[] =
+      [];
+
+  const seen =
+    new Set<string>();
+
+  const candidates = [
+    ...snapshot
+      .knowledgeContext
+      .map(
+        provenanceRef,
+      ),
+    ...(
+      result
+        .knowledgeRefs ??
+      []
+    ).map(
+      provenanceRef,
+    ),
+  ];
+
+  for (
+    const ref of
+    candidates
+  ) {
+    const key =
+      [
+        ref.source,
+        ref.path,
+        ref.heading ??
+          "",
+      ].join(
+        "\u0000",
+      );
+
+    if (
+      seen.has(
+        key,
+      )
+    ) {
+      continue;
+    }
+
+    seen.add(
+      key,
+    );
+
+    merged.push(
+      ref,
+    );
+
+    if (
+      merged.length >=
+      MAX_KNOWLEDGE_REFS
+    ) {
+      break;
+    }
+  }
+
+  return agentResultSchema.parse({
+    ...result,
+    knowledgeRefs:
+      merged,
+  });
 }
 
 /**
@@ -176,7 +347,8 @@ function serializeRun(
 }
 
 /**
- * Creates an immutable run-owned workflow snapshot from current agent configuration.
+ * Creates an immutable run-owned workflow snapshot from current agent configuration
+ * and optional orchestrator-selected bounded durable knowledge.
  */
 function snapshotFromRows(
   agentRows:
@@ -187,6 +359,8 @@ function snapshotFromRows(
     Array<
       typeof agentRoutes.$inferSelect
     >,
+  knowledgeContext:
+    KnowledgeRef[] = [],
 ): WorkflowSnapshot {
   const orderedAgents =
     orderWorkflowAgents(
@@ -260,18 +434,28 @@ function snapshotFromRows(
               null,
           }),
         ),
+    knowledgeContext:
+      knowledgeContext.map(
+        (
+          ref,
+        ) => ({
+          ...ref,
+        }),
+      ),
   };
 }
 
 /**
- * Reads the workflow snapshot persisted with a run and rejects malformed snapshots.
+ * Reads the workflow snapshot persisted with a run, accepts old snapshots without
+ * knowledgeContext as an empty context, and rejects malformed snapshots.
  */
 function snapshotOf(
   row: typeof runs.$inferSelect,
 ): WorkflowSnapshot {
   const snapshot =
     row.workflowSnapshot as
-      WorkflowSnapshot | null;
+      | Partial<WorkflowSnapshot>
+      | null;
 
   if (
     !snapshot ||
@@ -288,7 +472,19 @@ function snapshotOf(
     );
   }
 
-  return snapshot;
+  return {
+    agents:
+      snapshot.agents,
+    routes:
+      snapshot.routes,
+    knowledgeContext:
+      parseKnowledgeContext(
+        snapshot
+          .knowledgeContext ??
+          [],
+        500,
+      ),
+  };
 }
 
 /**
@@ -833,7 +1029,8 @@ function resolveExecutionAgent(
 }
 
 /**
- * Starts a worker whose run row has already atomically claimed that agent.
+ * Starts a worker whose run row has already atomically claimed that agent and injects
+ * initial durable knowledge only when the claimed agent is the snapshot's first worker.
  */
 async function launchClaimedAgent(
   claimedRun:
@@ -857,10 +1054,39 @@ async function launchClaimedAgent(
         claimedRun,
       );
 
+    const snapshot =
+      snapshotOf(
+        claimedRun,
+      );
+
+    const knowledgeNote =
+      snapshot
+        .agents[0]
+        ?.id ===
+      snapshotAgent.id
+        ? composeKnowledgeContext(
+            snapshot
+              .knowledgeContext,
+          )
+        : null;
+
     const instruction =
-      handoffNote
-        ? `${baseInstruction}\n\n${handoffNote}`
-        : baseInstruction;
+      [
+        baseInstruction,
+        knowledgeNote,
+        handoffNote,
+      ]
+        .filter(
+          (
+            value,
+          ): value is string =>
+            Boolean(
+              value,
+            ),
+        )
+        .join(
+          "\n\n",
+        );
 
     await recordEvent({
       type:
@@ -1056,7 +1282,9 @@ async function claimAndLaunchAgent(
 }
 
 /**
- * Atomically persists a structured result transition and either claims the next agent or terminates the run.
+ * Atomically persists a structured result transition, adds immutable first-worker
+ * knowledge provenance to the existing result payload, and either claims the next agent
+ * or terminates the run.
  */
 async function applyFinalizationTransition(
   runId:
@@ -1069,6 +1297,8 @@ async function applyFinalizationTransition(
     AgentResultStatus,
   failureReason:
     string | null,
+  result:
+    AgentResult | null,
 ): Promise<
   AppliedWorkflowTransition | null
 > {
@@ -1107,6 +1337,13 @@ async function applyFinalizationTransition(
             agentId,
         ) ?? null;
 
+      const mergedResult =
+        mergeInitialKnowledgeProvenance(
+          snapshot,
+          agentId,
+          result,
+        );
+
       const transition =
         enforceWorkflowExecutionLimit(
           resolveWorkflowTransition(
@@ -1120,6 +1357,33 @@ async function applyFinalizationTransition(
 
       const now =
         new Date();
+
+      if (
+        mergedResult
+      ) {
+        await tx
+          .update(
+            agentExecutions,
+          )
+          .set({
+            resultPayload:
+              mergedResult,
+            updatedAt:
+              now,
+          })
+          .where(
+            and(
+              eq(
+                agentExecutions.id,
+                executionId,
+              ),
+              eq(
+                agentExecutions.runId,
+                run.id,
+              ),
+            ),
+          );
+      }
 
       const activeSourceCondition =
         and(
@@ -1341,6 +1605,8 @@ async function applyFinalizationTransition(
         sourceAgent,
         targetAgent,
         transition,
+        result:
+          mergedResult,
       };
     },
   );
@@ -1421,6 +1687,8 @@ async function handleExecutionFinalization(
           .resultStatus,
         finalization
           .failureReason,
+        finalization
+          .result,
       );
   } catch (
     error
@@ -1468,11 +1736,11 @@ async function handleExecutionFinalization(
   }
 
   const handoffNote =
-    finalization.result &&
+    applied.result &&
     applied.sourceAgent
       ? composeHandoffNote(
           applied.sourceAgent,
-          finalization.result,
+          applied.result,
         )
       : undefined;
 
@@ -1628,13 +1896,23 @@ export async function getTask(
 }
 
 /**
- * Starts a pending task through the normal snapshotted workflow execution path.
+ * Starts a pending task through the normal snapshotted workflow execution path and
+ * freezes any orchestrator-selected bounded durable knowledge into that Run snapshot.
  */
 export async function startTask(
-  id: string,
+  id:
+    string,
+  knowledgeContext:
+    readonly KnowledgeRef[] = [],
 ): Promise<
   TaskWithRun | null
 > {
+  const validatedKnowledgeContext =
+    parseKnowledgeContext(
+      knowledgeContext,
+      400,
+    );
+
   const [existingTask] =
     await db
       .select()
@@ -1823,6 +2101,7 @@ export async function startTask(
           snapshotFromRows(
             enabledAgents,
             routes,
+            validatedKnowledgeContext,
           );
 
         const now =
@@ -1929,7 +2208,8 @@ export async function startTask(
 }
 
 /**
- * Creates a task and immutable workflow snapshot, then starts its first configured worker.
+ * Creates a task and immutable workflow snapshot, then starts its first configured worker
+ * with knowledge disabled for existing manual and Auto Mode compatibility.
  */
 export async function createAndStartTask(
   input:
@@ -2158,7 +2438,8 @@ export async function createAndStartTask(
 /**
  * Lists persisted tasks newest first.
  */
-export async function listTasks(): Promise<Task[]> {
+export async function listTasks():
+  Promise<Task[]> {
   return (
     await db
       .select()
@@ -2176,7 +2457,8 @@ export async function listTasks(): Promise<Task[]> {
 /**
  * Lists persisted runs newest first.
  */
-export async function listRuns(): Promise<Run[]> {
+export async function listRuns():
+  Promise<Run[]> {
   return (
     await db
       .select()
@@ -2407,7 +2689,8 @@ export async function cancelRun(
 }
 
 /**
- * Restarts the final snapshot agent of a failed or blocked run with optional one-execution overrides.
+ * Restarts the final snapshot agent of a failed or blocked run with optional
+ * one-execution overrides while retaining the original immutable snapshot.
  */
 export async function retryLastExecution(
   id:
@@ -2616,7 +2899,8 @@ export async function retryLastExecution(
 /**
  * Blocks workflows left active by a previous server process without automatically resuming repository work.
  */
-export async function recoverInterruptedWorkflows(): Promise<void> {
+export async function recoverInterruptedWorkflows():
+  Promise<void> {
   const active =
     await db
       .select()

@@ -1,20 +1,30 @@
 import type {
   Conversation,
+  KnowledgeRef,
   OrchestratorToolCall,
   Project,
 } from "@orc/shared";
 
 import { env } from "../config/env.js";
+
 import {
   getExecution,
   sendInstructionToExecution,
 } from "./agent-execution-service.js";
+
 import {
   listRecentRunEvents,
 } from "./event-service.js";
+
+import {
+  getKnowledgeSection,
+  searchKnowledge,
+} from "./knowledge-mcp-client.js";
+
 import {
   getProjectByPath,
 } from "./project-discovery.js";
+
 import {
   cancelRun,
   createTask,
@@ -47,6 +57,11 @@ export type OrchestratorToolExecution = {
       | string
       | null;
   };
+};
+
+export type OrchestratorToolExecutionContext = {
+  knowledgeContext?:
+    KnowledgeRef[];
 };
 
 /**
@@ -221,13 +236,72 @@ async function requireExecution(
 }
 
 /**
- * Executes one validated orchestrator tool call against authoritative system services.
+ * Normalizes one Project or vault path for case-consistent consumer scope checks.
+ */
+function normalizeKnowledgeScopeValue(
+  value:
+    string,
+): string {
+  return value
+    .replaceAll(
+      "\\",
+      "/",
+    )
+    .normalize(
+      "NFKC",
+    )
+    .toLowerCase();
+}
+
+/**
+ * Verifies an exact section read stays inside the selected Project knowledge namespace
+ * or the shared wiki namespace before it reaches the MCP.
+ */
+function requireKnowledgeSectionScope(
+  project:
+    Project,
+  path:
+    string,
+): void {
+  const normalized =
+    normalizeKnowledgeScopeValue(
+      path,
+    );
+
+  const projectPrefix =
+    `projects/${normalizeKnowledgeScopeValue(
+      project.name,
+    )}/`;
+
+  const allowed =
+    normalized.startsWith(
+      projectPrefix,
+    ) ||
+    normalized.startsWith(
+      "wiki/",
+    );
+
+  if (
+    !allowed
+  ) {
+    throw new OrchestratorToolServiceError(
+      "The knowledge note does not belong to this conversation project or the shared wiki",
+      403,
+    );
+  }
+}
+
+/**
+ * Executes one validated orchestrator tool call against authoritative system services
+ * or the bounded optional durable-knowledge consumer.
  */
 export async function executeOrchestratorTool(
   conversation:
     Conversation,
   tool:
     OrchestratorToolCall,
+  context:
+    OrchestratorToolExecutionContext = {},
 ): Promise<OrchestratorToolExecution> {
   switch (tool.name) {
     case "get_project": {
@@ -301,6 +375,9 @@ export async function executeOrchestratorTool(
       const started =
         await startTask(
           task.id,
+          context
+            .knowledgeContext ??
+            [],
         );
 
       if (!started) {
@@ -473,6 +550,63 @@ export async function executeOrchestratorTool(
       return {
         result:
           run,
+      };
+    }
+
+    case "search_knowledge": {
+      const project =
+        await requireCurrentProject(
+          conversation,
+        );
+
+      return {
+        result:
+          await searchKnowledge({
+            projectName:
+              project.name,
+            query:
+              tool.arguments
+                .query,
+            area:
+              tool.arguments
+                .area,
+            scope:
+              tool.arguments
+                .scope,
+            limit:
+              tool.arguments
+                .limit,
+          }),
+      };
+    }
+
+    case "get_knowledge_section": {
+      const project =
+        await requireCurrentProject(
+          conversation,
+        );
+
+      requireKnowledgeSectionScope(
+        project,
+        tool.arguments
+          .path,
+      );
+
+      return {
+        result:
+          await getKnowledgeSection({
+            projectName:
+              project.name,
+            path:
+              tool.arguments
+                .path,
+            heading:
+              tool.arguments
+                .heading,
+            maxChars:
+              tool.arguments
+                .maxChars,
+          }),
       };
     }
   }
