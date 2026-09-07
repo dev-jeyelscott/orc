@@ -48,7 +48,7 @@ describe(
     it(
       "requires Tier 2 to be explicit and rejects source search",
       () => {
-        expect(
+        const parsed =
           orchestratorToolCallSchema.parse({
             name:
               "search_knowledge",
@@ -58,7 +58,19 @@ describe(
               scope:
                 "tier2",
             },
-          }).arguments
+          });
+
+        if (
+          parsed.name !==
+          "search_knowledge"
+        ) {
+          throw new Error(
+            "Expected search_knowledge tool",
+          );
+        }
+
+        expect(
+          parsed.arguments
             .scope,
         ).toBe(
           "tier2",
