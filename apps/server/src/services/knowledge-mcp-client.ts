@@ -19,7 +19,6 @@ import {
   knowledgeSearchRequestSchema,
   knowledgeSectionEnvelopeSchema,
   knowledgeSectionRequestSchema,
-  type KnowledgeAuthority,
   type KnowledgeSearchEnvelope,
   type KnowledgeSearchRequest,
   type KnowledgeSearchResult,
@@ -224,8 +223,7 @@ function createKnowledgeMcpEnvironment():
     const [
       name,
       value,
-    ] of
-    Object.entries(
+    ] of Object.entries(
       process.env,
     )
   ) {
@@ -277,6 +275,7 @@ function withKnowledgeTimeout<T>(
           clearTimeout(
             timeout,
           );
+
           resolve(
             value,
           );
@@ -287,6 +286,7 @@ function withKnowledgeTimeout<T>(
           clearTimeout(
             timeout,
           );
+
           reject(
             error,
           );
@@ -361,16 +361,14 @@ async function getKnowledgeMcpClient():
     (
       async () => {
         const transport =
-          new StdioClientTransport(
-            {
-              command,
-              args: [],
-              env:
-                createKnowledgeMcpEnvironment(),
-              stderr:
-                "inherit",
-            },
-          );
+          new StdioClientTransport({
+            command,
+            args: [],
+            env:
+              createKnowledgeMcpEnvironment(),
+            stderr:
+              "inherit",
+          });
 
         const client =
           new Client({
@@ -599,12 +597,8 @@ function isAllowedKnowledgePath(
     area ===
     "wiki"
   ) {
-    return (
-      normalized ===
-        "wiki" ||
-      normalized.startsWith(
-        "wiki/",
-      )
+    return normalized.startsWith(
+      "wiki/",
     );
   }
 
@@ -636,8 +630,7 @@ function presentSearchResult(
         MAX_KNOWLEDGE_TITLE_CHARS,
       ),
     authority:
-      value.authority as
-        KnowledgeAuthority,
+      value.authority,
     score:
       value.score,
     metadata: {
@@ -680,6 +673,7 @@ function presentSearchResult(
                 MAX_KNOWLEDGE_SEARCH_EVIDENCE_CHARS,
               ),
           }),
+        ),
   };
 }
 
@@ -870,22 +864,18 @@ export async function searchKnowledge(
         presentSearchResult,
       );
 
-  const envelope = {
-    source:
-      "vault",
-    kind:
-      "durable_knowledge",
-    runtimeAuthoritative:
-      false,
-    status:
-      "ok",
-    results,
-  } as const;
-
   const validated =
-    knowledgeSearchEnvelopeSchema.safeParse(
-      envelope,
-    );
+    knowledgeSearchEnvelopeSchema.safeParse({
+      source:
+        "vault",
+      kind:
+        "durable_knowledge",
+      runtimeAuthoritative:
+        false,
+      status:
+        "ok",
+      results,
+    });
 
   return validated.success
     ? validated.data
@@ -997,65 +987,61 @@ export async function getKnowledgeSection(
         ),
       );
 
-  const envelope = {
-    source:
-      "vault",
-    kind:
-      "durable_knowledge",
-    runtimeAuthoritative:
-      false,
-    status:
-      "ok",
-    section: {
-      ref: {
-        source:
-          "vault",
-        path:
-          parsed.data.path,
-        ...(
-          parsed.data.heading
-            ? {
-                heading:
-                  parsed.data.heading,
-              }
-            : {}
-        ),
-        ...(
-          excerpt.trim()
-            ? {
-                excerpt,
-              }
-            : {}
-        ),
-      },
-      title:
-        truncateText(
-          parsed.data.title,
-          MAX_KNOWLEDGE_TITLE_CHARS,
-        ),
-      authority:
-        parsed.data
-          .authority,
-      truncated:
-        parsed.data
-          .truncated ||
-        parsed.data.content
-          .length >
-          excerpt.length,
-      charsReturned:
-        excerpt.length,
-      bytesReturned:
-        Buffer.byteLength(
-          excerpt,
-          "utf8",
-        ),
-    },
-  } as const;
-
   const validated =
-    knowledgeSectionEnvelopeSchema.safeParse(
-      envelope,
-    );
+    knowledgeSectionEnvelopeSchema.safeParse({
+      source:
+        "vault",
+      kind:
+        "durable_knowledge",
+      runtimeAuthoritative:
+        false,
+      status:
+        "ok",
+      section: {
+        ref: {
+          source:
+            "vault",
+          path:
+            parsed.data.path,
+          ...(
+            parsed.data.heading
+              ? {
+                  heading:
+                    parsed.data.heading,
+                }
+              : {}
+          ),
+          ...(
+            excerpt.trim()
+              ? {
+                  excerpt,
+                }
+              : {}
+          ),
+        },
+        title:
+          truncateText(
+            parsed.data.title,
+            MAX_KNOWLEDGE_TITLE_CHARS,
+          ),
+        authority:
+          parsed.data
+            .authority,
+        truncated:
+          parsed.data
+            .truncated ||
+          parsed.data.content
+            .length >
+            excerpt.length,
+        charsReturned:
+          excerpt.length,
+        bytesReturned:
+          Buffer.byteLength(
+            excerpt,
+            "utf8",
+          ),
+      },
+    });
 
   return validated.success
     ? validated.data

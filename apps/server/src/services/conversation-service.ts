@@ -19,7 +19,6 @@ import {
 } from "@orc/shared";
 
 import { env } from "../config/env.js";
-
 import { db } from "../db/client.js";
 
 import {
@@ -675,6 +674,7 @@ ${content}`;
                       .message,
                     502,
                   ),
+                ),
             );
 
             return;
