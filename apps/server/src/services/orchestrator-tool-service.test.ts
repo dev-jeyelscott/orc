@@ -466,6 +466,7 @@ describe(
           mocks.startTask,
         ).toHaveBeenCalledWith(
           persistedTask.id,
+          [],
         );
 
         expect(
