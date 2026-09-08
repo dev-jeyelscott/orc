@@ -5,11 +5,16 @@ import {
 } from "vitest";
 
 import {
+  MAX_PROJECT_DOCUMENT_SELECTIONS,
+} from "./project-document.js";
+
+import {
   conversationDetailSchema,
   createConversationSchema,
   orchestratorSettingsSchema,
   orchestratorToolCallSchema,
   postConversationMessageResponseSchema,
+  postConversationMessageSchema,
   updateOrchestratorSettingsSchema,
 } from "./conversation.js";
 
@@ -27,6 +32,9 @@ const runId =
 
 const messageId =
   "44444444-4444-4444-8444-444444444444";
+
+const documentId =
+  "55555555-5555-4555-8555-555555555555";
 
 describe(
   "conversation contracts",
@@ -111,6 +119,128 @@ describe(
           createConversationSchema.safeParse({
             projectPath:
               "/workspace/orc",
+          }).success,
+        ).toBe(
+          false,
+        );
+      },
+    );
+
+    /**
+     * Verifies legacy content-only Conversation posts continue to parse without adding fields.
+     */
+    it(
+      "preserves legacy content-only message parsing",
+      () => {
+        expect(
+          postConversationMessageSchema.parse({
+            content:
+              "Use the current project state.",
+          }),
+        ).toEqual({
+          content:
+            "Use the current project state.",
+        });
+      },
+    );
+
+    /**
+     * Verifies bounded uploaded Project document selections are accepted.
+     */
+    it(
+      "accepts bounded document IDs on Conversation posts",
+      () => {
+        expect(
+          postConversationMessageSchema.parse({
+            content:
+              "Use the selected roadmap.",
+            documentIds: [
+              documentId,
+            ],
+          }),
+        ).toEqual({
+          content:
+            "Use the selected roadmap.",
+          documentIds: [
+            documentId,
+          ],
+        });
+      },
+    );
+
+    /**
+     * Verifies malformed, duplicate, and excessive document selections are rejected at the shared boundary.
+     */
+    it(
+      "rejects invalid document selections",
+      () => {
+        expect(
+          postConversationMessageSchema.safeParse({
+            content:
+              "Use this.",
+            documentIds: [
+              "not-a-uuid",
+            ],
+          }).success,
+        ).toBe(
+          false,
+        );
+
+        expect(
+          postConversationMessageSchema.safeParse({
+            content:
+              "Use this.",
+            documentIds: [
+              documentId,
+              documentId,
+            ],
+          }).success,
+        ).toBe(
+          false,
+        );
+
+        expect(
+          postConversationMessageSchema.safeParse({
+            content:
+              "Use these.",
+            documentIds:
+              Array.from(
+                {
+                  length:
+                    MAX_PROJECT_DOCUMENT_SELECTIONS +
+                    1,
+                },
+                (
+                  _,
+                  index,
+                ) =>
+                  `00000000-0000-4000-8000-${String(
+                    index +
+                      1,
+                  ).padStart(
+                    12,
+                    "0",
+                  )}`,
+              ),
+          }).success,
+        ).toBe(
+          false,
+        );
+      },
+    );
+
+    /**
+     * Verifies extending message posts with document IDs does not weaken strict unknown-field rejection.
+     */
+    it(
+      "keeps Conversation message posts strict",
+      () => {
+        expect(
+          postConversationMessageSchema.safeParse({
+            content:
+              "Hello",
+            unexpected:
+              true,
           }).success,
         ).toBe(
           false,

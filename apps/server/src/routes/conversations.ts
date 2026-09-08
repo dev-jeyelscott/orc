@@ -223,6 +223,9 @@ export async function conversationRoutes(
             params.data.id,
             body.data
               .content,
+            body.data
+              .documentIds ??
+              [],
           );
 
         return (

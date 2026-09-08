@@ -466,6 +466,216 @@ export const tasks =
     ],
   );
 
+export const projectDocuments =
+  pgTable(
+    "project_documents",
+    {
+      id:
+        uuid("id")
+          .primaryKey()
+          .defaultRandom(),
+      teamId:
+        uuid(
+          "team_id",
+        )
+          .notNull()
+          .references(
+            () =>
+              teams.id,
+            {
+              onDelete:
+                "restrict",
+            },
+          ),
+      projectPath:
+        text(
+          "project_path",
+        ).notNull(),
+      fileName:
+        text(
+          "file_name",
+        ).notNull(),
+      extension:
+        text(
+          "extension",
+        ).notNull(),
+      mediaType:
+        text(
+          "media_type",
+        ).notNull(),
+      content:
+        text(
+          "content",
+        ).notNull(),
+      contentHash:
+        text(
+          "content_hash",
+        ).notNull(),
+      contentBytes:
+        integer(
+          "content_bytes",
+        ).notNull(),
+      ...timestamps,
+    },
+    (table) => [
+      index(
+        "project_documents_team_id_project_path_idx",
+      ).on(
+        table.teamId,
+        table.projectPath,
+      ),
+      check(
+        "project_documents_file_type_check",
+        sql`(
+          (${table.extension} = '.md' and ${table.mediaType} = 'text/markdown')
+          or
+          (${table.extension} = '.txt' and ${table.mediaType} = 'text/plain')
+        )`,
+      ),
+      check(
+        "project_documents_content_hash_check",
+        sql`${table.contentHash} ~ '^[0-9a-f]{64}$'`,
+      ),
+      check(
+        "project_documents_content_bytes_check",
+        sql`${table.contentBytes} > 0`,
+      ),
+    ],
+  );
+
+export const projectDocumentChunks =
+  pgTable(
+    "project_document_chunks",
+    {
+      id:
+        uuid("id")
+          .primaryKey()
+          .defaultRandom(),
+      projectDocumentId:
+        uuid(
+          "project_document_id",
+        )
+          .notNull()
+          .references(
+            () =>
+              projectDocuments.id,
+            {
+              onDelete:
+                "cascade",
+            },
+          ),
+      sequence:
+        integer(
+          "sequence",
+        ).notNull(),
+      startOffset:
+        integer(
+          "start_offset",
+        ).notNull(),
+      endOffset:
+        integer(
+          "end_offset",
+        ).notNull(),
+      content:
+        text(
+          "content",
+        ).notNull(),
+      contentHash:
+        text(
+          "content_hash",
+        ).notNull(),
+      createdAt:
+        timestamp(
+          "created_at",
+          {
+            withTimezone:
+              true,
+          },
+        )
+          .notNull()
+          .defaultNow(),
+    },
+    (table) => [
+      unique(
+        "project_document_chunks_document_sequence_unique",
+      ).on(
+        table.projectDocumentId,
+        table.sequence,
+      ),
+      check(
+        "project_document_chunks_sequence_check",
+        sql`${table.sequence} >= 0`,
+      ),
+      check(
+        "project_document_chunks_start_offset_check",
+        sql`${table.startOffset} >= 0`,
+      ),
+      check(
+        "project_document_chunks_end_offset_check",
+        sql`${table.endOffset} > ${table.startOffset}`,
+      ),
+      check(
+        "project_document_chunks_content_hash_check",
+        sql`${table.contentHash} ~ '^[0-9a-f]{64}$'`,
+      ),
+    ],
+  );
+
+export const taskDocuments =
+  pgTable(
+    "task_documents",
+    {
+      id:
+        uuid("id")
+          .primaryKey()
+          .defaultRandom(),
+      taskId:
+        uuid(
+          "task_id",
+        )
+          .notNull()
+          .references(
+            () =>
+              tasks.id,
+            {
+              onDelete:
+                "cascade",
+            },
+          ),
+      projectDocumentId:
+        uuid(
+          "project_document_id",
+        )
+          .notNull()
+          .references(
+            () =>
+              projectDocuments.id,
+            {
+              onDelete:
+                "restrict",
+            },
+          ),
+      createdAt:
+        timestamp(
+          "created_at",
+          {
+            withTimezone:
+              true,
+          },
+        )
+          .notNull()
+          .defaultNow(),
+    },
+    (table) => [
+      unique(
+        "task_documents_task_document_unique",
+      ).on(
+        table.taskId,
+        table.projectDocumentId,
+      ),
+    ],
+  );
+
 export const agentExecutions =
   pgTable(
     "agent_executions",
@@ -804,6 +1014,61 @@ export const conversationMessages =
       check(
         "conversation_messages_role_check",
         sql`${table.role} in ('user', 'assistant')`,
+      ),
+    ],
+  );
+
+export const conversationMessageDocuments =
+  pgTable(
+    "conversation_message_documents",
+    {
+      id:
+        uuid("id")
+          .primaryKey()
+          .defaultRandom(),
+      conversationMessageId:
+        uuid(
+          "conversation_message_id",
+        )
+          .notNull()
+          .references(
+            () =>
+              conversationMessages.id,
+            {
+              onDelete:
+                "cascade",
+            },
+          ),
+      projectDocumentId:
+        uuid(
+          "project_document_id",
+        )
+          .notNull()
+          .references(
+            () =>
+              projectDocuments.id,
+            {
+              onDelete:
+                "restrict",
+            },
+          ),
+      createdAt:
+        timestamp(
+          "created_at",
+          {
+            withTimezone:
+              true,
+          },
+        )
+          .notNull()
+          .defaultNow(),
+    },
+    (table) => [
+      unique(
+        "conversation_message_documents_message_document_unique",
+      ).on(
+        table.conversationMessageId,
+        table.projectDocumentId,
       ),
     ],
   );

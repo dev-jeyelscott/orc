@@ -10,6 +10,10 @@ import {
   knowledgePathSchema,
 } from "./knowledge.js";
 
+import {
+  projectDocumentIdCollectionSchema,
+} from "./project-document.js";
+
 export const conversationSchema = z.object({
   id: z.string().uuid(),
   teamId: z.string().uuid(),
@@ -51,7 +55,16 @@ export const createConversationSchema = z
 
 export const postConversationMessageSchema = z
   .object({
-    content: z.string().trim().min(1).max(20_000),
+    content:
+      z.string()
+        .trim()
+        .min(1)
+        .max(
+          20_000,
+        ),
+    documentIds:
+      projectDocumentIdCollectionSchema
+        .optional(),
   })
   .strict();
 

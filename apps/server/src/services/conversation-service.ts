@@ -3,6 +3,7 @@ import {
   asc,
   desc,
   eq,
+  inArray,
 } from "drizzle-orm";
 
 import {
@@ -22,9 +23,11 @@ import { env } from "../config/env.js";
 import { db } from "../db/client.js";
 
 import {
+  conversationMessageDocuments,
   conversationMessages,
   conversations,
   orchestratorSettings,
+  projectDocuments,
   teams,
 } from "../db/schema.js";
 
@@ -682,7 +685,7 @@ ${content}`;
 
           if (
             event.type ===
-            "exit"
+              "exit"
           ) {
             finish(
               () => {
@@ -709,8 +712,7 @@ ${content}`;
 }
 
 /**
- * Preloads authoritative Project, Task, and Run state into the supervisor context
- * without ever preloading optional durable knowledge.
+ * Preloads authoritative Project, Task, and Run state into the supervisor context without ever preloading optional durable knowledge.
  */
 async function preloadSupervisorContext(
   conversation:
@@ -771,8 +773,7 @@ async function preloadSupervisorContext(
 }
 
 /**
- * Collects only successful exact section reads returned by the server during the
- * current bounded supervisor turn and deduplicates them before Run creation.
+ * Collects only successful exact section reads returned by the server during the current bounded supervisor turn and deduplicates them before Run creation.
  */
 function collectSelectedKnowledge(
   toolResults:
@@ -896,13 +897,15 @@ async function persistConversationReferences(
 }
 
 /**
- * Persists a user message, executes a bounded grounded tool loop, and stores the final supervisor response.
+ * Persists a user message and any validated same-Project same-Team document attachments, executes a bounded grounded tool loop, and stores the final supervisor response.
  */
 export async function postConversationMessage(
   id:
     string,
   content:
     string,
+  documentIds:
+    string[] = [],
 ) {
   const found =
     await getConversation(
@@ -930,17 +933,90 @@ export async function postConversationMessage(
   let projectPath =
     initialProject.path;
 
-  await db
-    .insert(
-      conversationMessages,
-    )
-    .values({
-      conversationId:
-        id,
-      role:
-        "user",
-      content,
-    });
+  await db.transaction(
+    async (
+      tx,
+    ) => {
+      if (
+        documentIds.length >
+        0
+      ) {
+        const selectedDocuments =
+          await tx
+            .select({
+              id:
+                projectDocuments.id,
+            })
+            .from(
+              projectDocuments,
+            )
+            .where(
+              and(
+                eq(
+                  projectDocuments.teamId,
+                  found.conversation.teamId,
+                ),
+                eq(
+                  projectDocuments.projectPath,
+                  projectPath,
+                ),
+                inArray(
+                  projectDocuments.id,
+                  documentIds,
+                ),
+              ),
+            );
+
+        if (
+          selectedDocuments.length !==
+          documentIds.length
+        ) {
+          throw new ConversationServiceError(
+            "One or more selected documents are unavailable in this Conversation scope",
+            400,
+          );
+        }
+      }
+
+      const [userMessage] =
+        await tx
+          .insert(
+            conversationMessages,
+          )
+          .values({
+            conversationId:
+              id,
+            role:
+              "user",
+            content,
+          })
+          .returning({
+            id:
+              conversationMessages.id,
+          });
+
+      if (
+        documentIds.length >
+        0
+      ) {
+        await tx
+          .insert(
+            conversationMessageDocuments,
+          )
+          .values(
+            documentIds.map(
+              (
+                projectDocumentId,
+              ) => ({
+                conversationMessageId:
+                  userMessage.id,
+                projectDocumentId,
+              }),
+            ),
+          );
+      }
+    },
+  );
 
   await persistConversationReferences(
     id,
