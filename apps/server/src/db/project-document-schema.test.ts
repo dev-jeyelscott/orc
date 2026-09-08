@@ -841,6 +841,22 @@ describe(
             ),
         ).rejects.toThrow();
 
+        // Removes the unrelated Run FK dependency before testing the Task attachment cascade.
+        await db
+          .delete(
+            runs,
+          )
+          .where(
+            eq(
+              runs.id,
+              context.runId,
+            ),
+          );
+
+        createdRunIds.delete(
+          context.runId,
+        );
+
         await db
           .delete(
             tasks,
