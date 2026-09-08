@@ -29,6 +29,9 @@ import {
   healthRoutes,
 } from "./routes/health.js";
 import {
+  projectDocumentRoutes,
+} from "./routes/project-documents.js";
+import {
   projectRoutes,
 } from "./routes/projects.js";
 import {
@@ -97,6 +100,10 @@ export async function buildApp() {
 
   await app.register(
     conversationRoutes,
+  );
+
+  await app.register(
+    projectDocumentRoutes,
   );
 
   await app.register(

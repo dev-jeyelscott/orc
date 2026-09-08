@@ -9,11 +9,14 @@ import {
 } from "./knowledge.js";
 
 import {
+  createProjectDocumentRequestSchema,
   MAX_PROJECT_DOCUMENT_CONTEXT_CHARS,
   MAX_PROJECT_DOCUMENT_CONTEXT_ITEMS,
   MAX_PROJECT_DOCUMENT_EXCERPT_CHARS,
   MAX_PROJECT_DOCUMENT_UPLOAD_BYTES,
   projectDocumentChunkMetadataSchema,
+  projectDocumentCreateResponseSchema,
+  projectDocumentListResponseSchema,
   projectDocumentMetadataSchema,
   projectDocumentUploadMetadataSchema,
   uploadedProjectDocumentContextCollectionSchema,
@@ -459,6 +462,144 @@ describe(
               CHUNK_HASH,
             excerpt:
               "Wrong provenance.",
+          }).success,
+        ).toBe(
+          false,
+        );
+      },
+    );
+
+    /**
+     * Verifies a well-formed create request is accepted and mismatched file metadata is rejected.
+     */
+    it(
+      "validates create requests against file metadata agreement",
+      () => {
+        expect(
+          createProjectDocumentRequestSchema.safeParse({
+            teamId:
+              TEAM_ID,
+            projectPath:
+              "/tmp/orc-test-project",
+            fileName:
+              "roadmap.md",
+            extension:
+              ".md",
+            mediaType:
+              "text/markdown",
+            content:
+              "# Roadmap",
+          }).success,
+        ).toBe(
+          true,
+        );
+
+        expect(
+          createProjectDocumentRequestSchema.safeParse({
+            teamId:
+              TEAM_ID,
+            projectPath:
+              "/tmp/orc-test-project",
+            fileName:
+              "roadmap.txt",
+            extension:
+              ".md",
+            mediaType:
+              "text/markdown",
+            content:
+              "# Roadmap",
+          }).success,
+        ).toBe(
+          false,
+        );
+
+        expect(
+          createProjectDocumentRequestSchema.safeParse({
+            teamId:
+              TEAM_ID,
+            projectPath:
+              "/tmp/orc-test-project",
+            fileName:
+              "roadmap.md",
+            extension:
+              ".md",
+            mediaType:
+              "text/markdown",
+            content:
+              "",
+          }).success,
+        ).toBe(
+          false,
+        );
+      },
+    );
+
+    /**
+     * Verifies list and create responses only ever carry document metadata, never chunk bodies.
+     */
+    it(
+      "keeps list and create responses free of chunk content",
+      () => {
+        const document =
+          {
+            id:
+              DOCUMENT_ID,
+            teamId:
+              TEAM_ID,
+            projectPath:
+              "/tmp/orc-test-project",
+            fileName:
+              "roadmap.md",
+            extension:
+              ".md" as const,
+            mediaType:
+              "text/markdown" as const,
+            contentHash:
+              DOCUMENT_HASH,
+            contentBytes:
+              10,
+            createdAt:
+              new Date().toISOString(),
+            updatedAt:
+              new Date().toISOString(),
+          };
+
+        const listParsed =
+          projectDocumentListResponseSchema.safeParse({
+            documents: [
+              document,
+            ],
+          });
+
+        expect(
+          listParsed.success,
+        ).toBe(
+          true,
+        );
+
+        const createParsed =
+          projectDocumentCreateResponseSchema.safeParse({
+            document,
+            chunkCount:
+              3,
+          });
+
+        expect(
+          createParsed.success,
+        ).toBe(
+          true,
+        );
+
+        expect(
+          projectDocumentCreateResponseSchema.safeParse({
+            document: {
+              ...document,
+              chunks: [
+                "should not be accepted",
+              ],
+            },
+            chunkCount:
+              3,
           }).success,
         ).toBe(
           false,

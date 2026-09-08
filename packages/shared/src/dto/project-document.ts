@@ -146,6 +146,35 @@ export const projectDocumentUploadMetadataSchema =
       validateProjectDocumentFileMetadata,
     );
 
+export const createProjectDocumentRequestSchema =
+  z
+    .object({
+      teamId:
+        z.string().uuid(),
+      projectPath:
+        z
+          .string()
+          .trim()
+          .min(1)
+          .max(
+            MAX_PROJECT_DOCUMENT_PROJECT_PATH_CHARS,
+          ),
+      fileName:
+        projectDocumentFileNameSchema,
+      extension:
+        projectDocumentExtensionSchema,
+      mediaType:
+        projectDocumentMediaTypeSchema,
+      content:
+        z
+          .string()
+          .min(1),
+    })
+    .strict()
+    .superRefine(
+      validateProjectDocumentFileMetadata,
+    );
+
 export const projectDocumentMetadataSchema =
   z
     .object({
@@ -186,6 +215,29 @@ export const projectDocumentMetadataSchema =
     .superRefine(
       validateProjectDocumentFileMetadata,
     );
+
+export const projectDocumentListResponseSchema =
+  z
+    .object({
+      documents:
+        z.array(
+          projectDocumentMetadataSchema,
+        ),
+    })
+    .strict();
+
+export const projectDocumentCreateResponseSchema =
+  z
+    .object({
+      document:
+        projectDocumentMetadataSchema,
+      chunkCount:
+        z
+          .number()
+          .int()
+          .min(1),
+    })
+    .strict();
 
 export const projectDocumentIdCollectionSchema =
   z
@@ -418,6 +470,21 @@ export type ProjectDocumentUploadMetadata =
 export type ProjectDocumentMetadata =
   z.infer<
     typeof projectDocumentMetadataSchema
+  >;
+
+export type CreateProjectDocumentRequest =
+  z.infer<
+    typeof createProjectDocumentRequestSchema
+  >;
+
+export type ProjectDocumentListResponse =
+  z.infer<
+    typeof projectDocumentListResponseSchema
+  >;
+
+export type ProjectDocumentCreateResponse =
+  z.infer<
+    typeof projectDocumentCreateResponseSchema
   >;
 
 export type ProjectDocumentChunkMetadata =
