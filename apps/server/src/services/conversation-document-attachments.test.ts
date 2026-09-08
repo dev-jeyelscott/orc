@@ -115,12 +115,7 @@ vi.mock(
        * Emits one queued fake supervisor turn without provider traffic.
        */
       startHarnessSession:
-        (
-          _input:
-            unknown,
-          _prompt:
-            string,
-        ) => {
+        () => {
           const next =
             testState.supervisorTurns.shift();
 
