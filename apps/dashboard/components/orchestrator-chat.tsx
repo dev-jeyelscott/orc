@@ -1,12 +1,14 @@
 "use client";
 
-import type {
-  Conversation,
-  ConversationMessage,
-  OrchestratorSettings,
-  Project,
-  RunDetail,
-  Team,
+import {
+  MAX_PROJECT_DOCUMENT_SELECTIONS,
+  type Conversation,
+  type ConversationMessage,
+  type OrchestratorSettings,
+  type Project,
+  type ProjectDocumentMetadata,
+  type RunDetail,
+  type Team,
 } from "@orc/shared";
 import {
   AlertTriangleIcon,
@@ -52,6 +54,12 @@ import {
   selectLatestResultExecution,
   selectTerminalExecution,
 } from "@/lib/orchestrator-presentation";
+import {
+  createProjectDocument,
+  listProjectDocuments,
+  resolveProjectDocumentUpload,
+  type ComposerAttachment,
+} from "@/lib/project-documents";
 import {
   getProjects,
 } from "@/lib/projects";
@@ -217,6 +225,46 @@ export function OrchestratorChat() {
     useState("");
 
   const [
+    draftAttachments,
+    setDraftAttachments,
+  ] =
+    useState<
+      ComposerAttachment[]
+    >([]);
+
+  const [
+    availableDocuments,
+    setAvailableDocuments,
+  ] =
+    useState<
+      ProjectDocumentMetadata[]
+    >([]);
+
+  const [
+    availableDocumentsLoaded,
+    setAvailableDocumentsLoaded,
+  ] =
+    useState(
+      false,
+    );
+
+  const [
+    availableDocumentsLoading,
+    setAvailableDocumentsLoading,
+  ] =
+    useState(
+      false,
+    );
+
+  const [
+    availableDocumentsError,
+    setAvailableDocumentsError,
+  ] =
+    useState<
+      string | null
+    >(null);
+
+  const [
     runDetail,
     setRunDetail,
   ] =
@@ -320,6 +368,10 @@ export function OrchestratorChat() {
         setRunDetail(null);
         setRunError(null);
         setContent("");
+        setDraftAttachments([]);
+        setAvailableDocuments([]);
+        setAvailableDocumentsLoaded(false);
+        setAvailableDocumentsError(null);
       },
       [],
     );
@@ -917,6 +969,7 @@ export function OrchestratorChat() {
         setRunDetail(null);
         setRunError(null);
         setContent("");
+        setDraftAttachments([]);
 
         const response =
           await listConversations(
@@ -968,11 +1021,21 @@ export function OrchestratorChat() {
       const trimmed =
         message.trim();
 
+      const attachmentsUploading =
+        draftAttachments.some(
+          (
+            attachment,
+          ) =>
+            attachment.state ===
+            "uploading",
+        );
+
       if (
         !conversation ||
         !trimmed ||
         busyAction !==
-          null
+          null ||
+        attachmentsUploading
       ) {
         return;
       }
@@ -999,15 +1062,41 @@ export function OrchestratorChat() {
         null,
       );
 
+      const documentIds =
+        clearDraft
+          ? draftAttachments
+              .filter(
+                (
+                  attachment,
+                ) =>
+                  attachment.state ===
+                    "done" &&
+                  attachment.documentId,
+              )
+              .map(
+                (
+                  attachment,
+                ) =>
+                  attachment.documentId as string,
+              )
+          : undefined;
+
       try {
         await postMessage(
           conversationId,
           trimmed,
+          documentIds,
         );
 
         await refreshConversation(
           conversationId,
         );
+
+        if (clearDraft) {
+          setDraftAttachments(
+            [],
+          );
+        }
 
         try {
           await refreshConversationList();
@@ -1085,6 +1174,289 @@ export function OrchestratorChat() {
         "explain-status",
         false,
       );
+    };
+
+  /**
+   * Uploads newly selected files as project documents and adds them to the composer draft.
+   */
+  const handleFilesSelected =
+    (
+      files:
+        File[],
+    ): void => {
+      if (
+        !projectPath ||
+        !teamId ||
+        !files.length
+      ) {
+        return;
+      }
+
+      for (
+        const file
+          of files
+      ) {
+        const remainingSlots =
+          MAX_PROJECT_DOCUMENT_SELECTIONS -
+          draftAttachments.length;
+
+        if (
+          remainingSlots <=
+          0
+        ) {
+          setDraftAttachments(
+            (
+              current,
+            ) => [
+              ...current,
+              {
+                localId:
+                  crypto.randomUUID(),
+                fileName:
+                  file.name,
+                state:
+                  "error",
+                documentId:
+                  null,
+                errorMessage:
+                  `Only ${MAX_PROJECT_DOCUMENT_SELECTIONS} attachments are allowed per message.`,
+              },
+            ],
+          );
+
+          continue;
+        }
+
+        const localId =
+          crypto.randomUUID();
+
+        setDraftAttachments(
+          (
+            current,
+          ) => [
+            ...current,
+            {
+              localId,
+              fileName:
+                file.name,
+              state:
+                "uploading",
+              documentId:
+                null,
+            },
+          ],
+        );
+
+        void (
+          async (): Promise<void> => {
+            try {
+              const resolved =
+                await resolveProjectDocumentUpload(
+                  file,
+                );
+
+              const {
+                document,
+              } =
+                await createProjectDocument(
+                  {
+                    teamId,
+                    projectPath,
+                    ...resolved,
+                  },
+                );
+
+              setDraftAttachments(
+                (
+                  current,
+                ) =>
+                  current.map(
+                    (
+                      attachment,
+                    ) =>
+                      attachment.localId ===
+                      localId
+                        ? {
+                            ...attachment,
+                            state:
+                              "done",
+                            documentId:
+                              document.id,
+                          }
+                        : attachment,
+                  ),
+              );
+
+              setAvailableDocuments(
+                (
+                  current,
+                ) => [
+                  document,
+                  ...current.filter(
+                    (
+                      existing,
+                    ) =>
+                      existing.id !==
+                      document.id,
+                  ),
+                ],
+              );
+            } catch (
+              value
+            ) {
+              setDraftAttachments(
+                (
+                  current,
+                ) =>
+                  current.map(
+                    (
+                      attachment,
+                    ) =>
+                      attachment.localId ===
+                      localId
+                        ? {
+                            ...attachment,
+                            state:
+                              "error",
+                            errorMessage:
+                              errorMessage(
+                                value,
+                                "Failed to upload this document.",
+                              ),
+                          }
+                        : attachment,
+                  ),
+              );
+            }
+          }
+        )();
+      }
+    };
+
+  /**
+   * Deselects one composer attachment. Never deletes the underlying persisted project document.
+   */
+  const handleRemoveAttachment =
+    (
+      localId:
+        string,
+    ): void => {
+      setDraftAttachments(
+        (
+          current,
+        ) =>
+          current.filter(
+            (
+              attachment,
+            ) =>
+              attachment.localId !==
+              localId,
+          ),
+      );
+    };
+
+  /**
+   * Selects a previously uploaded project document into the composer draft without re-uploading it.
+   */
+  const handleSelectExistingDocument =
+    (
+      document:
+        ProjectDocumentMetadata,
+    ): void => {
+      const alreadySelected =
+        draftAttachments.some(
+          (
+            attachment,
+          ) =>
+            attachment.documentId ===
+            document.id,
+        );
+
+      if (
+        alreadySelected ||
+        draftAttachments.length >=
+          MAX_PROJECT_DOCUMENT_SELECTIONS
+      ) {
+        return;
+      }
+
+      setDraftAttachments(
+        (
+          current,
+        ) => [
+          ...current,
+          {
+            localId:
+              document.id,
+            fileName:
+              document.fileName,
+            state:
+              "done",
+            documentId:
+              document.id,
+          },
+        ],
+      );
+    };
+
+  /**
+   * Lazily loads the Project- and Team-scoped list of previously uploaded documents for the picker.
+   */
+  const handleDocumentPickerOpen =
+    (): void => {
+      if (
+        !projectPath ||
+        !teamId ||
+        availableDocumentsLoaded ||
+        availableDocumentsLoading
+      ) {
+        return;
+      }
+
+      setAvailableDocumentsLoading(
+        true,
+      );
+
+      setAvailableDocumentsError(
+        null,
+      );
+
+      void listProjectDocuments(
+        projectPath,
+        teamId,
+      )
+        .then(
+          (
+            response,
+          ) => {
+            setAvailableDocuments(
+              response.documents,
+            );
+
+            setAvailableDocumentsLoaded(
+              true,
+            );
+          },
+        )
+        .catch(
+          (
+            value,
+          ) => {
+            setAvailableDocumentsError(
+              errorMessage(
+                value,
+                "Failed to load project documents.",
+              ),
+            );
+          },
+        )
+        .finally(
+          () => {
+            setAvailableDocumentsLoading(
+              false,
+            );
+          },
+        );
     };
 
   /**
@@ -1223,6 +1595,15 @@ export function OrchestratorChat() {
       "team" ||
     busyAction ===
       "conversation";
+
+  const attachmentsUploading =
+    draftAttachments.some(
+      (
+        attachment,
+      ) =>
+        attachment.state ===
+        "uploading",
+    );
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
@@ -1422,6 +1803,21 @@ export function OrchestratorChat() {
                   pendingMessage={
                     pendingMessage
                   }
+                  draftAttachments={
+                    draftAttachments
+                  }
+                  attachmentsUploading={
+                    attachmentsUploading
+                  }
+                  availableDocuments={
+                    availableDocuments
+                  }
+                  availableDocumentsLoading={
+                    availableDocumentsLoading
+                  }
+                  availableDocumentsError={
+                    availableDocumentsError
+                  }
                   onContentChange={
                     setContent
                   }
@@ -1437,6 +1833,18 @@ export function OrchestratorChat() {
                   onNewConversation={() => {
                     void handleNewConversation();
                   }}
+                  onFilesSelected={
+                    handleFilesSelected
+                  }
+                  onRemoveAttachment={
+                    handleRemoveAttachment
+                  }
+                  onSelectExistingDocument={
+                    handleSelectExistingDocument
+                  }
+                  onDocumentPickerOpen={
+                    handleDocumentPickerOpen
+                  }
                 />
 
                 <OrchestratorInspector
@@ -1559,6 +1967,21 @@ export function OrchestratorChat() {
             pendingMessage={
               pendingMessage
             }
+            draftAttachments={
+              draftAttachments
+            }
+            attachmentsUploading={
+              attachmentsUploading
+            }
+            availableDocuments={
+              availableDocuments
+            }
+            availableDocumentsLoading={
+              availableDocumentsLoading
+            }
+            availableDocumentsError={
+              availableDocumentsError
+            }
             onContentChange={
               setContent
             }
@@ -1574,6 +1997,18 @@ export function OrchestratorChat() {
             onNewConversation={() => {
               void handleNewConversation();
             }}
+            onFilesSelected={
+              handleFilesSelected
+            }
+            onRemoveAttachment={
+              handleRemoveAttachment
+            }
+            onSelectExistingDocument={
+              handleSelectExistingDocument
+            }
+            onDocumentPickerOpen={
+              handleDocumentPickerOpen
+            }
           />
         </div>
       )}

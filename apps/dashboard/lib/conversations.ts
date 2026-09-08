@@ -136,6 +136,8 @@ export function postMessage(
     string,
   content:
     string,
+  documentIds?:
+    string[],
 ) {
   return request(
     `/api/conversations/${id}/messages`,
@@ -145,6 +147,11 @@ export function postMessage(
       body:
         JSON.stringify({
           content,
+          ...(documentIds?.length
+            ? {
+                documentIds,
+              }
+            : {}),
         }),
     },
     postConversationMessageResponseSchema.parse,

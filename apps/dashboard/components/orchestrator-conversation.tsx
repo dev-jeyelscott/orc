@@ -3,20 +3,39 @@
 import type {
   Conversation,
   ConversationMessage,
+  ProjectDocumentMetadata,
   Run,
 } from "@orc/shared";
 import {
   BotIcon,
   CirclePlayIcon,
+  FileTextIcon,
   LoaderCircleIcon,
   MessageSquarePlusIcon,
+  PaperclipIcon,
   SendIcon,
+  UploadIcon,
   UserIcon,
+  XIcon,
 } from "lucide-react";
-import type {
-  FormEvent,
+import {
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+  type FormEvent,
 } from "react";
 
+import {
+  Attachment,
+  AttachmentAction,
+  AttachmentActions,
+  AttachmentContent,
+  AttachmentDescription,
+  AttachmentGroup,
+  AttachmentMedia,
+  AttachmentTitle,
+} from "@/components/ui/attachment";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +44,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Message,
   MessageAvatar,
@@ -39,7 +66,13 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from "@/components/ui/message-scroller";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
+import type { ComposerAttachment } from "@/lib/project-documents";
 import {
   formatConversationTime,
   isRunActive,
@@ -52,6 +85,9 @@ import {
 } from "@/lib/task-presentation";
 import { cn } from "@/lib/utils";
 
+const SUPPORTED_ATTACHMENT_EXTENSIONS =
+  ".md,.txt";
+
 interface OrchestratorConversationProps {
   projectPath: string;
   conversation: Conversation | null;
@@ -60,6 +96,11 @@ interface OrchestratorConversationProps {
   runStatus: Run["status"] | null;
   busyAction: string | null;
   pendingMessage: { content: string; createdAt: string } | null;
+  draftAttachments: ComposerAttachment[];
+  attachmentsUploading: boolean;
+  availableDocuments: ProjectDocumentMetadata[];
+  availableDocumentsLoading: boolean;
+  availableDocumentsError: string | null;
   className?: string;
   onContentChange: (content: string) => void;
   onSubmit: (
@@ -68,6 +109,10 @@ interface OrchestratorConversationProps {
   onStartTask: () => void;
   onExplainStatus: () => void;
   onNewConversation: () => void;
+  onFilesSelected: (files: File[]) => void;
+  onRemoveAttachment: (localId: string) => void;
+  onSelectExistingDocument: (document: ProjectDocumentMetadata) => void;
+  onDocumentPickerOpen: () => void;
 }
 
 /** Returns whether the current request is waiting for an authoritative supervisor response. */
@@ -237,12 +282,21 @@ export function OrchestratorConversation({
   runStatus,
   busyAction,
   pendingMessage,
+  draftAttachments,
+  attachmentsUploading,
+  availableDocuments,
+  availableDocumentsLoading,
+  availableDocumentsError,
   className,
   onContentChange,
   onSubmit,
   onStartTask,
   onExplainStatus,
   onNewConversation,
+  onFilesSelected,
+  onRemoveAttachment,
+  onSelectExistingDocument,
+  onDocumentPickerOpen,
 }: OrchestratorConversationProps) {
   const busy =
     busyAction !== null;
@@ -262,6 +316,87 @@ export function OrchestratorConversation({
     pairConversationMessages(
       messages,
     );
+
+  const [
+    isDraggingOver,
+    setIsDraggingOver,
+  ] =
+    useState(
+      false,
+    );
+
+  const [
+    pickerOpen,
+    setPickerOpen,
+  ] =
+    useState(
+      false,
+    );
+
+  const fileInputRef =
+    useRef<HTMLInputElement>(
+      null,
+    );
+
+  /**
+   * Forwards dropped or picked files to the composer's upload handler, guarding against a busy composer.
+   */
+  const handleFiles =
+    (
+      fileList:
+        FileList | null,
+    ): void => {
+      if (
+        busy ||
+        !fileList ||
+        !fileList.length
+      ) {
+        return;
+      }
+
+      onFilesSelected(
+        Array.from(
+          fileList,
+        ),
+      );
+    };
+
+  /**
+   * Handles a native file drop onto the composer shell.
+   */
+  const handleDrop =
+    (
+      event:
+        DragEvent<HTMLDivElement>,
+    ): void => {
+      event.preventDefault();
+
+      setIsDraggingOver(
+        false,
+      );
+
+      handleFiles(
+        event.dataTransfer
+          .files,
+      );
+    };
+
+  /**
+   * Handles the hidden file input's accessible upload path.
+   */
+  const handleFileInputChange =
+    (
+      event:
+        ChangeEvent<HTMLInputElement>,
+    ): void => {
+      handleFiles(
+        event.target
+          .files,
+      );
+
+      event.target.value =
+        "";
+    };
 
   return (
     <Card
@@ -435,7 +570,48 @@ export function OrchestratorConversation({
             onSubmit={onSubmit}
             className="shrink-0 border-t border-divider bg-surface-elevated p-3"
           >
-            <div className="rounded-xl border border-border-default bg-surface-interactive p-2 shadow-xs focus-within:border-focus-ring/60 focus-within:ring-2 focus-within:ring-focus-ring/20">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={
+                SUPPORTED_ATTACHMENT_EXTENSIONS
+              }
+              multiple
+              hidden
+              onChange={
+                handleFileInputChange
+              }
+            />
+
+            <div
+              className={cn(
+                "rounded-xl border border-border-default bg-surface-interactive p-2 shadow-xs transition-colors focus-within:border-focus-ring/60 focus-within:ring-2 focus-within:ring-focus-ring/20",
+                isDraggingOver &&
+                  "border-focus-ring/60 ring-2 ring-focus-ring/20",
+              )}
+              onDragEnter={(event) => {
+                event.preventDefault();
+
+                if (!busy) {
+                  setIsDraggingOver(
+                    true,
+                  );
+                }
+              }}
+              onDragOver={(event) => {
+                event.preventDefault();
+              }}
+              onDragLeave={(event) => {
+                event.preventDefault();
+
+                setIsDraggingOver(
+                  false,
+                );
+              }}
+              onDrop={
+                handleDrop
+              }
+            >
               <Textarea
                 value={content}
                 disabled={busy}
@@ -459,7 +635,178 @@ export function OrchestratorConversation({
                 className="min-h-20 resize-none border-0 bg-transparent px-2 py-1.5 shadow-none focus-visible:ring-0"
               />
 
+              {draftAttachments.length ? (
+                <AttachmentGroup className="px-1 pb-1">
+                  {draftAttachments.map(
+                    (
+                      attachment,
+                    ) => (
+                      <Attachment
+                        key={
+                          attachment.localId
+                        }
+                        size="sm"
+                        state={
+                          attachment.state
+                        }
+                      >
+                        <AttachmentMedia>
+                          {attachment.state ===
+                          "uploading" ? (
+                            <LoaderCircleIcon className="animate-spin" />
+                          ) : (
+                            <FileTextIcon />
+                          )}
+                        </AttachmentMedia>
+
+                        <AttachmentContent>
+                          <AttachmentTitle>
+                            {
+                              attachment.fileName
+                            }
+                          </AttachmentTitle>
+
+                          {attachment.state ===
+                          "error" ? (
+                            <AttachmentDescription>
+                              {attachment.errorMessage ??
+                                "Failed to attach this document."}
+                            </AttachmentDescription>
+                          ) : null}
+                        </AttachmentContent>
+
+                        <AttachmentActions>
+                          <AttachmentAction
+                            aria-label={`Remove ${attachment.fileName}`}
+                            disabled={
+                              busy
+                            }
+                            onClick={() =>
+                              onRemoveAttachment(
+                                attachment.localId,
+                              )
+                            }
+                          >
+                            <XIcon />
+                          </AttachmentAction>
+                        </AttachmentActions>
+                      </Attachment>
+                    ),
+                  )}
+                </AttachmentGroup>
+              ) : null}
+
               <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
+                <Popover
+                  open={
+                    pickerOpen
+                  }
+                  onOpenChange={(
+                    open,
+                  ) => {
+                    setPickerOpen(
+                      open,
+                    );
+
+                    if (open) {
+                      onDocumentPickerOpen();
+                    }
+                  }}
+                >
+                  <PopoverTrigger
+                    render={
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        disabled={
+                          busy
+                        }
+                        aria-label="Attach a project document"
+                      />
+                    }
+                  >
+                    <PaperclipIcon className="size-3.5" />
+                  </PopoverTrigger>
+
+                  <PopoverContent
+                    align="start"
+                    className="w-72 p-0"
+                  >
+                    <Command>
+                      <CommandInput placeholder="Search project documents..." />
+
+                      <CommandList>
+                        <CommandGroup>
+                          <CommandItem
+                            onSelect={() => {
+                              setPickerOpen(
+                                false,
+                              );
+
+                              fileInputRef.current?.click();
+                            }}
+                          >
+                            <UploadIcon />
+                            Upload a new .md or .txt file
+                          </CommandItem>
+                        </CommandGroup>
+
+                        <CommandEmpty>
+                          {availableDocumentsLoading
+                            ? "Loading project documents..."
+                            : (availableDocumentsError ??
+                              "No project documents uploaded yet.")}
+                        </CommandEmpty>
+
+                        {availableDocuments.length ? (
+                          <CommandGroup heading="Project documents">
+                            {availableDocuments.map(
+                              (
+                                document,
+                              ) => {
+                                const selected =
+                                  draftAttachments.some(
+                                    (
+                                      attachment,
+                                    ) =>
+                                      attachment.documentId ===
+                                      document.id,
+                                  );
+
+                                return (
+                                  <CommandItem
+                                    key={
+                                      document.id
+                                    }
+                                    data-checked={
+                                      selected
+                                    }
+                                    onSelect={() => {
+                                      onSelectExistingDocument(
+                                        document,
+                                      );
+
+                                      setPickerOpen(
+                                        false,
+                                      );
+                                    }}
+                                  >
+                                    <FileTextIcon />
+                                    {
+                                      document.fileName
+                                    }
+                                  </CommandItem>
+                                );
+                              },
+                            )}
+                          </CommandGroup>
+                        ) : null}
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+
                 <Button
                   type="button"
                   size="sm"
@@ -467,6 +814,7 @@ export function OrchestratorConversation({
                   disabled={
                     busy ||
                     active ||
+                    attachmentsUploading ||
                     !content.trim()
                   }
                   onClick={
@@ -498,6 +846,7 @@ export function OrchestratorConversation({
                   className="ms-auto"
                   disabled={
                     busy ||
+                    attachmentsUploading ||
                     !content.trim()
                   }
                   aria-label="Send message"
