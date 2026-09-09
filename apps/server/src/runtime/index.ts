@@ -21,6 +21,7 @@ export {
   composeHandoffNote,
   composeInitialInstruction,
   composeKnowledgeContext,
+  composeTaskDocumentContext,
   composeRepairInstruction,
   RESULT_BLOCK_END,
   RESULT_BLOCK_START,

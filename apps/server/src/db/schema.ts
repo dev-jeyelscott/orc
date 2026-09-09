@@ -152,8 +152,25 @@ export const teams =
         )
           .notNull()
           .default(true),
+      notionDataSourceId:
+        text(
+          "notion_data_source_id",
+        ),
+      autoModeEnabled:
+        boolean(
+          "auto_mode_enabled",
+        )
+          .notNull()
+          .default(false),
       ...timestamps,
     },
+    (table) => [
+      unique(
+        "teams_notion_data_source_id_unique",
+      ).on(
+        table.notionDataSourceId,
+      ),
+    ],
   );
 
 export const agents =

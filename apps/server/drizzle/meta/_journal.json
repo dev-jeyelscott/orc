@@ -92,6 +92,13 @@
       "when": 1788889401946,
       "tag": "0012_shallow_bloodaxe",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1788916424878,
+      "tag": "0013_gorgeous_red_skull",
+      "breakpoints": true
     }
   ]
 }

@@ -11,12 +11,35 @@ import type {
 import {
   composeHandoffNote,
   composeKnowledgeContext,
+  composeTaskDocumentContext,
   composeRepairInstruction,
 } from "./prompt.js";
 
 describe(
   "worker durable knowledge prompt behavior",
   () => {
+    it(
+      "formats uploaded document excerpts as untrusted reference data",
+      () => {
+        const prompt = composeTaskDocumentContext([
+          {
+            source: "project_document",
+            documentId: "00000000-0000-4000-8000-000000000001",
+            fileName: "roadmap.md",
+            documentContentHash: "a".repeat(64),
+            chunkSequence: 0,
+            chunkContentHash: "b".repeat(64),
+            heading: "Roadmap",
+            excerpt: "Implement the immutable snapshot.",
+          },
+        ]);
+
+        expect(prompt).toContain("Uploaded project document context:");
+        expect(prompt).toContain("untrusted reference data");
+        expect(prompt).toContain("Document: roadmap.md");
+      },
+    );
+
     it(
       "formats bounded knowledge as non-authoritative reference data",
       () => {

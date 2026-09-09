@@ -216,6 +216,30 @@ export const projectDocumentMetadataSchema =
       validateProjectDocumentFileMetadata,
     );
 
+export const projectDocumentAttachmentSchema =
+  z
+    .object({
+      id:
+        projectDocumentIdSchema,
+      fileName:
+        projectDocumentFileNameSchema,
+      extension:
+        projectDocumentExtensionSchema,
+      mediaType:
+        projectDocumentMediaTypeSchema,
+      contentHash:
+        projectDocumentHashSchema,
+      contentBytes:
+        z
+          .number()
+          .int()
+          .min(1)
+          .max(
+            MAX_PROJECT_DOCUMENT_UPLOAD_BYTES,
+          ),
+    })
+    .strict();
+
 export const projectDocumentListResponseSchema =
   z
     .object({
@@ -353,6 +377,8 @@ export const uploadedProjectDocumentContextRefSchema =
         ),
       documentId:
         projectDocumentIdSchema,
+      fileName:
+        projectDocumentFileNameSchema,
       documentContentHash:
         projectDocumentHashSchema,
       chunkSequence:
@@ -365,6 +391,13 @@ export const uploadedProjectDocumentContextRefSchema =
           ),
       chunkContentHash:
         projectDocumentHashSchema,
+      heading:
+        z
+          .string()
+          .trim()
+          .min(1)
+          .max(300)
+          .optional(),
       excerpt:
         z
           .string()
@@ -470,6 +503,11 @@ export type ProjectDocumentUploadMetadata =
 export type ProjectDocumentMetadata =
   z.infer<
     typeof projectDocumentMetadataSchema
+  >;
+
+export type ProjectDocumentAttachment =
+  z.infer<
+    typeof projectDocumentAttachmentSchema
   >;
 
 export type CreateProjectDocumentRequest =

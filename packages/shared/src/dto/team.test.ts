@@ -35,6 +35,10 @@ describe(
             "",
           enabled:
             true,
+          notionDataSourceId:
+            null,
+          autoModeEnabled:
+            false,
         });
       },
     );
@@ -69,6 +73,50 @@ describe(
     );
 
     it(
+      "accepts a trimmed Notion data source ID or null",
+      () => {
+        expect(
+          updateTeamSchema.parse({
+            notionDataSourceId:
+              "  collection://notion-source  ",
+          }),
+        ).toEqual({
+          notionDataSourceId:
+            "collection://notion-source",
+        });
+
+        expect(
+          updateTeamSchema.parse({
+            notionDataSourceId:
+              null,
+          }),
+        ).toEqual({
+          notionDataSourceId:
+            null,
+        });
+      },
+    );
+
+    it(
+      "rejects empty or oversized Notion data source IDs",
+      () => {
+        expect(
+          updateTeamSchema.safeParse({
+            notionDataSourceId:
+              "   ",
+          }).success,
+        ).toBe(false);
+
+        expect(
+          updateTeamSchema.safeParse({
+            notionDataSourceId:
+              "x".repeat(256),
+          }).success,
+        ).toBe(false);
+      },
+    );
+
+    it(
       "validates persisted Team responses",
       () => {
         const timestamp =
@@ -87,6 +135,10 @@ describe(
             description:
               "",
             enabled:
+              true,
+            notionDataSourceId:
+              "notion-development-source",
+            autoModeEnabled:
               true,
             createdAt:
               timestamp,

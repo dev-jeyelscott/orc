@@ -11,6 +11,7 @@ import {
 } from "./knowledge.js";
 
 import {
+  projectDocumentAttachmentSchema,
   projectDocumentIdCollectionSchema,
 } from "./project-document.js";
 
@@ -29,6 +30,10 @@ export const conversationMessageSchema = z.object({
   conversationId: z.string().uuid(),
   role: z.enum(["user", "assistant"]),
   content: z.string(),
+  attachments:
+    z.array(
+      projectDocumentAttachmentSchema,
+    ).default([]),
   createdAt: z.string().datetime(),
 });
 

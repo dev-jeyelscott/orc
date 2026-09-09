@@ -202,6 +202,26 @@ function ConversationMessageRow({
         >
           {message.content}
         </div>
+
+        {message.attachments.length ? (
+          <div
+            className={cn(
+              "mt-2 flex flex-wrap gap-1.5",
+              isUser && "justify-end",
+            )}
+          >
+            {message.attachments.map((attachment) => (
+              <Badge
+                key={attachment.id}
+                variant="outline"
+                className="gap-1 border-border-default bg-surface-interactive px-2 py-1 text-[10px] text-text-secondary"
+              >
+                <FileTextIcon className="size-3" />
+                {attachment.fileName}
+              </Badge>
+            ))}
+          </div>
+        ) : null}
       </MessageContent>
     </Message>
   );

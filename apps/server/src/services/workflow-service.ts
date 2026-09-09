@@ -11,6 +11,7 @@ import {
   agentResultSchema,
   knowledgeRefCollectionSchema,
   MAX_KNOWLEDGE_REFS,
+  uploadedProjectDocumentContextCollectionSchema,
   type AgentExecution,
   type AgentResult,
   type AgentResultStatus,
@@ -20,6 +21,7 @@ import {
   type Run,
   type Task,
   type TaskWithRun,
+  type UploadedProjectDocumentContext,
 } from "@orc/shared";
 
 import { env } from "../config/env.js";
@@ -31,7 +33,9 @@ import {
   agentRoutes,
   agents,
   domainEvents,
+  projectDocuments,
   runs,
+  taskDocuments,
   tasks,
   teams,
 } from "../db/schema.js";
@@ -39,6 +43,7 @@ import {
 import {
   composeHandoffNote,
   composeKnowledgeContext,
+  composeTaskDocumentContext,
 } from "../runtime/index.js";
 
 import {
@@ -62,6 +67,10 @@ import {
   requestAutoModeCycle,
 } from "./auto-mode-signal.js";
 
+import {
+  loadTaskDocumentContext,
+} from "./task-document-context-service.js";
+
 type TerminalAction =
   | "complete_run"
   | "fail_run"
@@ -84,6 +93,8 @@ type WorkflowSnapshot = {
   routes: SnapshotRoute[];
   knowledgeContext:
     KnowledgeRef[];
+  taskDocumentContext:
+    UploadedProjectDocumentContext;
 };
 
 type TransitionOrigin =
@@ -361,6 +372,8 @@ function snapshotFromRows(
     >,
   knowledgeContext:
     KnowledgeRef[] = [],
+  taskDocumentContext:
+    UploadedProjectDocumentContext = [],
 ): WorkflowSnapshot {
   const orderedAgents =
     orderWorkflowAgents(
@@ -442,6 +455,10 @@ function snapshotFromRows(
           ...ref,
         }),
       ),
+    taskDocumentContext:
+      taskDocumentContext.map(
+        (ref) => ({ ...ref }),
+      ),
   };
 }
 
@@ -483,6 +500,10 @@ function snapshotOf(
           .knowledgeContext ??
           [],
         500,
+      ),
+    taskDocumentContext:
+      uploadedProjectDocumentContextCollectionSchema.parse(
+        snapshot.taskDocumentContext ?? [],
       ),
   };
 }
@@ -1070,10 +1091,21 @@ async function launchClaimedAgent(
           )
         : null;
 
+    const taskDocumentNote =
+      snapshot
+        .agents[0]
+        ?.id ===
+      snapshotAgent.id
+        ? composeTaskDocumentContext(
+            snapshot.taskDocumentContext,
+          )
+        : null;
+
     const instruction =
       [
         baseInstruction,
         knowledgeNote,
+        taskDocumentNote,
         handoffNote,
       ]
         .filter(
@@ -1829,6 +1861,8 @@ async function requireRunnableTeam(
 export async function createTask(
   input:
     CreateTask,
+  trustedDocumentIds:
+    readonly string[] = [],
 ): Promise<Task> {
   const project =
     await getProject(
@@ -1849,22 +1883,49 @@ export async function createTask(
     input.teamId,
   );
 
-  const [task] =
-    await db
+  const task = await db.transaction(async (tx) => {
+    if (trustedDocumentIds.length) {
+      const documents = await tx
+        .select({ id: projectDocuments.id })
+        .from(projectDocuments)
+        .where(
+          and(
+            eq(projectDocuments.teamId, input.teamId),
+            eq(projectDocuments.projectPath, project.path),
+            inArray(projectDocuments.id, [...trustedDocumentIds]),
+          ),
+        );
+
+      if (documents.length !== trustedDocumentIds.length) {
+        throw new WorkflowServiceError(
+          "One or more trusted documents are unavailable in this Task scope",
+          400,
+        );
+      }
+    }
+
+    const [created] = await tx
       .insert(tasks)
       .values({
-        teamId:
-          input.teamId,
-        projectPath:
-          project.path,
-        title:
-          input.title,
-        instruction:
-          input.instruction,
-        status:
-          "pending",
+        teamId: input.teamId,
+        projectPath: project.path,
+        title: input.title,
+        instruction: input.instruction,
+        status: "pending",
       })
       .returning();
+
+    if (trustedDocumentIds.length) {
+      await tx.insert(taskDocuments).values(
+        trustedDocumentIds.map((projectDocumentId) => ({
+          taskId: created.id,
+          projectDocumentId,
+        })),
+      );
+    }
+
+    return created;
+  });
 
   return serializeTask(
     task,
@@ -2097,11 +2158,18 @@ export async function startTask(
               ),
             );
 
+        const taskDocumentContext =
+          await loadTaskDocumentContext(
+            tx,
+            currentTask,
+          );
+
         const workflowSnapshot =
           snapshotFromRows(
             enabledAgents,
             routes,
             validatedKnowledgeContext,
+            taskDocumentContext,
           );
 
         const now =
@@ -2177,6 +2245,21 @@ export async function startTask(
                 task.title,
             },
           });
+
+        if (taskDocumentContext.length) {
+          await tx
+            .insert(domainEvents)
+            .values({
+              type: "run.document_context_selected",
+              projectPath: run.projectPath,
+              taskId: task.id,
+              runId: run.id,
+              data: {
+                documentIds: taskDocumentContext.map((ref) => ref.documentId),
+                chunkCount: taskDocumentContext.length,
+              },
+            });
+        }
 
         return {
           task,

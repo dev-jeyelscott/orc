@@ -62,6 +62,8 @@ export type OrchestratorToolExecution = {
 export type OrchestratorToolExecutionContext = {
   knowledgeContext?:
     KnowledgeRef[];
+  trustedDocumentIds?:
+    readonly string[];
 };
 
 /**
@@ -349,7 +351,7 @@ export async function executeOrchestratorTool(
           instruction:
             tool.arguments
               .instruction,
-        });
+        }, context.trustedDocumentIds ?? []);
 
       return {
         result:

@@ -354,7 +354,7 @@ describe(
             "Test task",
           instruction:
             "Implement test",
-        });
+        }, []);
 
         expect(
           mocks.startTask,
@@ -400,6 +400,32 @@ describe(
           statusCode:
             403,
         });
+      },
+    );
+
+    it(
+      "passes only server-owned trusted document IDs to Task creation",
+      async () => {
+        const created = task();
+        const documentId = crypto.randomUUID();
+        mocks.createTask.mockResolvedValue(created);
+
+        await executeOrchestratorTool(
+          conversation(),
+          {
+            name: "create_task",
+            arguments: {
+              title: "Test task",
+              instruction: "Implement test",
+            },
+          },
+          { trustedDocumentIds: [documentId] },
+        );
+
+        expect(mocks.createTask).toHaveBeenCalledWith(
+          expect.any(Object),
+          [documentId],
+        );
       },
     );
 

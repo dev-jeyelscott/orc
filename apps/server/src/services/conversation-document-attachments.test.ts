@@ -254,6 +254,7 @@ const {
 
 const {
   createConversation,
+  getConversation,
   postConversationMessage,
 } =
   await import(
@@ -508,6 +509,16 @@ describe(
         ).toBe(
           document.id,
         );
+
+        const detail = await getConversation(conversation.id);
+        const persistedUserMessage = detail?.messages.find((message) => message.role === "user");
+
+        expect(persistedUserMessage?.attachments).toEqual([
+          expect.objectContaining({
+            id: document.id,
+            fileName: document.fileName,
+          }),
+        ]);
       },
     );
 

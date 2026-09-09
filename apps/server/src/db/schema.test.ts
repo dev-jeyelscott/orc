@@ -242,6 +242,17 @@ describe(
     it(
       "keeps deterministic Resolution and Development seed Teams",
       async () => {
+        const [settings] =
+          await db
+            .select()
+            .from(systemSettings)
+            .where(
+              eq(
+                systemSettings.id,
+                1,
+              ),
+            );
+
         const rows =
           await db
             .select()
@@ -273,6 +284,10 @@ describe(
             "Resolution Team",
           enabled:
             true,
+          notionDataSourceId:
+            null,
+          autoModeEnabled:
+            settings.autoModeEnabled,
         });
 
         expect(
@@ -288,7 +303,67 @@ describe(
             "Development Team",
           enabled:
             true,
+          notionDataSourceId:
+            null,
+          autoModeEnabled:
+            false,
         });
+      },
+    );
+
+    it(
+      "defaults Team automation configuration and allows no source",
+      async () => {
+        const team =
+          await createTestTeam(
+            "automation-defaults",
+          );
+
+        expect(
+          team.notionDataSourceId,
+        ).toBeNull();
+        expect(
+          team.autoModeEnabled,
+        ).toBe(false);
+      },
+    );
+
+    it(
+      "rejects duplicate non-null Notion data source IDs",
+      async () => {
+        const dataSourceId =
+          `notion-source-${crypto.randomUUID()}`;
+
+        const first =
+          await createTestTeam(
+            "notion-source-first",
+          );
+
+        await db
+          .update(teams)
+          .set({
+            notionDataSourceId:
+              dataSourceId,
+          })
+          .where(
+            eq(
+              teams.id,
+              first.id,
+            ),
+          );
+
+        await expect(
+          db
+            .insert(teams)
+            .values({
+              slug:
+                `schema-notion-source-${crypto.randomUUID()}`,
+              name:
+                "Duplicate Notion Source Team",
+              notionDataSourceId:
+                dataSourceId,
+            }),
+        ).rejects.toThrow();
       },
     );
 
