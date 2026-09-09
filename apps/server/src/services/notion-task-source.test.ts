@@ -10,6 +10,7 @@ import type {
 } from "@orc/shared";
 
 import {
+  createNotionTaskSourceAdapter,
   NotionTaskSourceAdapter,
   type NotionTaskSourceClient,
 } from "./notion-task-source.js";
@@ -39,6 +40,8 @@ const project: Project = {
  */
 function readyPage(
   overrides: {
+    createdTime?:
+      string;
     priority?:
       number | null;
     projectName?:
@@ -52,6 +55,9 @@ function readyPage(
       "page",
     id:
       "11111111-1111-1111-1111-111111111111",
+    created_time:
+      overrides.createdTime ??
+      "2026-01-02T03:04:05.000Z",
     url:
       "https://www.notion.so/11111111111111111111111111111111",
     properties: {
@@ -235,8 +241,114 @@ describe(
             "# Exact body\n\nKeep this unchanged.",
           priority:
             100,
+          createdTime:
+            "2026-01-02T03:04:05.000Z",
           project,
         });
+      },
+    );
+
+    it(
+      "rejects a malformed Notion page creation time",
+      async () => {
+        const mocks =
+          mockClient();
+
+        mocks.query
+          .mockResolvedValue({
+            results: [
+              readyPage({
+                createdTime:
+                  "not-a-timestamp",
+              }),
+            ],
+          });
+
+        const adapter =
+          new NotionTaskSourceAdapter({
+            client:
+              mocks.client,
+            dataSourceId:
+              "data-source-id",
+            resolveProject:
+              vi.fn(),
+          });
+
+        await expect(
+          adapter.getNextReadyTask(),
+        ).rejects.toThrow(
+          "invalid created_time",
+        );
+      },
+    );
+
+    it(
+      "requires an explicit Team data source for the production adapter",
+      () => {
+        expect(
+          () =>
+            createNotionTaskSourceAdapter(
+              "   ",
+            ),
+        ).toThrow(
+          "Team Notion data source",
+        );
+      },
+    );
+
+    it(
+      "queries each adapter's supplied Team data source",
+      async () => {
+        const first =
+          mockClient();
+
+        const second =
+          mockClient();
+
+        first.query.mockResolvedValue({
+          results: [],
+        });
+        second.query.mockResolvedValue({
+          results: [],
+        });
+
+        const firstAdapter =
+          new NotionTaskSourceAdapter({
+            client:
+              first.client,
+            dataSourceId:
+              "resolution-source",
+            resolveProject:
+              vi.fn(),
+          });
+
+        const secondAdapter =
+          new NotionTaskSourceAdapter({
+            client:
+              second.client,
+            dataSourceId:
+              "development-source",
+            resolveProject:
+              vi.fn(),
+          });
+
+        await Promise.all([
+          firstAdapter.getNextReadyTask(),
+          secondAdapter.getNextReadyTask(),
+        ]);
+
+        expect(
+          first.query.mock.calls[0]?.[0]
+            .data_source_id,
+        ).toBe(
+          "resolution-source",
+        );
+        expect(
+          second.query.mock.calls[0]?.[0]
+            .data_source_id,
+        ).toBe(
+          "development-source",
+        );
       },
     );
 

@@ -183,14 +183,14 @@ describe(
     );
 
     it(
-      "accepts explicit Notion polling and delay overrides",
+      "accepts an API key without a global Notion data source",
       async () => {
         configureDatabase();
 
         process.env.NOTION_API_KEY =
           "ntn_test";
         process.env.NOTION_DATA_SOURCE_ID =
-          "data-source";
+          "legacy-data-source";
         process.env.NOTION_POLL_INTERVAL_SECONDS =
           "45";
         process.env.NOTION_POST_APPROVAL_DELAY_SECONDS =
@@ -208,26 +208,36 @@ describe(
         expect(
           env.NOTION_POST_APPROVAL_DELAY_SECONDS,
         ).toBe(10);
+
+        expect(
+          "NOTION_DATA_SOURCE_ID" in
+            env,
+        ).toBe(false);
       },
     );
 
     it(
-      "requires both Notion credentials when either credential is configured",
+      "accepts a legacy data source without an API key",
       async () => {
         configureDatabase();
 
-        process.env.NOTION_API_KEY =
-          "ntn_test";
-        delete process.env
-          .NOTION_DATA_SOURCE_ID;
+        delete process.env.NOTION_API_KEY;
+        process.env.NOTION_DATA_SOURCE_ID =
+          "legacy-data-source";
 
         vi.resetModules();
 
-        await expect(
-          import("./env.js"),
-        ).rejects.toThrow(
-          /NOTION_DATA_SOURCE_ID/,
-        );
+        const { env } =
+          await import("./env.js");
+
+        expect(
+          env.NOTION_API_KEY,
+        ).toBeUndefined();
+
+        expect(
+          "NOTION_DATA_SOURCE_ID" in
+            env,
+        ).toBe(false);
       },
     );
   },

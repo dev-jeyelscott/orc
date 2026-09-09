@@ -19,7 +19,7 @@ import {
   tasks,
 } from "../db/schema.js";
 import {
-  createNotionTaskSourceAdapter,
+  NotionTaskSourceError,
   type NotionTaskStatus,
 } from "./notion-task-source.js";
 import {
@@ -283,7 +283,11 @@ export async function runNotionAutoModeCycle(
 
   const createAdapter =
     dependencies.createNotionAdapter ??
-    createNotionTaskSourceAdapter;
+    (() => {
+      throw new NotionTaskSourceError(
+        "Notion lifecycle reconciliation requires a Team Notion data source.",
+      );
+    });
 
   const intake =
     dependencies.runIntakeCycle ??

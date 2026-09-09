@@ -31,7 +31,7 @@ import {
   tasks,
 } from "../db/schema.js";
 import {
-  createNotionTaskSourceAdapter,
+  NotionTaskSourceError,
   type NotionTaskCandidate,
   type NotionTaskSourceAdapter,
 } from "./notion-task-source.js";
@@ -873,7 +873,11 @@ export async function runAutoModeCycle(
 
   const createAdapter =
     dependencies.createNotionAdapter ??
-    createNotionTaskSourceAdapter;
+    (() => {
+      throw new NotionTaskSourceError(
+        "Auto Mode intake requires a Team Notion data source.",
+      );
+    });
 
   const startExistingTask =
     dependencies.startExistingTask ??

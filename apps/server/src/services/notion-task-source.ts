@@ -71,6 +71,8 @@ export type NotionTaskCandidate = {
     string;
   priority:
     number;
+  createdTime:
+    string;
   project:
     Project;
 };
@@ -162,6 +164,12 @@ const readyPageSchema =
     id:
       z.string()
         .min(1),
+    created_time:
+      z.string()
+        .datetime({
+          offset:
+            true,
+        }),
     url:
       z.string()
         .url()
@@ -618,14 +626,11 @@ async function resolveProjectByRepositoryName(
 function requireNotionConfiguration(): {
   apiKey:
     string;
-  dataSourceId:
-    string;
   apiVersion:
     "2026-03-11";
 } {
   if (
     !env.NOTION_API_KEY ||
-    !env.NOTION_DATA_SOURCE_ID ||
     !env.NOTION_API_VERSION
   ) {
     throw new NotionTaskSourceError(
@@ -636,8 +641,6 @@ function requireNotionConfiguration(): {
   return {
     apiKey:
       env.NOTION_API_KEY,
-    dataSourceId:
-      env.NOTION_DATA_SOURCE_ID,
     apiVersion:
       env.NOTION_API_VERSION,
   };
@@ -716,7 +719,7 @@ export class NotionTaskSourceAdapter {
       !parsedPage.success
     ) {
       throw new NotionTaskSourceError(
-        "The Ready Notion page does not match the required Title, Status, Priority, and Project contract.",
+        "The Ready Notion page does not match the required Title, Status, Priority, and Project contract or has an invalid created_time.",
       );
     }
 
@@ -872,6 +875,8 @@ export class NotionTaskSourceAdapter {
         parsedMarkdown.data
           .markdown,
       priority,
+      createdTime:
+        page.created_time,
       project,
     };
   }
@@ -913,9 +918,23 @@ export class NotionTaskSourceAdapter {
 }
 
 /**
- * Builds the production Notion adapter using validated server-only environment configuration.
+ * Builds a Team-scoped production adapter using the shared server-only Notion configuration.
  */
-export function createNotionTaskSourceAdapter(): NotionTaskSourceAdapter {
+export function createNotionTaskSourceAdapter(
+  dataSourceId:
+    string,
+): NotionTaskSourceAdapter {
+  const normalizedDataSourceId =
+    dataSourceId.trim();
+
+  if (
+    !normalizedDataSourceId
+  ) {
+    throw new NotionTaskSourceError(
+      "A Team Notion data source is required.",
+    );
+  }
+
   const configuration =
     requireNotionConfiguration();
 
@@ -932,7 +951,7 @@ export function createNotionTaskSourceAdapter(): NotionTaskSourceAdapter {
   return new NotionTaskSourceAdapter({
     client,
     dataSourceId:
-      configuration.dataSourceId,
+      normalizedDataSourceId,
     resolveProject:
       resolveProjectByRepositoryName,
   });

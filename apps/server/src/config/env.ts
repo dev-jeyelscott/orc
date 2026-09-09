@@ -81,11 +81,6 @@ const envSchema =
         .trim()
         .min(1)
         .optional(),
-    NOTION_DATA_SOURCE_ID:
-      z.string()
-        .trim()
-        .min(1)
-        .optional(),
     NOTION_API_VERSION:
       z.literal(
         "2026-03-11",
@@ -104,60 +99,7 @@ const envSchema =
         .int()
         .nonnegative()
         .default(5),
-  })
-    .superRefine(
-      (
-        value,
-        context,
-      ) => {
-        const notionConfigured =
-          value.NOTION_API_KEY !==
-            undefined ||
-          value.NOTION_DATA_SOURCE_ID !==
-            undefined;
-
-        if (
-          !notionConfigured
-        ) {
-          return;
-        }
-
-        const required = [
-          [
-            "NOTION_API_KEY",
-            value.NOTION_API_KEY,
-          ],
-          [
-            "NOTION_DATA_SOURCE_ID",
-            value.NOTION_DATA_SOURCE_ID,
-          ],
-        ] as const;
-
-        for (
-          const [
-            field,
-            fieldValue,
-          ] of required
-        ) {
-          if (
-            fieldValue !==
-            undefined
-          ) {
-            continue;
-          }
-
-          context.addIssue({
-            code:
-              z.ZodIssueCode.custom,
-            path: [
-              field,
-            ],
-            message:
-              `${field} is required when the Notion task source is configured`,
-          });
-        }
-      },
-    );
+  });
 
 /**
  * Validates process environment configuration and reports all invalid fields together.
