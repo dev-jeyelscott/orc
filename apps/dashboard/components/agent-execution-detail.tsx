@@ -16,7 +16,6 @@ import {
 import {
   ArrowUpRightIcon,
   BotIcon,
-  CheckCircle2Icon,
   CircleAlertIcon,
   CopyIcon,
   FileCode2Icon,
@@ -37,6 +36,9 @@ import type {
 import {
   AgentExecutionTerminal,
 } from "@/components/agent-execution-terminal";
+import {
+  RetryExecutionDialog,
+} from "@/components/retry-execution-dialog";
 import {
   Badge,
 } from "@/components/ui/badge";
@@ -1213,6 +1215,12 @@ export function AgentExecutionDetail({
     useState(false);
 
   const [
+    retryDialogOpen,
+    setRetryDialogOpen,
+  ] =
+    useState(false);
+
+  const [
     rawOpen,
     setRawOpen,
   ] =
@@ -1459,7 +1467,9 @@ export function AgentExecutionDetail({
   /**
    * Starts the backend-supported final-execution retry and moves the operator to the authoritative Run Detail page.
    */
-  async function handleRetry(): Promise<void> {
+  async function handleRetry(
+    override: Parameters<typeof retryRun>[1],
+  ): Promise<void> {
     if (
       !execution ||
       !detail ||
@@ -1468,15 +1478,6 @@ export function AgentExecutionDetail({
         execution,
       )
     ) {
-      return;
-    }
-
-    const confirmed =
-      window.confirm(
-        "Retry the final execution for this failed or blocked run?",
-      );
-
-    if (!confirmed) {
       return;
     }
 
@@ -1491,6 +1492,11 @@ export function AgentExecutionDetail({
     try {
       await retryRun(
         detail.run.id,
+        override,
+      );
+
+      setRetryDialogOpen(
+        false,
       );
 
       router.push(
@@ -1760,7 +1766,7 @@ export function AgentExecutionDetail({
                   retrying
                 }
                 onClick={() =>
-                  void handleRetry()
+                  setRetryDialogOpen(true)
                 }
               >
                 <RotateCcwIcon />
@@ -1782,6 +1788,23 @@ export function AgentExecutionDetail({
               <ArrowUpRightIcon />
             </Button>
           </div>
+
+          <RetryExecutionDialog
+            key={
+              retryDialogOpen
+                ? execution.id
+                : "closed"
+            }
+            open={retryDialogOpen}
+            configuration={{
+              harness: execution.harness,
+              model: execution.model,
+              reasoning: execution.reasoning,
+            }}
+            submitting={retrying}
+            onOpenChange={setRetryDialogOpen}
+            onRetry={handleRetry}
+          />
         </div>
 
         <div className="grid min-w-0 overflow-hidden rounded-lg border border-border-default bg-surface-elevated shadow-xs sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[0.8fr_0.8fr_0.8fr_1.7fr_1.35fr_1.35fr]">
