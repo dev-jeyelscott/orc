@@ -1,23 +1,20 @@
 import {
-  automationStatusResponseSchema,
   runDetailSchema,
   runListResponseSchema,
   runMonitoringDetailSchema,
   runMonitoringListResponseSchema,
-  systemSettingsResponseSchema,
   taskListResponseSchema,
+  teamAutomationStatusResponseSchema,
   taskWithRunSchema,
-  type AutomationStatus,
   type CreateTask,
   type RetryRun,
   type Run,
   type RunDetail,
   type RunMonitoringDetail,
   type RunMonitoringSummary,
-  type SystemSettings,
   type Task,
   type TaskWithRun,
-  type UpdateSystemSettings,
+  type TeamAutomationStatus,
 } from "@orc/shared";
 
 const SERVER_URL =
@@ -136,50 +133,11 @@ export function getRuns(): Promise<
 }
 
 /**
- * Loads the persisted global Auto Mode setting.
+ * Loads derived per-Team automation state without exposing Notion configuration or process-local scheduler data.
  */
-export function getAutoModeSettings(): Promise<SystemSettings> {
-  return request(
-    "/api/auto-mode",
-    {
-      cache:
-        "no-store",
-    },
-    (value) =>
-      systemSettingsResponseSchema.parse(
-        value,
-      ).settings,
-  );
-}
-
-/**
- * Persists the global Auto Mode setting without affecting an already active run.
- */
-export function updateAutoModeSettings(
-  input:
-    UpdateSystemSettings,
-): Promise<SystemSettings> {
-  return request(
-    "/api/auto-mode",
-    {
-      method:
-        "PATCH",
-      body:
-        JSON.stringify(
-          input,
-        ),
-    },
-    (value) =>
-      systemSettingsResponseSchema.parse(
-        value,
-      ).settings,
-  );
-}
-
-/**
- * Loads the derived automation state without exposing process-local scheduler data.
- */
-export function getAutomationStatus(): Promise<AutomationStatus> {
+export function getTeamAutomationStatuses(): Promise<
+  TeamAutomationStatus[]
+> {
   return request(
     "/api/auto-mode/status",
     {
@@ -187,9 +145,9 @@ export function getAutomationStatus(): Promise<AutomationStatus> {
         "no-store",
     },
     (value) =>
-      automationStatusResponseSchema.parse(
+      teamAutomationStatusResponseSchema.parse(
         value,
-      ).status,
+      ).teams,
   );
 }
 

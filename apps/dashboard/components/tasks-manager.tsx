@@ -13,12 +13,13 @@ import {
   useState,
 } from "react";
 import type {
-  AutomationStatus,
   Project,
   Run,
   RunDetail,
   Task,
   TaskWithRun,
+  Team,
+  TeamAutomationStatus,
 } from "@orc/shared";
 
 import {
@@ -49,19 +50,21 @@ import {
   getProjects,
 } from "@/lib/projects";
 import {
+  getTeams,
+  updateTeam,
+} from "@/lib/teams";
+import {
   formatStatusLabel,
   getLifecycleBadgeVariant,
   shortId,
 } from "@/lib/task-presentation";
 import {
   cancelRun,
-  getAutomationStatus,
-  getAutoModeSettings,
   getRun,
   getRuns,
   getTasks,
   retryRun,
-  updateAutoModeSettings,
+  getTeamAutomationStatuses,
 } from "@/lib/workflows";
 
 const activeRunStatuses =
@@ -117,7 +120,7 @@ function compareRunsNewestFirst(
  */
 function formatAutomationState(
   state:
-    AutomationStatus["state"],
+    TeamAutomationStatus["state"],
 ): string {
   if (
     state ===
@@ -142,12 +145,57 @@ function formatAutomationState(
 
   if (
     state ===
-    "ready"
+      "ready"
   ) {
     return "Ready";
   }
 
+  if (
+    state ===
+    "unavailable"
+  ) {
+    return "Unavailable";
+  }
+
   return "Off";
+}
+
+/**
+ * Converts a server-owned Team configuration failure into concise operator text.
+ */
+function formatAutomationUnavailableReason(
+  reason:
+    TeamAutomationStatus["unavailableReason"],
+): string | null {
+  if (
+    reason ===
+    "team_disabled"
+  ) {
+    return "Team disabled";
+  }
+
+  if (
+    reason ===
+    "missing_notion_data_source"
+  ) {
+    return "Missing Notion database";
+  }
+
+  if (
+    reason ===
+    "missing_notion_api_key"
+  ) {
+    return "Notion integration unavailable";
+  }
+
+  if (
+    reason ===
+    "no_enabled_agents"
+  ) {
+    return "No enabled Agents";
+  }
+
+  return null;
 }
 
 /**
@@ -155,7 +203,7 @@ function formatAutomationState(
  */
 function getAutomationBadgeVariant(
   state:
-    AutomationStatus["state"],
+    TeamAutomationStatus["state"],
 ):
   | "running"
   | "success"
@@ -178,8 +226,8 @@ function getAutomationBadgeVariant(
   if (
     state ===
       "waiting_approval" ||
-    state ===
-      "cooldown"
+    state === "cooldown" ||
+    state === "unavailable"
   ) {
     return "warning";
   }
@@ -296,23 +344,16 @@ export function TasksManager() {
     );
 
   const [
-    autoModeEnabled,
-    setAutoModeEnabled,
+    automationTeams,
+    setAutomationTeams,
   ] =
-    useState(
-      false,
-    );
+    useState<Team[]>([]);
 
   const [
-    automationStatus,
-    setAutomationStatus,
+    automationStatuses,
+    setAutomationStatuses,
   ] =
-    useState<AutomationStatus>({
-      state:
-        "off",
-      nextEligibleAt:
-        null,
-    });
+    useState<TeamAutomationStatus[]>([]);
 
   const [
     automationLoading,
@@ -323,11 +364,11 @@ export function TasksManager() {
     );
 
   const [
-    automationUpdating,
-    setAutomationUpdating,
+    automationUpdatingTeamId,
+    setAutomationUpdatingTeamId,
   ] =
-    useState(
-      false,
+    useState<string | null>(
+      null,
     );
 
   const [
@@ -445,27 +486,27 @@ export function TasksManager() {
     );
 
   /**
-   * Loads persisted Auto Mode state and server-derived operator status without duplicating scheduler state in the browser.
+   * Loads Team configuration and server-derived automation status without duplicating scheduler gates in the browser.
    */
   const loadAutomation =
     useCallback(
       async () => {
         try {
           const [
-            settings,
-            status,
+            teams,
+            statuses,
           ] =
             await Promise.all([
-              getAutoModeSettings(),
-              getAutomationStatus(),
+              getTeams(),
+              getTeamAutomationStatuses(),
             ]);
 
-          setAutoModeEnabled(
-            settings.autoModeEnabled,
+          setAutomationTeams(
+            teams,
           );
 
-          setAutomationStatus(
-            status,
+          setAutomationStatuses(
+            statuses,
           );
 
           setAutomationError(
@@ -558,6 +599,22 @@ export function TasksManager() {
         null,
       [
         runs,
+      ],
+    );
+
+  const automationStatusByTeamId =
+    useMemo(
+      () =>
+        new Map(
+          automationStatuses.map(
+            (status) => [
+              status.teamId,
+              status,
+            ],
+          ),
+        ),
+      [
+        automationStatuses,
       ],
     );
 
@@ -828,14 +885,16 @@ export function TasksManager() {
   }
 
   /**
-   * Persists an Auto Mode toggle change and reloads authoritative automation and workflow state.
+   * Persists one Team's automation intent through Team CRUD, then reloads the server-owned gates and workflow state.
    */
   async function handleAutoModeChange(
+    team:
+      Team,
     checked:
       boolean,
   ) {
-    setAutomationUpdating(
-      true,
+    setAutomationUpdatingTeamId(
+      team.id,
     );
 
     setAutomationError(
@@ -843,14 +902,24 @@ export function TasksManager() {
     );
 
     try {
-      const settings =
-        await updateAutoModeSettings({
+      const updatedTeam =
+        await updateTeam(
+          team.id,
+          {
           autoModeEnabled:
             checked,
-        });
+          },
+        );
 
-      setAutoModeEnabled(
-        settings.autoModeEnabled,
+      setAutomationTeams(
+        (current) =>
+          current.map(
+            (currentTeam) =>
+              currentTeam.id ===
+              updatedTeam.id
+                ? updatedTeam
+                : currentTeam,
+          ),
       );
 
       await Promise.all([
@@ -865,8 +934,8 @@ export function TasksManager() {
         ),
       );
     } finally {
-      setAutomationUpdating(
-        false,
+      setAutomationUpdatingTeamId(
+        null,
       );
     }
   }
@@ -986,39 +1055,77 @@ export function TasksManager() {
             </Button>
           ) : null}
 
-          <div className="neon-surface flex h-9 items-center gap-2 rounded-lg border border-border-default bg-surface-elevated px-3 shadow-xs">
+          <div className="neon-surface flex flex-wrap items-center gap-2 rounded-lg border border-border-default bg-surface-elevated px-3 py-2 shadow-xs">
             <span className="text-sm font-medium text-text-primary">
               Auto Mode
             </span>
 
-            <Badge
-              variant={getAutomationBadgeVariant(
-                automationStatus.state,
-              )}
-            >
-              {formatAutomationState(
-                automationStatus.state,
-              )}
-            </Badge>
+            {automationTeams.map(
+              (team) => {
+                const status =
+                  automationStatusByTeamId.get(
+                    team.id,
+                  );
 
-            <Switch
-              size="sm"
-              checked={
-                autoModeEnabled
-              }
-              onCheckedChange={(
-                checked,
-              ) => {
-                void handleAutoModeChange(
-                  checked,
+                const detail =
+                  status?.blockedByActiveRun
+                    ? "Waiting for active run"
+                    : formatAutomationUnavailableReason(
+                        status?.unavailableReason ??
+                          null,
+                      );
+
+                return (
+                  <div
+                    key={team.id}
+                    className="flex items-center gap-1.5 border-l border-divider pl-2 first:border-l-0 first:pl-0"
+                  >
+                    <span className="max-w-28 truncate text-xs font-medium text-text-secondary">
+                      {team.name}
+                    </span>
+
+                    <Badge
+                      variant={getAutomationBadgeVariant(
+                        status?.state ??
+                          "off",
+                      )}
+                    >
+                      {formatAutomationState(
+                        status?.state ??
+                          "off",
+                      )}
+                    </Badge>
+
+                    {detail ? (
+                      <span className="max-w-40 truncate text-xs text-text-muted">
+                        {detail}
+                      </span>
+                    ) : null}
+
+                    <Switch
+                      size="sm"
+                      checked={
+                        team.autoModeEnabled
+                      }
+                      onCheckedChange={(
+                        checked,
+                      ) => {
+                        void handleAutoModeChange(
+                          team,
+                          checked,
+                        );
+                      }}
+                      disabled={
+                        automationLoading ||
+                        automationUpdatingTeamId ===
+                          team.id
+                      }
+                      aria-label={`Toggle ${team.name} Auto Mode`}
+                    />
+                  </div>
                 );
-              }}
-              disabled={
-                automationLoading ||
-                automationUpdating
-              }
-              aria-label="Toggle Auto Mode"
-            />
+              },
+            )}
           </div>
 
           <Button

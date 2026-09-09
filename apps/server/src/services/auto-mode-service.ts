@@ -10,12 +10,10 @@ import {
 
 import type {
   AgentResultStatus,
-  AutomationStatus,
   Run,
-  SystemSettings,
   Team,
+  TeamAutomationStatus,
   TeamAutomationUnavailableReason,
-  UpdateSystemSettings,
 } from "@orc/shared";
 
 import {
@@ -25,13 +23,9 @@ import {
   db,
 } from "../db/client.js";
 import {
-  RESOLUTION_TEAM_ID,
-} from "../db/seed-ids.js";
-import {
   agentExecutions,
   agents,
   runs,
-  systemSettings,
   tasks,
 } from "../db/schema.js";
 import {
@@ -74,8 +68,9 @@ export type AutoModeEligibility = {
     boolean;
   state:
     Exclude<
-      AutomationStatus["state"],
-      "off"
+      TeamAutomationStatus["state"],
+      | "off"
+      | "unavailable"
     >;
   nextEligibleAt:
     Date | null;
@@ -137,122 +132,6 @@ export type AutoModeCycleDependencies = {
   startExistingTask?:
     StartExistingTask;
 };
-
-/**
- * Serializes the singleton database row into the shared system-settings contract.
- */
-function serializeSystemSettings(
-  row:
-    typeof systemSettings.$inferSelect,
-): SystemSettings {
-  return {
-    autoModeEnabled:
-      row.autoModeEnabled,
-  };
-}
-
-/**
- * Loads the singleton settings row, recreating the default singleton only if it is unexpectedly absent.
- */
-export async function getSystemSettings(): Promise<SystemSettings> {
-  const [existing] =
-    await db
-      .select()
-      .from(
-        systemSettings,
-      )
-      .where(
-        eq(
-          systemSettings.id,
-          1,
-        ),
-      );
-
-  if (
-    existing
-  ) {
-    return serializeSystemSettings(
-      existing,
-    );
-  }
-
-  await db
-    .insert(
-      systemSettings,
-    )
-    .values({
-      id:
-        1,
-      autoModeEnabled:
-        false,
-    })
-    .onConflictDoNothing();
-
-  const [created] =
-    await db
-      .select()
-      .from(
-        systemSettings,
-      )
-      .where(
-        eq(
-          systemSettings.id,
-          1,
-        ),
-      );
-
-  if (
-    !created
-  ) {
-    throw new Error(
-      "Unable to load system settings",
-    );
-  }
-
-  return serializeSystemSettings(
-    created,
-  );
-}
-
-/**
- * Persists the complete Auto Mode setting on the singleton system-settings row.
- */
-export async function updateSystemSettings(
-  input:
-    UpdateSystemSettings,
-): Promise<SystemSettings> {
-  const now =
-    new Date();
-
-  const [updated] =
-    await db
-      .insert(
-        systemSettings,
-      )
-      .values({
-        id:
-          1,
-        autoModeEnabled:
-          input.autoModeEnabled,
-        updatedAt:
-          now,
-      })
-      .onConflictDoUpdate({
-        target:
-          systemSettings.id,
-        set: {
-          autoModeEnabled:
-            input.autoModeEnabled,
-          updatedAt:
-            now,
-        },
-      })
-      .returning();
-
-  return serializeSystemSettings(
-    updated,
-  );
-}
 
 /**
  * Converts the latest persisted run and execution state into the Auto Mode eligibility rule.
@@ -761,40 +640,85 @@ export async function getTeamAutomationReadiness(
 }
 
 /**
- * Returns the operator-facing automation state derived only from persisted settings and workflow history.
- *
- * Temporary compatibility shim: this legacy singleton status predates Team-scoped Auto Mode and has no Team
- * concept of its own, so it reports Resolution Team eligibility only. Slice 6 replaces this and its consuming
- * route with the Team-scoped automation status endpoint/DTO; remove this function when that lands.
+ * Projects each Team's persisted automation intent, readiness, local workflow gate, and shared Run capacity into
+ * the dashboard contract. The browser must not infer any of these gates itself.
  */
-export async function getAutomationStatus(): Promise<AutomationStatus> {
-  const settings =
-    await getSystemSettings();
+export async function getTeamAutomationStatuses(): Promise<
+  TeamAutomationStatus[]
+> {
+  const configuredTeams =
+    await listTeams();
 
-  if (
-    !settings.autoModeEnabled
-  ) {
-    return {
-      state:
-        "off",
-      nextEligibleAt:
-        null,
-    };
-  }
+  return Promise.all(
+    configuredTeams.map(
+      async (team) => {
+        if (
+          !team.autoModeEnabled
+        ) {
+          return {
+            teamId:
+              team.id,
+            autoModeEnabled:
+              false,
+            state:
+              "off" as const,
+            nextEligibleAt:
+              null,
+            blockedByActiveRun:
+              false,
+            unavailableReason:
+              null,
+          };
+        }
 
-  const eligibility =
-    await evaluateAutoModeEligibility(
-      RESOLUTION_TEAM_ID,
-    );
+        const readiness =
+          await getTeamAutomationReadiness(
+            team.id,
+          );
 
-  return {
-    state:
-      eligibility.state,
-    nextEligibleAt:
-      eligibility.nextEligibleAt
-        ?.toISOString() ??
-      null,
-  };
+        if (
+          !readiness.ready
+        ) {
+          return {
+            teamId:
+              team.id,
+            autoModeEnabled:
+              true,
+            state:
+              "unavailable" as const,
+            nextEligibleAt:
+              null,
+            blockedByActiveRun:
+              false,
+            unavailableReason:
+              readiness.unavailableReason,
+          };
+        }
+
+        const eligibility =
+          await evaluateAutoModeEligibility(
+            team.id,
+          );
+
+        return {
+          teamId:
+            team.id,
+          autoModeEnabled:
+            true,
+          state:
+            eligibility.state,
+          nextEligibleAt:
+            eligibility.nextEligibleAt
+              ?.toISOString() ??
+            null,
+          blockedByActiveRun:
+            eligibility.blockedByActiveRun,
+          unavailableReason:
+            null,
+        };
+      },
+    ),
+  );
 }
 
 /**
