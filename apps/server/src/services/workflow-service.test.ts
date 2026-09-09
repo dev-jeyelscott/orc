@@ -55,6 +55,7 @@ import type {
 import {
   orderWorkflowAgents,
   retryLastExecution,
+  skipRun,
 } from "./workflow-service.js";
 
 type SnapshotRoute = {
@@ -1149,6 +1150,141 @@ describe(
         expect(
           finalRun.executionCount,
         ).toBe(1);
+      },
+    );
+
+    it(
+      "skips an active Notion run, cancels its worker, and records the terminal outcome",
+      async () => {
+        const projectPath =
+          `/tmp/orc-skip-${crypto.randomUUID()}`;
+
+        const [task] =
+          await db
+            .insert(tasks)
+            .values({
+              projectPath,
+              title: "Skip this Notion task",
+              instruction: "Advance to the next Ready task.",
+              status: "running",
+              source: "notion",
+              externalId: crypto.randomUUID(),
+              externalUrl: "https://www.notion.so/skip-task",
+            })
+            .returning();
+
+        createdTaskIds.add(task.id);
+
+        const [run] =
+          await db
+            .insert(runs)
+            .values({
+              taskId: task.id,
+              projectPath,
+              status: "running",
+            })
+            .returning();
+
+        createdRunIds.add(run.id);
+
+        const [execution] =
+          await db
+            .insert(agentExecutions)
+            .values({
+              runId: run.id,
+              agentName: "Skip Worker",
+              agentRole: "Worker",
+              layer: 1,
+              executionOrder: 1,
+              harness: "codex",
+              model: "default",
+              reasoning: "medium",
+              status: "running",
+            })
+            .returning();
+
+        const skipped =
+          await skipRun(run.id);
+
+        expect(skipped?.status).toBe("skipped");
+        expect(
+          runtimeState.cancelLiveExecution,
+        ).toHaveBeenCalledWith(execution.id);
+
+        const [persistedTask] =
+          await db
+            .select()
+            .from(tasks)
+            .where(eq(tasks.id, task.id));
+
+        const [persistedExecution] =
+          await db
+            .select()
+            .from(agentExecutions)
+            .where(eq(agentExecutions.id, execution.id));
+
+        expect(persistedTask?.status).toBe("skipped");
+        expect(persistedExecution).toMatchObject({
+          status: "cancelled",
+          failureReason: "Skipped by operator",
+        });
+
+        const events =
+          await db
+            .select()
+            .from(domainEvents)
+            .where(
+              eq(
+                domainEvents.runId,
+                run.id,
+              ),
+            );
+
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "run.skipped",
+          }),
+        );
+      },
+    );
+
+    it(
+      "rejects skipping an active manual run",
+      async () => {
+        const projectPath =
+          `/tmp/orc-manual-skip-${crypto.randomUUID()}`;
+
+        const [task] =
+          await db
+            .insert(tasks)
+            .values({
+              projectPath,
+              title: "Manual task",
+              instruction: "Manual work cannot advance the Notion queue.",
+              status: "running",
+              source: "manual",
+            })
+            .returning();
+
+        createdTaskIds.add(task.id);
+
+        const [run] =
+          await db
+            .insert(runs)
+            .values({
+              taskId: task.id,
+              projectPath,
+              status: "running",
+            })
+            .returning();
+
+        createdRunIds.add(run.id);
+
+        await expect(
+          skipRun(run.id),
+        ).rejects.toThrow(
+          "Only Notion Auto Mode runs can be skipped",
+        );
       },
     );
   },

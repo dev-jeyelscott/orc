@@ -84,7 +84,6 @@ describe(
     it.each([
       "failed",
       "blocked",
-      "cancelled",
     ] as const)(
       "does not unlock intake when the latest run is %s",
       (
@@ -105,6 +104,35 @@ describe(
             false,
           state:
             "waiting_approval",
+        });
+      },
+    );
+
+    it.each([
+      "cancelled",
+      "skipped",
+    ] as const)(
+      "allows intake immediately when the latest Notion run is %s",
+      (
+        runStatus,
+      ) => {
+        expect(
+          resolveAutoModeEligibility(
+            {
+              runStatus,
+              latestExecution:
+                null,
+            },
+            now,
+            5,
+          ),
+        ).toEqual({
+          eligible:
+            true,
+          state:
+            "ready",
+          nextEligibleAt:
+            null,
         });
       },
     );

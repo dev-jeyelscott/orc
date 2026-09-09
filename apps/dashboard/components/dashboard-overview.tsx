@@ -80,6 +80,7 @@ const STATUS_DISPLAY_ORDER: RunStatus[] = [
   "pending",
   "completed",
   "cancelled",
+  "skipped",
 ];
 
 type BadgeVariant =

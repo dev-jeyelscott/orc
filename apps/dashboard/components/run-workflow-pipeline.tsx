@@ -43,6 +43,7 @@ function workflowStateVariant(
     case "blocked":
       return "warning";
     case "cancelled":
+    case "skipped":
     case "waiting":
     default:
       return "neutral";
@@ -66,6 +67,7 @@ function workflowStepClasses(
     case "blocked":
       return "border-status-warning/50 bg-status-warning/5";
     case "cancelled":
+    case "skipped":
     case "waiting":
     default:
       return "border-border-default bg-surface-interactive/30";
@@ -177,6 +179,7 @@ function WorkflowPipelineStep({
             [
               "waiting",
               "cancelled",
+              "skipped",
             ].includes(
               step.state,
             ) &&

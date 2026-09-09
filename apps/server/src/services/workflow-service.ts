@@ -847,7 +847,8 @@ async function updateTerminal(
     | "completed"
     | "failed"
     | "blocked"
-    | "cancelled",
+    | "cancelled"
+    | "skipped",
   reason:
     string | null,
   expectedAgentId?:
@@ -2768,6 +2769,126 @@ export async function cancelRun(
     ? serializeRun(
         updated,
       )
+    : null;
+}
+
+/**
+ * Skips an active Notion-backed Auto Mode run, preserving the terminal audit trail before the scheduler advances.
+ */
+export async function skipRun(
+  id: string,
+): Promise<Run | null> {
+  const [run] =
+    await db
+      .select()
+      .from(runs)
+      .where(
+        eq(
+          runs.id,
+          id,
+        ),
+      );
+
+  if (!run) {
+    return null;
+  }
+
+  if (
+    run.status !== "running" &&
+    run.status !== "pending"
+  ) {
+    throw new WorkflowServiceError(
+      "Only an active run can be skipped",
+      409,
+    );
+  }
+
+  if (!run.taskId) {
+    throw new WorkflowServiceError(
+      "Only Notion Auto Mode runs can be skipped",
+      409,
+    );
+  }
+
+  const [task] =
+    await db
+      .select()
+      .from(tasks)
+      .where(
+        eq(
+          tasks.id,
+          run.taskId,
+        ),
+      );
+
+  if (
+    !task ||
+    task.source !== "notion"
+  ) {
+    throw new WorkflowServiceError(
+      "Only Notion Auto Mode runs can be skipped",
+      409,
+    );
+  }
+
+  const [execution] =
+    await db
+      .select()
+      .from(agentExecutions)
+      .where(
+        eq(
+          agentExecutions.runId,
+          id,
+        ),
+      )
+      .orderBy(
+        desc(
+          agentExecutions.createdAt,
+        ),
+      )
+      .limit(1);
+
+  if (execution) {
+    await cancelLiveExecution(
+      execution.id,
+    );
+
+    await db
+      .update(agentExecutions)
+      .set({
+        status: "cancelled",
+        failureReason: "Skipped by operator",
+        completedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        eq(
+          agentExecutions.id,
+          execution.id,
+        ),
+      );
+  }
+
+  await updateTerminal(
+    run,
+    "skipped",
+    "Skipped by operator",
+    run.currentAgentId ?? undefined,
+  );
+
+  const [updated] =
+    await db
+      .select()
+      .from(runs)
+      .where(
+        eq(
+          runs.id,
+          id,
+        ),
+      );
+
+  return updated
+    ? serializeRun(updated)
     : null;
 }
 

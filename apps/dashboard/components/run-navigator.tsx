@@ -74,6 +74,7 @@ function runStatusVariant(
     case "failed":
       return "error";
     case "cancelled":
+    case "skipped":
     default:
       return "neutral";
   }
@@ -95,6 +96,7 @@ function progressToneClass(
     case "pending":
       return "[&_[data-slot=progress-indicator]]:bg-status-warning";
     case "cancelled":
+    case "skipped":
       return "[&_[data-slot=progress-indicator]]:bg-status-neutral";
     case "running":
     default:

@@ -101,6 +101,12 @@ export function resolveNotionLifecycleStatus(
   }
 
   if (
+    runStatus === "skipped"
+  ) {
+    return "Skipped";
+  }
+
+  if (
     runStatus === "completed" &&
     latestExecutionResultStatus === "approved"
   ) {

@@ -64,6 +64,7 @@ import {
   getRuns,
   getTasks,
   retryRun,
+  skipRun,
   getTeamAutomationStatuses,
 } from "@/lib/workflows";
 
@@ -979,6 +980,36 @@ export function TasksManager() {
     }
   }
 
+  /** Skips one active Notion Auto Mode run and reloads the queue after the scheduler is signalled. */
+  async function skipRelatedRun(
+    runId:
+      string,
+  ) {
+    if (
+      !window.confirm(
+        "Skip this Notion task and continue to the next Ready task?",
+      )
+    ) {
+      return;
+    }
+
+    setBusyRunId(runId);
+
+    try {
+      await skipRun(runId);
+      await loadWork();
+    } catch (error) {
+      setWorkError(
+        getErrorMessage(
+          error,
+          "Unable to skip run",
+        ),
+      );
+    } finally {
+      setBusyRunId(null);
+    }
+  }
+
   /**
    * Retries the final execution only for backend-supported failed or blocked runs.
    */
@@ -1243,6 +1274,9 @@ export function TasksManager() {
             }
             onCancelRun={
               cancelRelatedRun
+            }
+            onSkipRun={
+              skipRelatedRun
             }
             onRetryRun={
               retryRelatedRun

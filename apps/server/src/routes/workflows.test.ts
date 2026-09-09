@@ -21,6 +21,8 @@ const mocks =
         vi.fn(),
       cancelRun:
         vi.fn(),
+      skipRun:
+        vi.fn(),
       retryLastExecution:
         vi.fn(),
       listRunMonitoringSummaries:
@@ -46,6 +48,8 @@ vi.mock(
       mocks.getRunDetail,
     cancelRun:
       mocks.cancelRun,
+    skipRun:
+      mocks.skipRun,
     retryLastExecution:
       mocks.retryLastExecution,
   }),
@@ -80,6 +84,8 @@ beforeEach(
   async () => {
     mocks.createAndStartTask
       .mockReset();
+
+    mocks.skipRun.mockReset();
 
     app =
       Fastify();
@@ -241,6 +247,27 @@ describe(
         expect(
           mocks.createAndStartTask,
         ).not.toHaveBeenCalled();
+      },
+    );
+
+    it(
+      "routes a bodyless skip request to the workflow service",
+      async () => {
+        const runId =
+          crypto.randomUUID();
+
+        mocks.skipRun.mockResolvedValue({
+          id: runId,
+        });
+
+        const response =
+          await app.inject({
+            method: "POST",
+            url: `/api/runs/${runId}/skip`,
+          });
+
+        expect(response.statusCode).toBe(200);
+        expect(mocks.skipRun).toHaveBeenCalledWith(runId);
       },
     );
   },

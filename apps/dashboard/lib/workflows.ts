@@ -41,8 +41,14 @@ async function request<T>(
       {
         ...options,
         headers: {
-          "content-type":
-            "application/json",
+          ...(
+            options.body === undefined
+              ? {}
+              : {
+                  "content-type":
+                    "application/json",
+                }
+          ),
           ...options.headers,
         },
       },
@@ -226,6 +232,23 @@ export function cancelRun(
       runDetailSchema.shape.run.parse(
         value,
       ),
+  );
+}
+
+/**
+ * Skips one active Notion Auto Mode run so the scheduler can claim the next Ready task.
+ */
+export function skipRun(
+  id:
+    string,
+): Promise<Run> {
+  return request(
+    `/api/runs/${id}/skip`,
+    {
+      method: "POST",
+    },
+    (value) =>
+      runDetailSchema.shape.run.parse(value),
   );
 }
 

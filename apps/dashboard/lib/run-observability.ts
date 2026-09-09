@@ -14,6 +14,7 @@ export const RUN_STATUS_FILTERS = [
   "failed",
   "blocked",
   "cancelled",
+  "skipped",
 ] as const;
 
 export type RunStatusFilter =
@@ -89,7 +90,8 @@ export type WorkflowStepState =
   | "completed"
   | "failed"
   | "blocked"
-  | "cancelled";
+  | "cancelled"
+  | "skipped";
 
 export type WorkflowStep =
   WorkflowPlanAgent & {
@@ -260,6 +262,7 @@ export function calculateRunMetrics(
           "failed",
           "blocked",
           "cancelled",
+          "skipped",
         ].includes(
           run.status,
         ),

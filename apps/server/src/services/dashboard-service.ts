@@ -40,6 +40,7 @@ const RUN_STATUSES: RunStatus[] = [
   "failed",
   "blocked",
   "cancelled",
+  "skipped",
 ];
 
 type StatusCountRow = {
@@ -60,6 +61,7 @@ export function buildStatusCounts(
     failed: 0,
     blocked: 0,
     cancelled: 0,
+    skipped: 0,
   };
 
   for (const row of rows) {

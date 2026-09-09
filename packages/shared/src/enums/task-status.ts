@@ -7,6 +7,7 @@ export const taskStatusSchema = z.enum([
   "failed",
   "blocked",
   "cancelled",
+  "skipped",
 ]);
 
 export type TaskStatus = z.infer<typeof taskStatusSchema>;

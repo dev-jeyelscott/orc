@@ -287,34 +287,34 @@ describe.sequential(
     );
 
     it(
-      "recovers a newer high-priority task before an older low-priority task",
+      "recovers a newer priority-1 task before an older priority-7 task",
       async () => {
-        const lowPriorityExternalId =
+        const prioritySevenExternalId =
           crypto.randomUUID();
 
-        const highPriorityExternalId =
+        const priorityOneExternalId =
           crypto.randomUUID();
 
-        const [lowPriorityTask] =
+        const [prioritySevenTask] =
           await db
             .insert(tasks)
             .values({
               projectPath:
                 project.path,
               title:
-                "Older low-priority task",
+                "Older priority-7 task",
               instruction:
-                "This task must wait for higher priority work.",
+                "This task must wait for priority-1 work.",
               status:
                 "pending",
               source:
                 "notion",
               externalId:
-                lowPriorityExternalId,
+                prioritySevenExternalId,
               externalUrl:
-                `https://www.notion.so/${lowPriorityExternalId}`,
+                `https://www.notion.so/${prioritySevenExternalId}`,
               priority:
-                10,
+                7,
               createdAt:
                 new Date(
                   "2099-01-01T00:00:00.000Z",
@@ -326,14 +326,14 @@ describe.sequential(
             })
             .returning();
 
-        const [highPriorityTask] =
+        const [priorityOneTask] =
           await db
             .insert(tasks)
             .values({
               projectPath:
                 project.path,
               title:
-                "Newer high-priority task",
+                "Newer priority-1 task",
               instruction:
                 "This task must run before lower priority work.",
               status:
@@ -341,11 +341,11 @@ describe.sequential(
               source:
                 "notion",
               externalId:
-                highPriorityExternalId,
+                priorityOneExternalId,
               externalUrl:
-                `https://www.notion.so/${highPriorityExternalId}`,
+                `https://www.notion.so/${priorityOneExternalId}`,
               priority:
-                100,
+                1,
               createdAt:
                 new Date(
                   "2099-01-02T00:00:00.000Z",
@@ -386,7 +386,7 @@ describe.sequential(
         expect(
           mocks.updateStatus,
         ).toHaveBeenCalledWith(
-          highPriorityExternalId,
+          priorityOneExternalId,
           "In Progress",
         );
 
@@ -399,13 +399,13 @@ describe.sequential(
         expect(
           startExistingTask,
         ).toHaveBeenCalledWith(
-          highPriorityTask.id,
+          priorityOneTask.id,
         );
 
         expect(
           startExistingTask,
         ).not.toHaveBeenCalledWith(
-          lowPriorityTask.id,
+          prioritySevenTask.id,
         );
       },
     );

@@ -13,6 +13,7 @@ export const dashboardStatusCountsSchema = z.object({
   failed: z.number().int().nonnegative(),
   blocked: z.number().int().nonnegative(),
   cancelled: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
 });
 
 export const dashboardContextUsageSchema = z.object({

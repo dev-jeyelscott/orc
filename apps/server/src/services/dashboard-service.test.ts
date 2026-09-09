@@ -55,6 +55,7 @@ describe("dashboard-service aggregation helpers", () => {
       failed: 0,
       blocked: 0,
       cancelled: 0,
+      skipped: 0,
     });
 
     expect(buildProjectSummary(makeProjectList())).toEqual({
@@ -75,6 +76,7 @@ describe("dashboard-service aggregation helpers", () => {
       "failed",
       "blocked",
       "cancelled",
+      "skipped",
     ];
 
     expect(
@@ -91,6 +93,7 @@ describe("dashboard-service aggregation helpers", () => {
       failed: 4,
       blocked: 5,
       cancelled: 6,
+      skipped: 7,
     });
   });
 

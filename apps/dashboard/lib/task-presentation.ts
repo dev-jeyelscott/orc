@@ -71,6 +71,7 @@ export function getLifecycleBadgeVariant(
 
     case "pending":
     case "cancelled":
+    case "skipped":
     default:
       return "neutral";
   }

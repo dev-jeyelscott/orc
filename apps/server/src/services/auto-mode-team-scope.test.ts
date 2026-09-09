@@ -344,7 +344,7 @@ describe.sequential(
     );
 
     it(
-      "selects the globally higher-priority candidate across Teams",
+      "selects the globally lowest-numbered priority candidate across Teams",
       async () => {
         const resolutionExternalId =
           crypto.randomUUID();
@@ -357,7 +357,7 @@ describe.sequential(
             externalId:
               resolutionExternalId,
             priority:
-              10,
+              7,
             createdTime:
               "2099-01-01T00:00:00.000Z",
           });
@@ -367,7 +367,7 @@ describe.sequential(
             externalId:
               developmentExternalId,
             priority:
-              100,
+              1,
             createdTime:
               "2099-01-02T00:00:00.000Z",
           });
@@ -543,7 +543,7 @@ describe.sequential(
             externalId:
               resolutionExternalId,
             priority:
-              1,
+              7,
             createdTime:
               "2099-01-01T00:00:00.000Z",
           });
@@ -553,7 +553,7 @@ describe.sequential(
             externalId:
               developmentExternalId,
             priority:
-              100,
+              1,
             createdTime:
               "2099-01-01T00:00:00.000Z",
           });

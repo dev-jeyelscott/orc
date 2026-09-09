@@ -51,6 +51,7 @@ export const notionTaskStatusSchema =
     "Done",
     "Blocked",
     "Failed",
+    "Skipped",
   ]);
 
 export type NotionTaskStatus =
@@ -681,7 +682,7 @@ export class NotionTaskSourceAdapter {
                 property:
                   "Priority",
                 direction:
-                  "descending",
+                  "ascending",
               },
               {
                 timestamp:

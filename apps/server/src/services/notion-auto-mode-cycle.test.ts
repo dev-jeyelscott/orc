@@ -233,6 +233,11 @@ describe.sequential(
         null,
         null,
       ],
+      [
+        "skipped",
+        null,
+        "Skipped",
+      ],
     ] as const)(
       "maps run %s with result %s to %s",
       (

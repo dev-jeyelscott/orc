@@ -173,6 +173,25 @@ export function resolveAutoModeEligibility(
     };
   }
 
+  // An operator cancelled or skipped this Notion task intentionally. Neither
+  // outcome requires an approval result, so let Auto Mode claim the next Ready
+  // task instead of leaving the Team permanently behind the approval gate.
+  if (
+    snapshot.runStatus ===
+      "cancelled" ||
+    snapshot.runStatus ===
+      "skipped"
+  ) {
+    return {
+      eligible:
+        true,
+      state:
+        "ready",
+      nextEligibleAt:
+        null,
+    };
+  }
+
   if (
     snapshot.runStatus !==
     "completed"
@@ -722,7 +741,7 @@ export async function getTeamAutomationStatuses(): Promise<
 }
 
 /**
- * Finds the highest-priority locally persisted pending Notion task that has never acquired a run and whose owning
+ * Finds the lowest-numbered-priority locally persisted pending Notion task that has never acquired a run and whose owning
  * Team is still automation-ready, with oldest-first deterministic tie-breaking. Never reassigns a task's Team.
  */
 async function findRecoverablePendingNotionTask(
@@ -748,7 +767,7 @@ async function findRecoverablePendingNotionTask(
         `,
       )
       .orderBy(
-        desc(
+        asc(
           tasks.priority,
         ),
         asc(
@@ -893,7 +912,8 @@ function notionStatusForLocalState(
   | "In Progress"
   | "Done"
   | "Blocked"
-  | "Failed" {
+  | "Failed"
+  | "Skipped" {
   if (
     status ===
     "completed"
@@ -906,6 +926,13 @@ function notionStatusForLocalState(
     "blocked"
   ) {
     return "Blocked";
+  }
+
+  if (
+    status ===
+    "skipped"
+  ) {
+    return "Skipped";
   }
 
   if (
@@ -1032,7 +1059,7 @@ type TeamCandidate = {
 };
 
 /**
- * Orders cross-Team Notion candidates by priority DESC, oldest Notion creation time ASC, then a deterministic
+ * Orders cross-Team Notion candidates by priority ASC (1 is highest), oldest Notion creation time ASC, then a deterministic
  * stable tie breaker of Team id ASC and Notion page id ASC.
  */
 function compareCandidates(
@@ -1046,8 +1073,8 @@ function compareCandidates(
     b.candidate.priority
   ) {
     return (
-      b.candidate.priority -
-      a.candidate.priority
+      a.candidate.priority -
+      b.candidate.priority
     );
   }
 

@@ -154,7 +154,7 @@ describe(
   "NotionTaskSourceAdapter",
   () => {
     it(
-      "queries exactly one Ready task in deterministic priority and creation order",
+      "queries priority 1 before higher numeric Ready priorities in deterministic creation order",
       async () => {
         const mocks =
           mockClient();
@@ -209,7 +209,7 @@ describe(
               property:
                 "Priority",
               direction:
-                "descending",
+                "ascending",
             },
             {
               timestamp:
@@ -509,6 +509,7 @@ describe(
       "Done",
       "Blocked",
       "Failed",
+      "Skipped",
     ] as const)(
       "updates the Notion Status property to %s",
       async (

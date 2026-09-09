@@ -17,6 +17,7 @@ import {
   listRuns,
   listTasks,
   retryLastExecution,
+  skipRun,
 } from "../services/workflow-service.js";
 
 const idParams = z.object({
@@ -231,6 +232,48 @@ export async function workflowRoutes(
             .send({
               error:
                 "run_not_found",
+            })
+        );
+      } catch (error) {
+        return sendError(
+          error,
+          reply,
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/runs/:id/skip",
+    async (
+      request,
+      reply,
+    ) => {
+      const parsed =
+        idParams.safeParse(
+          request.params,
+        );
+
+      if (!parsed.success) {
+        return reply
+          .status(400)
+          .send({
+            error: "invalid_run_id",
+          });
+      }
+
+      try {
+        const run =
+          await skipRun(
+            parsed.data.id,
+          );
+
+        return (
+          run ??
+          reply
+            .status(404)
+            .send({
+              error: "run_not_found",
             })
         );
       } catch (error) {

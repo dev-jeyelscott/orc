@@ -144,7 +144,8 @@ export function TaskQueue({
       tasks: visibleTasks.filter(
         (task) =>
           task.status === "completed" ||
-          task.status === "cancelled",
+          task.status === "cancelled" ||
+          task.status === "skipped",
       ),
     },
   ];

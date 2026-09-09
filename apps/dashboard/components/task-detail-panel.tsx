@@ -5,6 +5,7 @@ import {
   BanIcon,
   CopyIcon,
   ExternalLinkIcon,
+  ForwardIcon,
   GitBranchIcon,
   PlayIcon,
   RefreshCwIcon,
@@ -62,6 +63,10 @@ type TaskDetailPanelProps = {
     (
       runId: string,
     ) => Promise<void> | void;
+  onSkipRun:
+    (
+      runId: string,
+    ) => Promise<void> | void;
   onRetryRun:
     (
       runId: string,
@@ -105,6 +110,7 @@ export function TaskDetailPanel({
   runDetailError,
   busyRunId,
   onCancelRun,
+  onSkipRun,
   onRetryRun,
 }: TaskDetailPanelProps) {
   if (!task) {
@@ -387,6 +393,12 @@ export function TaskDetailPanel({
                           onCancelRun={
                             onCancelRun
                           }
+                          onSkipRun={
+                            onSkipRun
+                          }
+                          canSkip={
+                            task.source === "notion"
+                          }
                           onRetryRun={
                             onRetryRun
                           }
@@ -429,6 +441,12 @@ export function TaskDetailPanel({
                     }
                     onCancelRun={
                       onCancelRun
+                    }
+                    onSkipRun={
+                      onSkipRun
+                    }
+                    canSkip={
+                      task.source === "notion"
                     }
                     onRetryRun={
                       onRetryRun
@@ -541,6 +559,8 @@ function RelatedRunCard({
   latestExecutionId,
   busy,
   onCancelRun,
+  onSkipRun,
+  canSkip,
   onRetryRun,
 }: {
   run: Run;
@@ -553,6 +573,11 @@ function RelatedRunCard({
     (
       runId: string,
     ) => Promise<void> | void;
+  onSkipRun:
+    (
+      runId: string,
+    ) => Promise<void> | void;
+  canSkip: boolean;
   onRetryRun:
     (
       runId: string,
@@ -697,6 +722,26 @@ function RelatedRunCard({
           >
             <BanIcon />
             Cancel Run
+          </Button>
+        ) : null}
+
+        {canSkip &&
+        activeRunStatuses.has(
+          run.status,
+        ) ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            onClick={() =>
+              void onSkipRun(
+                run.id,
+              )
+            }
+            disabled={busy}
+          >
+            <ForwardIcon />
+            Skip Task
           </Button>
         ) : null}
       </div>

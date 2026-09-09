@@ -82,6 +82,9 @@ function eventIndicatorClass(
     type.includes(
       "cancelled",
     )
+    || type.includes(
+      "skipped",
+    )
   ) {
     return "bg-status-neutral";
   }

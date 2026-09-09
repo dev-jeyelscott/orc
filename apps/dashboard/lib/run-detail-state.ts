@@ -107,6 +107,7 @@ export function runStatusVariant(
     case "failed":
       return "error";
     case "cancelled":
+    case "skipped":
     default:
       return "neutral";
   }

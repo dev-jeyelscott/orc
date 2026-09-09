@@ -59,9 +59,11 @@ Resolution should use its Bug Fixes database. Development should use its Develop
 - `Priority`
 - `Project`
 
+To skip an active Development or Resolution Auto Mode task, add a `Skipped` option to each data source's `Status` property. ORC records the task locally as skipped, synchronizes that Notion status, and then continues intake with the next Ready candidate.
+
 A Team can claim Notion work only when the Team is enabled, Auto Mode is enabled, a Data Source ID is configured, `NOTION_API_KEY` is available, and the Team has at least one enabled Agent. Development's seeded Agents start disabled, so enable the intended Development Agents before turning on Development Auto Mode.
 
-When globally idle, the scheduler reads the top Ready candidate from every eligible Team and selects one by priority (highest first), then Notion page creation time (oldest first), then deterministic identifiers. ORC still permits only one active Run globally. Turning off a Team's Auto Mode prevents future intake but does not cancel an active Run; lifecycle synchronization continues for its persisted Notion Task.
+When globally idle, the scheduler reads the top Ready candidate from every eligible Team and selects one by numeric priority (lowest first: `1` is highest priority), then Notion page creation time (oldest first), then deterministic identifiers. ORC still permits only one active Run globally. Turning off a Team's Auto Mode prevents future intake but does not cancel an active Run; lifecycle synchronization continues for its persisted Notion Task.
 
 ## Migration and rollout
 
@@ -86,7 +88,7 @@ Roll out in this order:
 2. With Development Agents disabled, verify Development reports `No enabled Agents` and cannot claim work.
 3. Enable Resolution only, place one Ready page in each database, and confirm only Resolution can claim work.
 4. Enable Development only and confirm Resolution remains untouched.
-5. Enable both Teams. Confirm the higher-priority Ready page wins across Teams; for equal priorities, confirm the older Notion page wins.
+5. Enable both Teams. Confirm the Ready page with the lowest numeric priority (for example, `1` before `7`) wins across Teams; for equal priorities, confirm the older Notion page wins.
 6. While a Team has an active Run, confirm no second Run starts and the other Team shows global-capacity blocking.
 7. Disable the active Team's Auto Mode. Confirm its Run continues and reaches the expected Notion terminal status, without claiming another Task.
 8. After the global Run slot is free and the other Team is eligible, confirm it can claim its work.

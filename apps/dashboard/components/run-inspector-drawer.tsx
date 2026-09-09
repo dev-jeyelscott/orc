@@ -116,6 +116,9 @@ function eventToneClass(
     type.includes(
       "cancelled",
     )
+    || type.includes(
+      "skipped",
+    )
   ) {
     return "bg-status-neutral";
   }
@@ -623,7 +626,9 @@ function FailureTab({
           "completed" ? (
           <CheckCircle2Icon className="size-4 text-status-success" />
         ) : detail.run.status ===
-          "cancelled" ? (
+          "cancelled" ||
+          detail.run.status ===
+            "skipped" ? (
           <BanIcon className="size-4 text-status-neutral" />
         ) : (
           <CircleDotIcon className="size-4 text-status-running" />
@@ -645,9 +650,11 @@ function FailureTab({
             Run completed without a recorded failure.
           </p>
         ) : detail.run.status ===
-          "cancelled" ? (
+          "cancelled" ||
+          detail.run.status ===
+            "skipped" ? (
           <p className="text-xs text-text-muted">
-            Run was cancelled without an additional failure reason.
+            Run was cancelled or skipped without an additional failure reason.
           </p>
         ) : (
           <>

@@ -73,6 +73,7 @@ export const runStatusEnum =
       "failed",
       "blocked",
       "cancelled",
+      "skipped",
     ],
   );
 
