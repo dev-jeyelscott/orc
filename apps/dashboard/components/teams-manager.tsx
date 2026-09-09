@@ -387,6 +387,18 @@ export function TeamsManager() {
         ).length
       : 0;
 
+  const drawerEnabledMemberCount =
+    drawerTeam
+      ? (
+          membersByTeam.get(
+            drawerTeam.id,
+          ) ?? []
+        ).filter(
+          (agent) =>
+            agent.enabled,
+        ).length
+      : 0;
+
   /**
    * Opens a fresh Team creation drawer without clearing the selected management workspace.
    */
@@ -579,6 +591,14 @@ export function TeamsManager() {
               </TableHead>
 
               <TableHead>
+                Notion
+              </TableHead>
+
+              <TableHead>
+                Auto Mode
+              </TableHead>
+
+              <TableHead>
                 Updated
               </TableHead>
 
@@ -712,6 +732,34 @@ export function TeamsManager() {
                     </TableCell>
 
                     <TableCell>
+                      <Badge
+                        variant={
+                          team.notionDataSourceId
+                            ? "success"
+                            : "disabled"
+                        }
+                      >
+                        {team.notionDataSourceId
+                          ? "Configured"
+                          : "Not configured"}
+                      </Badge>
+                    </TableCell>
+
+                    <TableCell>
+                      <Badge
+                        variant={
+                          team.autoModeEnabled
+                            ? "success"
+                            : "disabled"
+                        }
+                      >
+                        {team.autoModeEnabled
+                          ? "On"
+                          : "Off"}
+                      </Badge>
+                    </TableCell>
+
+                    <TableCell>
                       <span className="text-xs text-text-muted">
                         {formatUpdatedAt(
                           team.updatedAt,
@@ -786,6 +834,9 @@ export function TeamsManager() {
         }
         memberCount={
           drawerMemberCount
+        }
+        enabledMemberCount={
+          drawerEnabledMemberCount
         }
         onOpenChange={
           setDrawerOpen

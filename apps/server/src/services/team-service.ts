@@ -67,17 +67,29 @@ function translateDatabaseError(
     error !== null &&
     "code" in error
   ) {
+    const databaseError =
+      error as {
+        code?: string;
+        constraint_name?: string;
+      };
+
     const code =
-      (
-        error as {
-          code?: string;
-        }
-      ).code;
+      databaseError.code;
 
     if (
       code ===
       "23505"
     ) {
+      if (
+        databaseError.constraint_name ===
+        "teams_notion_data_source_id_unique"
+      ) {
+        throw new TeamServiceError(
+          "That Notion data source is already assigned to another Team",
+          409,
+        );
+      }
+
       throw new TeamServiceError(
         "A Team with that slug already exists",
         409,
@@ -96,6 +108,63 @@ function translateDatabaseError(
   }
 
   throw error;
+}
+
+/**
+ * Rejects enabled Auto Mode when its Team has no persisted Notion source.
+ */
+function validateAutomationConfiguration(
+  autoModeEnabled: boolean,
+  notionDataSourceId: string | null,
+): void {
+  if (
+    autoModeEnabled &&
+    !notionDataSourceId
+  ) {
+    throw new TeamServiceError(
+      "A Notion data source ID is required when Auto Mode is enabled",
+      400,
+    );
+  }
+}
+
+/**
+ * Provides a stable conflict before PostgreSQL enforces the same unique invariant.
+ */
+async function ensureNotionDataSourceAvailable(
+  notionDataSourceId: string | null,
+  teamId?: string,
+): Promise<void> {
+  if (
+    !notionDataSourceId
+  ) {
+    return;
+  }
+
+  const [existing] =
+    await db
+      .select({
+        id:
+          teams.id,
+      })
+      .from(teams)
+      .where(
+        eq(
+          teams.notionDataSourceId,
+          notionDataSourceId,
+        ),
+      )
+      .limit(1);
+
+  if (
+    existing &&
+    existing.id !== teamId
+  ) {
+    throw new TeamServiceError(
+      "That Notion data source is already assigned to another Team",
+      409,
+    );
+  }
 }
 
 /**
@@ -155,6 +224,18 @@ export async function createTeam(
     CreateTeam,
 ): Promise<Team> {
   try {
+    validateAutomationConfiguration(
+      input.autoModeEnabled ??
+        false,
+      input.notionDataSourceId ??
+        null,
+    );
+
+    await ensureNotionDataSourceAvailable(
+      input.notionDataSourceId ??
+        null,
+    );
+
     const [team] =
       await db
         .insert(teams)
@@ -182,6 +263,41 @@ export async function updateTeam(
   Team | null
 > {
   try {
+    const [existing] =
+      await db
+        .select()
+        .from(teams)
+        .where(
+          eq(
+            teams.id,
+            id,
+          ),
+        );
+
+    if (
+      !existing
+    ) {
+      return null;
+    }
+
+    const effectiveNotionDataSourceId =
+      "notionDataSourceId" in
+      input
+        ? input.notionDataSourceId ??
+          null
+        : existing.notionDataSourceId;
+
+    validateAutomationConfiguration(
+      input.autoModeEnabled ??
+        existing.autoModeEnabled,
+      effectiveNotionDataSourceId,
+    );
+
+    await ensureNotionDataSourceAvailable(
+      effectiveNotionDataSourceId,
+      id,
+    );
+
     const [team] =
       await db
         .update(teams)

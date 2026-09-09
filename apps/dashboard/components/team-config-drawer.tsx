@@ -42,6 +42,8 @@ import {
 import {
   createTeam,
   deleteTeam,
+  getTeamAutomationValidationError,
+  normalizeTeamAutomationInput,
   updateTeam,
 } from "@/lib/teams";
 
@@ -55,6 +57,8 @@ const blankTeam: CreateTeam = {
   name: "",
   description: "",
   enabled: true,
+  notionDataSourceId: null,
+  autoModeEnabled: false,
 };
 
 type TeamConfigDrawerProps = {
@@ -65,6 +69,8 @@ type TeamConfigDrawerProps = {
   team:
     Team | null;
   memberCount:
+    number;
+  enabledMemberCount:
     number;
   onOpenChange:
     (open: boolean) => void;
@@ -107,6 +113,10 @@ function createDraft(
       team.description,
     enabled:
       team.enabled,
+    notionDataSourceId:
+      team.notionDataSourceId,
+    autoModeEnabled:
+      team.autoModeEnabled,
   };
 }
 
@@ -118,6 +128,7 @@ export function TeamConfigDrawer({
   mode,
   team,
   memberCount,
+  enabledMemberCount,
   onOpenChange,
   onRefresh,
 }: TeamConfigDrawerProps) {
@@ -176,6 +187,25 @@ export function TeamConfigDrawer({
   ) {
     event.preventDefault();
 
+    const normalizedDraft =
+      normalizeTeamAutomationInput(
+        draft,
+      );
+
+    const automationError =
+      getTeamAutomationValidationError(
+        normalizedDraft,
+      );
+
+    if (
+      automationError
+    ) {
+      setError(
+        automationError,
+      );
+      return;
+    }
+
     if (
       mode === "edit" &&
       team?.enabled &&
@@ -203,11 +233,11 @@ export function TeamConfigDrawer({
       const saved =
         mode === "create"
           ? await createTeam(
-              draft,
+              normalizedDraft,
             )
           : await updateTeam(
               team!.id,
-              draft,
+              normalizedDraft,
             );
 
       await onRefresh(
@@ -455,6 +485,99 @@ export function TeamConfigDrawer({
                   />
                 </label>
               </div>
+
+              <section className="grid gap-3 rounded-lg border border-divider bg-surface-interactive/40 p-3">
+                <div>
+                  <p className="text-sm font-medium text-text-secondary">
+                    Notion Automation
+                  </p>
+
+                  <p className="mt-1 text-xs leading-relaxed text-text-muted">
+                    The shared Notion API key is managed by server configuration and is not displayed here.
+                  </p>
+                </div>
+
+                <label className="grid gap-1.5 text-sm">
+                  <span className="font-medium text-text-secondary">
+                    Notion Data Source ID
+                  </span>
+
+                  <Input
+                    value={
+                      draft.notionDataSourceId ??
+                      ""
+                    }
+                    onChange={(
+                      event,
+                    ) =>
+                      update(
+                        "notionDataSourceId",
+                        event.target.value,
+                      )
+                    }
+                    maxLength={255}
+                    disabled={
+                      saving
+                    }
+                    placeholder="Notion database data source ID"
+                  />
+                </label>
+
+                <label className="flex items-center justify-between gap-4">
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-text-secondary">
+                      Auto Mode
+                    </span>
+
+                    <span className="block text-xs leading-relaxed text-text-muted">
+                      {draft.autoModeEnabled
+                        ? !draft.enabled
+                          ? "Automation is inactive while this Team is disabled."
+                          : enabledMemberCount ===
+                              0
+                            ? "No enabled Agents can run automated work for this Team."
+                            : "Configured to claim work when the system is eligible."
+                        : "Automation is off for this Team."}
+                    </span>
+                  </span>
+
+                  <Switch
+                    checked={
+                      draft.autoModeEnabled
+                    }
+                    onCheckedChange={(
+                      checked,
+                    ) => {
+                      if (
+                        checked
+                      ) {
+                        const validationError =
+                          getTeamAutomationValidationError(
+                            draft,
+                          );
+
+                        if (
+                          validationError
+                        ) {
+                          setError(
+                            validationError,
+                          );
+                          return;
+                        }
+                      }
+
+                      update(
+                        "autoModeEnabled",
+                        checked,
+                      );
+                    }}
+                    disabled={
+                      saving
+                    }
+                    aria-label="Team Auto Mode enabled"
+                  />
+                </label>
+              </section>
 
               {mode ===
                 "edit" &&
