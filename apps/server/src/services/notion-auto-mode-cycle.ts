@@ -1,4 +1,5 @@
 import {
+  and,
   desc,
   eq,
   sql,
@@ -7,7 +8,6 @@ import {
 import type {
   AgentResultStatus,
   Run,
-  SystemSettings,
 } from "@orc/shared";
 
 import {
@@ -19,11 +19,14 @@ import {
   tasks,
 } from "../db/schema.js";
 import {
+  createNotionTaskSourceAdapter,
   NotionTaskSourceError,
   type NotionTaskStatus,
 } from "./notion-task-source.js";
 import {
-  getSystemSettings,
+  getTeam,
+} from "./team-service.js";
+import {
   runAutoModeCycle,
   type AutoModeCycleDependencies,
   type AutoModeNotionAdapter,
@@ -40,22 +43,32 @@ type LatestExecution = {
 export type NotionLifecycleTarget = {
   pageId:
     string;
+  teamId:
+    string;
   status:
     NotionTaskStatus | null;
 };
 
 type RunIntakeCycle = (
+  teamId:
+    string,
   dependencies?:
     AutoModeCycleDependencies,
 ) => Promise<void>;
 
 export type NotionAutoModeCycleDependencies = {
-  getSettings?:
-    () => Promise<SystemSettings>;
   getLifecycleTarget?:
     () => Promise<NotionLifecycleTarget | null>;
+  isTeamAutoModeEnabled?:
+    (
+      teamId:
+        string,
+    ) => Promise<boolean>;
   createNotionAdapter?:
-    () => AutoModeNotionAdapter;
+    (
+      teamId:
+        string,
+    ) => AutoModeNotionAdapter | Promise<AutoModeNotionAdapter>;
   runIntakeCycle?:
     RunIntakeCycle;
 };
@@ -152,10 +165,12 @@ async function getLatestNotionTaskWithRun() {
 }
 
 /**
- * Loads the latest run owned by one persisted task without falling back to older workflow attempts.
+ * Loads the latest run owned by one persisted task, guarding that it still belongs to the expected Team.
  */
 async function getLatestRunForTask(
   taskId:
+    string,
+  teamId:
     string,
 ): Promise<PersistedRun | null> {
   const [run] =
@@ -163,9 +178,15 @@ async function getLatestRunForTask(
       .select()
       .from(runs)
       .where(
-        eq(
-          runs.taskId,
-          taskId,
+        and(
+          eq(
+            runs.taskId,
+            taskId,
+          ),
+          eq(
+            runs.teamId,
+            teamId,
+          ),
         ),
       )
       .orderBy(
@@ -240,6 +261,7 @@ Promise<NotionLifecycleTarget | null> {
   const run =
     await getLatestRunForTask(
       task.id,
+      task.teamId,
     );
 
   if (
@@ -256,6 +278,8 @@ Promise<NotionLifecycleTarget | null> {
   return {
     pageId:
       task.externalId,
+    teamId:
+      task.teamId,
     status:
       resolveNotionLifecycleStatus(
         run.status,
@@ -267,27 +291,66 @@ Promise<NotionLifecycleTarget | null> {
 }
 
 /**
+ * Builds the production Notion adapter for one Team using its own configured data source.
+ */
+async function createProductionNotionAdapterForTeam(
+  teamId:
+    string,
+): Promise<AutoModeNotionAdapter> {
+  const team =
+    await getTeam(
+      teamId,
+    );
+
+  if (
+    !team?.notionDataSourceId
+  ) {
+    throw new NotionTaskSourceError(
+      "Notion lifecycle reconciliation requires a Team Notion data source.",
+    );
+  }
+
+  return createNotionTaskSourceAdapter(
+    team.notionDataSourceId,
+  );
+}
+
+/**
+ * Reads one Team's own persisted Auto Mode switch.
+ */
+async function readTeamAutoModeEnabled(
+  teamId:
+    string,
+): Promise<boolean> {
+  const team =
+    await getTeam(
+      teamId,
+    );
+
+  return (
+    team?.autoModeEnabled ??
+    false
+  );
+}
+
+/**
  * Runs remote lifecycle reconciliation before allowing the existing Auto Mode intake path to claim more work.
  */
 export async function runNotionAutoModeCycle(
   dependencies:
     NotionAutoModeCycleDependencies = {},
 ): Promise<void> {
-  const readSettings =
-    dependencies.getSettings ??
-    getSystemSettings;
-
   const readLifecycleTarget =
     dependencies.getLifecycleTarget ??
     getLatestNotionLifecycleTarget;
 
+  const readTeamEnabled =
+    dependencies.isTeamAutoModeEnabled ??
+    readTeamAutoModeEnabled;
+
   const createAdapter =
     dependencies.createNotionAdapter ??
-    (() => {
-      throw new NotionTaskSourceError(
-        "Notion lifecycle reconciliation requires a Team Notion data source.",
-      );
-    });
+    createProductionNotionAdapterForTeam;
 
   const intake =
     dependencies.runIntakeCycle ??
@@ -304,7 +367,9 @@ export async function runNotionAutoModeCycle(
     lifecycleTarget?.status
   ) {
     adapter =
-      createAdapter();
+      await createAdapter(
+        lifecycleTarget.teamId,
+      );
 
     await adapter.updateStatus(
       lifecycleTarget.pageId,
@@ -312,21 +377,29 @@ export async function runNotionAutoModeCycle(
     );
   }
 
-  const settings =
-    await readSettings();
+  if (
+    !lifecycleTarget
+  ) {
+    // No Notion-backed workflow has ever run yet; deciding which Team should poll first with
+    // zero history is Slice 5's multi-Team candidate-selection concern, not this cycle's.
+    return;
+  }
 
   if (
-    !settings.autoModeEnabled
+    !await readTeamEnabled(
+      lifecycleTarget.teamId,
+    )
   ) {
     return;
   }
 
   await intake(
+    lifecycleTarget.teamId,
     adapter
       ? {
           createNotionAdapter:
             () =>
-              adapter,
+              adapter!,
         }
       : {},
   );

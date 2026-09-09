@@ -113,6 +113,12 @@ function resetQueryMocks(): void {
   mocks.limit.mockReset();
 }
 
+const RESOLUTION_TEAM_ID =
+  "11111111-1111-4111-8111-111111111111";
+
+const DEVELOPMENT_TEAM_ID =
+  "22222222-2222-4222-8222-222222222222";
+
 beforeEach(
   () => {
     resetQueryMocks();
@@ -123,18 +129,21 @@ describe(
   "Auto Mode persistence gate",
   () => {
     it(
-      "short-circuits historical approval state when PostgreSQL contains an active run",
+      "short-circuits historical approval state when PostgreSQL contains an active run for this Team",
       async () => {
         mocks.limit
           .mockResolvedValueOnce([
             {
               status:
                 "running",
+              teamId:
+                RESOLUTION_TEAM_ID,
             },
           ]);
 
         const result =
           await evaluateAutoModeEligibility(
+            RESOLUTION_TEAM_ID,
             new Date(
               "2026-09-04T14:00:00.000Z",
             ),
@@ -149,6 +158,8 @@ describe(
             "running",
           nextEligibleAt:
             null,
+          blockedByActiveRun:
+            true,
         });
 
         expect(
@@ -191,6 +202,7 @@ describe(
 
         const result =
           await evaluateAutoModeEligibility(
+            RESOLUTION_TEAM_ID,
             new Date(
               "2026-09-04T14:00:00.000Z",
             ),
@@ -205,12 +217,57 @@ describe(
             "ready",
           nextEligibleAt:
             null,
+          blockedByActiveRun:
+            false,
         });
 
         expect(
           mocks.select,
         ).toHaveBeenCalledTimes(
           4,
+        );
+      },
+    );
+
+    it(
+      "reports blockedByActiveRun without collapsing another Team's active run into this Team's own state",
+      async () => {
+        mocks.limit
+          .mockResolvedValueOnce([
+            {
+              status:
+                "running",
+              teamId:
+                DEVELOPMENT_TEAM_ID,
+            },
+          ])
+          .mockResolvedValueOnce([]);
+
+        const result =
+          await evaluateAutoModeEligibility(
+            RESOLUTION_TEAM_ID,
+            new Date(
+              "2026-09-04T14:00:00.000Z",
+            ),
+          );
+
+        expect(
+          result,
+        ).toEqual({
+          eligible:
+            false,
+          state:
+            "ready",
+          nextEligibleAt:
+            null,
+          blockedByActiveRun:
+            true,
+        });
+
+        expect(
+          mocks.select,
+        ).toHaveBeenCalledTimes(
+          2,
         );
       },
     );

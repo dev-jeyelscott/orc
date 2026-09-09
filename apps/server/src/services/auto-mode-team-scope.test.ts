@@ -121,29 +121,29 @@ describe.sequential(
               {},
             );
 
-        await runAutoModeCycle({
-          getSettings:
-            async () => ({
-              autoModeEnabled:
+        await runAutoModeCycle(
+          RESOLUTION_TEAM_ID,
+          {
+            isTeamAutomationReady:
+              async () =>
                 true,
-            }),
-          evaluateEligibility:
-            async () => ({
-              eligible:
-                true,
-              state:
-                "ready",
-              nextEligibleAt:
-                null,
-            }),
-          isEnabled:
-            async () =>
-              true,
-          createNotionAdapter:
-            () =>
-              adapter,
-          startExistingTask,
-        });
+            evaluateEligibility:
+              async () => ({
+                eligible:
+                  true,
+                state:
+                  "ready",
+                nextEligibleAt:
+                  null,
+                blockedByActiveRun:
+                  false,
+              }),
+            createNotionAdapter:
+              () =>
+                adapter,
+            startExistingTask,
+          },
+        );
 
         const [persisted] =
           await db

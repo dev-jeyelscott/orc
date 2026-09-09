@@ -13,6 +13,9 @@ import {
   db,
 } from "../db/client.js";
 import {
+  RESOLUTION_TEAM_ID,
+} from "../db/seed-ids.js";
+import {
   runs,
   tasks,
 } from "../db/schema.js";
@@ -104,15 +107,16 @@ describe.sequential(
         const startExistingTask =
           vi.fn();
 
-        await runAutoModeCycle({
-          getSettings:
-            async () => ({
-              autoModeEnabled:
+        await runAutoModeCycle(
+          RESOLUTION_TEAM_ID,
+          {
+            isTeamAutomationReady:
+              async () =>
                 true,
-            }),
-          createNotionAdapter,
-          startExistingTask,
-        });
+            createNotionAdapter,
+            startExistingTask,
+          },
+        );
 
         expect(
           createNotionAdapter,
@@ -125,7 +129,7 @@ describe.sequential(
     );
 
     it(
-      "does no eligibility, source, or claim work when Auto Mode is already off",
+      "does no eligibility, source, or claim work when the Team is not automation-ready",
       async () => {
         const evaluateEligibility =
           vi.fn();
@@ -136,16 +140,17 @@ describe.sequential(
         const startExistingTask =
           vi.fn();
 
-        await runAutoModeCycle({
-          getSettings:
-            async () => ({
-              autoModeEnabled:
+        await runAutoModeCycle(
+          RESOLUTION_TEAM_ID,
+          {
+            isTeamAutomationReady:
+              async () =>
                 false,
-            }),
-          evaluateEligibility,
-          createNotionAdapter,
-          startExistingTask,
-        });
+            evaluateEligibility,
+            createNotionAdapter,
+            startExistingTask,
+          },
+        );
 
         expect(
           evaluateEligibility,

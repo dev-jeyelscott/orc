@@ -1,4 +1,5 @@
 import {
+  and,
   asc,
   desc,
   eq,
@@ -12,6 +13,8 @@ import type {
   AutomationStatus,
   Run,
   SystemSettings,
+  Team,
+  TeamAutomationUnavailableReason,
   UpdateSystemSettings,
 } from "@orc/shared";
 
@@ -26,6 +29,7 @@ import {
 } from "../db/seed-ids.js";
 import {
   agentExecutions,
+  agents,
   runs,
   systemSettings,
   tasks,
@@ -35,6 +39,9 @@ import {
   type NotionTaskCandidate,
   type NotionTaskSourceAdapter,
 } from "./notion-task-source.js";
+import {
+  getTeam,
+} from "./team-service.js";
 import {
   startTask,
 } from "./workflow-service.js";
@@ -73,6 +80,23 @@ export type AutoModeEligibility = {
     Date | null;
 };
 
+export type TeamAutoModeEligibility =
+  AutoModeEligibility & {
+    blockedByActiveRun:
+      boolean;
+  };
+
+export type TeamAutomationReadiness = {
+  team:
+    Team | null;
+  autoModeEnabled:
+    boolean;
+  ready:
+    boolean;
+  unavailableReason:
+    TeamAutomationUnavailableReason;
+};
+
 export type AutoModeNotionAdapter =
   Pick<
     NotionTaskSourceAdapter,
@@ -90,15 +114,18 @@ type CanClaimTask =
   () => Promise<boolean>;
 
 export type AutoModeCycleDependencies = {
-  getSettings?:
-    () => Promise<SystemSettings>;
+  isTeamAutomationReady?:
+    (
+      teamId:
+        string,
+    ) => Promise<boolean>;
   evaluateEligibility?:
     (
+      teamId:
+        string,
       now?:
         Date,
-    ) => Promise<AutoModeEligibility>;
-  isEnabled?:
-    () => Promise<boolean>;
+    ) => Promise<TeamAutoModeEligibility>;
   createNotionAdapter?:
     () => AutoModeNotionAdapter;
   startExistingTask?:
@@ -324,15 +351,26 @@ export function resolveAutoModeEligibility(
   };
 }
 
+type ActiveRunSnapshot =
+  {
+    runStatus:
+      Run["status"];
+    teamId:
+      string;
+  }
+  | null;
+
 /**
- * Finds any currently active workflow before historical approval state is considered.
+ * Finds any currently active workflow system-wide, the authoritative one-active-run-globally capacity gate.
  */
-async function getActiveRunSnapshot(): Promise<AutoModeEligibilitySnapshot> {
+async function getActiveRunSnapshot(): Promise<ActiveRunSnapshot> {
   const [activeRun] =
     await db
       .select({
         status:
           runs.status,
+        teamId:
+          runs.teamId,
       })
       .from(runs)
       .where(
@@ -366,15 +404,18 @@ async function getActiveRunSnapshot(): Promise<AutoModeEligibilitySnapshot> {
   return {
     runStatus:
       activeRun.status,
-    latestExecution:
-      null,
+    teamId:
+      activeRun.teamId,
   };
 }
 
 /**
- * Finds the task whose persisted workflow activity was updated most recently.
+ * Finds the task whose persisted workflow activity for one Team was updated most recently.
  */
-async function getMostRecentlyExecutedTaskId(): Promise<string | null> {
+async function getMostRecentlyExecutedTaskId(
+  teamId:
+    string,
+): Promise<string | null> {
   const [activity] =
     await db
       .select({
@@ -383,8 +424,14 @@ async function getMostRecentlyExecutedTaskId(): Promise<string | null> {
       })
       .from(runs)
       .where(
-        isNotNull(
-          runs.taskId,
+        and(
+          eq(
+            runs.teamId,
+            teamId,
+          ),
+          isNotNull(
+            runs.taskId,
+          ),
         ),
       )
       .orderBy(
@@ -407,10 +454,12 @@ async function getMostRecentlyExecutedTaskId(): Promise<string | null> {
 }
 
 /**
- * Loads the newest run belonging to one task.
+ * Loads the newest run belonging to one task, guarding that it still belongs to the expected Team.
  */
 async function getLatestRunForTask(
   taskId:
+    string,
+  teamId:
     string,
 ): Promise<PersistedRun | null> {
   const [run] =
@@ -418,9 +467,15 @@ async function getLatestRunForTask(
       .select()
       .from(runs)
       .where(
-        eq(
-          runs.taskId,
-          taskId,
+        and(
+          eq(
+            runs.taskId,
+            taskId,
+          ),
+          eq(
+            runs.teamId,
+            teamId,
+          ),
         ),
       )
       .orderBy(
@@ -480,20 +535,16 @@ async function getLatestExecutionForRun(
 }
 
 /**
- * Builds the persisted snapshot used by the eligibility gate, with active workflows taking precedence over history.
+ * Builds one Team's own history snapshot, independent of any other Team's workflow activity.
  */
-async function getAutoModeEligibilitySnapshot(): Promise<AutoModeEligibilitySnapshot> {
-  const activeRun =
-    await getActiveRunSnapshot();
-
-  if (
-    activeRun
-  ) {
-    return activeRun;
-  }
-
+async function getTeamHistorySnapshot(
+  teamId:
+    string,
+): Promise<AutoModeEligibilitySnapshot> {
   const taskId =
-    await getMostRecentlyExecutedTaskId();
+    await getMostRecentlyExecutedTaskId(
+      teamId,
+    );
 
   if (
     !taskId
@@ -504,6 +555,7 @@ async function getAutoModeEligibilitySnapshot(): Promise<AutoModeEligibilitySnap
   const latestRun =
     await getLatestRunForTask(
       taskId,
+      teamId,
     );
 
   if (
@@ -523,30 +575,191 @@ async function getAutoModeEligibilitySnapshot(): Promise<AutoModeEligibilitySnap
 }
 
 /**
- * Evaluates Auto Mode eligibility entirely from persisted PostgreSQL state.
+ * Evaluates one Team's Auto Mode eligibility, combining the global active-run capacity gate with that Team's own history.
  */
 export async function evaluateAutoModeEligibility(
+  teamId:
+    string,
   now:
     Date = new Date(),
-): Promise<AutoModeEligibility> {
-  return resolveAutoModeEligibility(
-    await getAutoModeEligibilitySnapshot(),
-    now,
-    env.NOTION_POST_APPROVAL_DELAY_SECONDS,
+): Promise<TeamAutoModeEligibility> {
+  const activeRun =
+    await getActiveRunSnapshot();
+
+  const blockedByActiveRun =
+    activeRun !==
+    null;
+
+  if (
+    activeRun &&
+    activeRun.teamId ===
+      teamId
+  ) {
+    return {
+      eligible:
+        false,
+      state:
+        "running",
+      nextEligibleAt:
+        null,
+      blockedByActiveRun:
+        true,
+    };
+  }
+
+  const historyEligibility =
+    resolveAutoModeEligibility(
+      await getTeamHistorySnapshot(
+        teamId,
+      ),
+      now,
+      env.NOTION_POST_APPROVAL_DELAY_SECONDS,
+    );
+
+  return {
+    ...historyEligibility,
+    eligible:
+      historyEligibility.eligible &&
+      !blockedByActiveRun,
+    blockedByActiveRun,
+  };
+}
+
+/**
+ * Checks whether one Team has at least one enabled worker Agent.
+ */
+async function teamHasEnabledAgent(
+  teamId:
+    string,
+): Promise<boolean> {
+  const [row] =
+    await db
+      .select({
+        id:
+          agents.id,
+      })
+      .from(agents)
+      .where(
+        and(
+          eq(
+            agents.teamId,
+            teamId,
+          ),
+          eq(
+            agents.enabled,
+            true,
+          ),
+        ),
+      )
+      .limit(1);
+
+  return Boolean(
+    row,
   );
 }
 
 /**
- * Reads the current persisted Auto Mode switch without consulting process-local scheduler state.
+ * Loads whether one Team can currently participate in Notion Auto Mode intake, and why not if it cannot.
  */
-async function isAutoModeEnabled(): Promise<boolean> {
-  return (
-    await getSystemSettings()
-  ).autoModeEnabled;
+export async function getTeamAutomationReadiness(
+  teamId:
+    string,
+): Promise<TeamAutomationReadiness> {
+  const team =
+    await getTeam(
+      teamId,
+    );
+
+  if (
+    !team
+  ) {
+    return {
+      team:
+        null,
+      autoModeEnabled:
+        false,
+      ready:
+        false,
+      unavailableReason:
+        "team_disabled",
+    };
+  }
+
+  if (
+    !team.enabled
+  ) {
+    return {
+      team,
+      autoModeEnabled:
+        team.autoModeEnabled,
+      ready:
+        false,
+      unavailableReason:
+        "team_disabled",
+    };
+  }
+
+  if (
+    !team.notionDataSourceId
+  ) {
+    return {
+      team,
+      autoModeEnabled:
+        team.autoModeEnabled,
+      ready:
+        false,
+      unavailableReason:
+        "missing_notion_data_source",
+    };
+  }
+
+  if (
+    !env.NOTION_API_KEY
+  ) {
+    return {
+      team,
+      autoModeEnabled:
+        team.autoModeEnabled,
+      ready:
+        false,
+      unavailableReason:
+        "missing_notion_api_key",
+    };
+  }
+
+  if (
+    !await teamHasEnabledAgent(
+      teamId,
+    )
+  ) {
+    return {
+      team,
+      autoModeEnabled:
+        team.autoModeEnabled,
+      ready:
+        false,
+      unavailableReason:
+        "no_enabled_agents",
+    };
+  }
+
+  return {
+    team,
+    autoModeEnabled:
+      team.autoModeEnabled,
+    ready:
+      team.autoModeEnabled,
+    unavailableReason:
+      null,
+  };
 }
 
 /**
  * Returns the operator-facing automation state derived only from persisted settings and workflow history.
+ *
+ * Temporary compatibility shim: this legacy singleton status predates Team-scoped Auto Mode and has no Team
+ * concept of its own, so it reports Resolution Team eligibility only. Slice 6 replaces this and its consuming
+ * route with the Team-scoped automation status endpoint/DTO; remove this function when that lands.
  */
 export async function getAutomationStatus(): Promise<AutomationStatus> {
   const settings =
@@ -564,7 +777,9 @@ export async function getAutomationStatus(): Promise<AutomationStatus> {
   }
 
   const eligibility =
-    await evaluateAutoModeEligibility();
+    await evaluateAutoModeEligibility(
+      RESOLUTION_TEAM_ID,
+    );
 
   return {
     state:
@@ -820,6 +1035,7 @@ async function reconcileExistingNotionTask(
   const latestRun =
     await getLatestRunForTask(
       task.id,
+      task.teamId,
     );
 
   if (
@@ -853,23 +1069,29 @@ async function reconcileExistingNotionTask(
 }
 
 /**
- * Executes one Auto Mode intake cycle using PostgreSQL as the durable source of truth.
+ * Executes one Team's Auto Mode intake cycle using PostgreSQL as the durable source of truth.
  */
 export async function runAutoModeCycle(
+  teamId:
+    string,
   dependencies:
     AutoModeCycleDependencies = {},
 ): Promise<void> {
-  const readSettings =
-    dependencies.getSettings ??
-    getSystemSettings;
+  const readReady =
+    dependencies.isTeamAutomationReady ??
+    (async (
+      id:
+        string,
+    ) =>
+      (
+        await getTeamAutomationReadiness(
+          id,
+        )
+      ).ready);
 
   const evaluateEligibility =
     dependencies.evaluateEligibility ??
     evaluateAutoModeEligibility;
-
-  const readEnabled =
-    dependencies.isEnabled ??
-    isAutoModeEnabled;
 
   const createAdapter =
     dependencies.createNotionAdapter ??
@@ -888,27 +1110,32 @@ export async function runAutoModeCycle(
    */
   async function canClaim(): Promise<boolean> {
     if (
-      !await readEnabled()
+      !await readReady(
+        teamId,
+      )
     ) {
       return false;
     }
 
     return (
-      await evaluateEligibility()
+      await evaluateEligibility(
+        teamId,
+      )
     ).eligible;
   }
 
-  const settings =
-    await readSettings();
-
   if (
-    !settings.autoModeEnabled
+    !await readReady(
+      teamId,
+    )
   ) {
     return;
   }
 
   const eligibility =
-    await evaluateEligibility();
+    await evaluateEligibility(
+      teamId,
+    );
 
   if (
     !eligibility.eligible
@@ -978,7 +1205,10 @@ export async function runAutoModeCycle(
       adapter,
       startExistingTask,
       canClaim,
-      readEnabled,
+      () =>
+        readReady(
+          persisted.task.teamId,
+        ),
     );
 
     return;

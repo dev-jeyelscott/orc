@@ -18,6 +18,10 @@ import {
   db,
 } from "../db/client.js";
 import {
+  DEVELOPMENT_TEAM_ID,
+  RESOLUTION_TEAM_ID,
+} from "../db/seed-ids.js";
+import {
   agentExecutions,
   runs,
   tasks,
@@ -42,6 +46,8 @@ async function createNotionRun(
     Run["status"],
   resultStatus:
     AgentResultStatus | null = null,
+  teamId:
+    string = RESOLUTION_TEAM_ID,
 ) {
   const externalId =
     crypto.randomUUID();
@@ -55,6 +61,7 @@ async function createNotionRun(
     await db
       .insert(tasks)
       .values({
+        teamId,
         projectPath,
         title:
           `Lifecycle ${externalId}`,
@@ -80,6 +87,7 @@ async function createNotionRun(
     await db
       .insert(runs)
       .values({
+        teamId,
         taskId:
           task.id,
         projectPath,
@@ -337,6 +345,8 @@ describe.sequential(
         ).toEqual({
           pageId:
             externalId,
+          teamId:
+            RESOLUTION_TEAM_ID,
           status:
             "In Progress",
         });
@@ -359,6 +369,8 @@ describe.sequential(
         ).toEqual({
           pageId:
             externalId,
+          teamId:
+            RESOLUTION_TEAM_ID,
           status:
             "Done",
         });
@@ -380,8 +392,35 @@ describe.sequential(
         ).toEqual({
           pageId:
             externalId,
+          teamId:
+            RESOLUTION_TEAM_ID,
           status:
             null,
+        });
+      },
+    );
+
+    it(
+      "carries the persisted Task's own Team id rather than assuming Resolution",
+      async () => {
+        const {
+          externalId,
+        } =
+          await createNotionRun(
+            "completed",
+            "approved",
+            DEVELOPMENT_TEAM_ID,
+          );
+
+        expect(
+          await getLatestNotionLifecycleTarget(),
+        ).toEqual({
+          pageId:
+            externalId,
+          teamId:
+            DEVELOPMENT_TEAM_ID,
+          status:
+            "Done",
         });
       },
     );
@@ -392,13 +431,10 @@ describe(
   "Notion synchronized Auto Mode cycle",
   () => {
     /**
-     * Returns enabled Auto Mode settings for cycle-order tests.
+     * Returns an enabled Team Auto Mode switch for cycle-order tests.
      */
-    async function enabledSettings() {
-      return {
-        autoModeEnabled:
-          true,
-      };
+    async function teamAutoModeEnabled() {
+      return true;
     }
 
     it(
@@ -421,11 +457,13 @@ describe(
             async () => ({
               pageId:
                 "page-1",
+              teamId:
+                RESOLUTION_TEAM_ID,
               status:
                 "Done",
             }),
-          getSettings:
-            enabledSettings,
+          isTeamAutoModeEnabled:
+            teamAutoModeEnabled,
           createNotionAdapter:
             () => ({
               getNextReadyTask:
@@ -483,11 +521,13 @@ describe(
             async () => ({
               pageId:
                 "page-1",
+              teamId:
+                RESOLUTION_TEAM_ID,
               status:
                 "Done" as const,
             }),
-          getSettings:
-            enabledSettings,
+          isTeamAutoModeEnabled:
+            teamAutoModeEnabled,
           createNotionAdapter:
             () => ({
               getNextReadyTask:
@@ -547,11 +587,13 @@ describe(
             async () => ({
               pageId:
                 "page-1",
+              teamId:
+                RESOLUTION_TEAM_ID,
               status:
                 "Blocked" as const,
             }),
-          getSettings:
-            enabledSettings,
+          isTeamAutoModeEnabled:
+            teamAutoModeEnabled,
           createNotionAdapter:
             () => ({
               getNextReadyTask:
@@ -604,14 +646,14 @@ describe(
             async () => ({
               pageId:
                 "page-1",
+              teamId:
+                RESOLUTION_TEAM_ID,
               status:
                 "Done",
             }),
-          getSettings:
-            async () => ({
-              autoModeEnabled:
-                false,
-            }),
+          isTeamAutoModeEnabled:
+            async () =>
+              false,
           createNotionAdapter:
             () => ({
               getNextReadyTask:
@@ -635,7 +677,7 @@ describe(
     );
 
     it(
-      "does not create a Notion adapter for a cancelled lifecycle projection when Auto Mode is off",
+      "does not create a Notion adapter for a cancelled lifecycle projection when the Team's Auto Mode is off",
       async () => {
         const createNotionAdapter =
           vi.fn();
@@ -648,14 +690,41 @@ describe(
             async () => ({
               pageId:
                 "page-1",
+              teamId:
+                RESOLUTION_TEAM_ID,
               status:
                 null,
             }),
-          getSettings:
-            async () => ({
-              autoModeEnabled:
-                false,
-            }),
+          isTeamAutoModeEnabled:
+            async () =>
+              false,
+          createNotionAdapter,
+          runIntakeCycle,
+        });
+
+        expect(
+          createNotionAdapter,
+        ).not.toHaveBeenCalled();
+
+        expect(
+          runIntakeCycle,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
+    it(
+      "does not create an adapter or run intake when no Notion-backed workflow has ever executed",
+      async () => {
+        const createNotionAdapter =
+          vi.fn();
+
+        const runIntakeCycle =
+          vi.fn();
+
+        await runNotionAutoModeCycle({
+          getLifecycleTarget:
+            async () =>
+              null,
           createNotionAdapter,
           runIntakeCycle,
         });

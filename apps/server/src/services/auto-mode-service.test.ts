@@ -18,12 +18,15 @@ import {
   db,
 } from "../db/client.js";
 import {
+  RESOLUTION_TEAM_ID,
+} from "../db/seed-ids.js";
+import {
   runs,
   tasks,
 } from "../db/schema.js";
 import {
   runAutoModeCycle,
-  type AutoModeEligibility,
+  type TeamAutoModeEligibility,
   type AutoModeNotionAdapter,
 } from "./auto-mode-service.js";
 
@@ -51,26 +54,16 @@ const createdExternalIds =
   new Set<string>();
 
 /**
- * Returns the always-enabled persisted settings dependency used by claim-flow tests.
+ * Returns the always-ready readiness dependency used by claim-flow tests.
  */
-async function enabledSettings() {
-  return {
-    autoModeEnabled:
-      true,
-  };
-}
-
-/**
- * Returns the always-enabled recheck dependency used by claim-flow tests.
- */
-async function enabledState(): Promise<boolean> {
+async function readyTeam(): Promise<boolean> {
   return true;
 }
 
 /**
  * Returns an eligible gate so claim-flow tests can isolate crash and idempotency semantics.
  */
-async function eligibleState(): Promise<AutoModeEligibility> {
+async function eligibleState(): Promise<TeamAutoModeEligibility> {
   return {
     eligible:
       true,
@@ -78,6 +71,8 @@ async function eligibleState(): Promise<AutoModeEligibility> {
       "ready",
     nextEligibleAt:
       null,
+    blockedByActiveRun:
+      false,
   };
 }
 
@@ -176,18 +171,19 @@ async function runCycle(
         string,
     ) => Promise<unknown>,
 ) {
-  await runAutoModeCycle({
-    getSettings:
-      enabledSettings,
-    evaluateEligibility:
-      eligibleState,
-    isEnabled:
-      enabledState,
-    createNotionAdapter:
-      () =>
-        adapter,
-    startExistingTask,
-  });
+  await runAutoModeCycle(
+    RESOLUTION_TEAM_ID,
+    {
+      isTeamAutomationReady:
+        readyTeam,
+      evaluateEligibility:
+        eligibleState,
+      createNotionAdapter:
+        () =>
+          adapter,
+      startExistingTask,
+    },
+  );
 }
 
 beforeEach(
@@ -895,7 +891,7 @@ describe.sequential(
             candidate,
           );
 
-        const isEnabled =
+        const isTeamAutomationReady =
           vi.fn()
             .mockResolvedValueOnce(
               false,
@@ -904,17 +900,18 @@ describe.sequential(
         const startExistingTask =
           vi.fn();
 
-        await runAutoModeCycle({
-          getSettings:
-            enabledSettings,
-          evaluateEligibility:
-            eligibleState,
-          isEnabled,
-          createNotionAdapter:
-            () =>
-              mocks.adapter,
-          startExistingTask,
-        });
+        await runAutoModeCycle(
+          RESOLUTION_TEAM_ID,
+          {
+            isTeamAutomationReady,
+            evaluateEligibility:
+              eligibleState,
+            createNotionAdapter:
+              () =>
+                mocks.adapter,
+            startExistingTask,
+          },
+        );
 
         expect(
           mocks.getNextReadyTask,
