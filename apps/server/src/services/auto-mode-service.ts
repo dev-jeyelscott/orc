@@ -41,6 +41,7 @@ import {
 } from "./notion-task-source.js";
 import {
   getTeam,
+  listTeams,
 } from "./team-service.js";
 import {
   startTask,
@@ -114,6 +115,8 @@ type CanClaimTask =
   () => Promise<boolean>;
 
 export type AutoModeCycleDependencies = {
+  listAutomationReadyTeamIds?:
+    () => Promise<string[]>;
   isTeamAutomationReady?:
     (
       teamId:
@@ -127,7 +130,10 @@ export type AutoModeCycleDependencies = {
         Date,
     ) => Promise<TeamAutoModeEligibility>;
   createNotionAdapter?:
-    () => AutoModeNotionAdapter;
+    (
+      teamId:
+        string,
+    ) => AutoModeNotionAdapter | Promise<AutoModeNotionAdapter>;
   startExistingTask?:
     StartExistingTask;
 };
@@ -792,10 +798,17 @@ export async function getAutomationStatus(): Promise<AutomationStatus> {
 }
 
 /**
- * Finds the highest-priority locally persisted pending Notion task that has never acquired a run, with oldest-first deterministic tie-breaking.
+ * Finds the highest-priority locally persisted pending Notion task that has never acquired a run and whose owning
+ * Team is still automation-ready, with oldest-first deterministic tie-breaking. Never reassigns a task's Team.
  */
-async function findRecoverablePendingNotionTask(): Promise<PersistedTask | null> {
-  const [task] =
+async function findRecoverablePendingNotionTask(
+  isTeamAutomationReady:
+    (
+      teamId:
+        string,
+    ) => Promise<boolean>,
+): Promise<PersistedTask | null> {
+  const candidates =
     await db
       .select()
       .from(tasks)
@@ -820,13 +833,21 @@ async function findRecoverablePendingNotionTask(): Promise<PersistedTask | null>
         asc(
           tasks.id,
         ),
-      )
-      .limit(1);
+      );
 
-  return (
-    task ??
-    null
-  );
+  for (
+    const candidate of candidates
+  ) {
+    if (
+      await isTeamAutomationReady(
+        candidate.teamId,
+      )
+    ) {
+      return candidate;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -855,9 +876,12 @@ async function findNotionTaskByExternalId(
 }
 
 /**
- * Persists one validated Notion candidate before any remote claim update and reports whether this cycle inserted it.
+ * Persists one validated Notion candidate under its winning Team before any remote claim update, and reports
+ * whether this cycle inserted it and whether an existing conflicting row belongs to a different Team.
  */
 async function persistNotionCandidate(
+  teamId:
+    string,
   candidate:
     NotionTaskCandidate,
 ): Promise<{
@@ -865,13 +889,14 @@ async function persistNotionCandidate(
     PersistedTask;
   inserted:
     boolean;
+  teamMismatch:
+    boolean;
 }> {
   const [inserted] =
     await db
       .insert(tasks)
       .values({
-        teamId:
-          RESOLUTION_TEAM_ID,
+        teamId,
         projectPath:
           candidate.project.path,
         title:
@@ -905,6 +930,8 @@ async function persistNotionCandidate(
         inserted,
       inserted:
         true,
+      teamMismatch:
+        false,
     };
   }
 
@@ -926,6 +953,9 @@ async function persistNotionCandidate(
       existing,
     inserted:
       false,
+    teamMismatch:
+      existing.teamId !==
+      teamId,
   };
 }
 
@@ -1068,12 +1098,127 @@ async function reconcileExistingNotionTask(
   );
 }
 
+type TeamCandidate = {
+  teamId:
+    string;
+  candidate:
+    NotionTaskCandidate;
+  adapter:
+    AutoModeNotionAdapter;
+};
+
 /**
- * Executes one Team's Auto Mode intake cycle using PostgreSQL as the durable source of truth.
+ * Orders cross-Team Notion candidates by priority DESC, oldest Notion creation time ASC, then a deterministic
+ * stable tie breaker of Team id ASC and Notion page id ASC.
+ */
+function compareCandidates(
+  a:
+    TeamCandidate,
+  b:
+    TeamCandidate,
+): number {
+  if (
+    a.candidate.priority !==
+    b.candidate.priority
+  ) {
+    return (
+      b.candidate.priority -
+      a.candidate.priority
+    );
+  }
+
+  const timeDiff =
+    Date.parse(
+      a.candidate.createdTime,
+    ) -
+    Date.parse(
+      b.candidate.createdTime,
+    );
+
+  if (
+    timeDiff !== 0
+  ) {
+    return timeDiff;
+  }
+
+  if (
+    a.teamId !==
+    b.teamId
+  ) {
+    return a.teamId <
+      b.teamId
+      ? -1
+      : 1;
+  }
+
+  return a.candidate.externalId <
+    b.candidate.externalId
+    ? -1
+    : 1;
+}
+
+/**
+ * Queries exactly one top Ready candidate from every eligible Team's own Notion data source, read-only, and
+ * selects the single global winner without claiming or updating any remote page.
+ */
+async function selectGlobalWinner(
+  eligibleTeamIds:
+    readonly string[],
+  createAdapter:
+    (
+      teamId:
+        string,
+    ) => AutoModeNotionAdapter | Promise<AutoModeNotionAdapter>,
+): Promise<TeamCandidate | null> {
+  const results =
+    await Promise.all(
+      eligibleTeamIds.map(
+        async (
+          teamId,
+        ) => {
+          const adapter =
+            await createAdapter(
+              teamId,
+            );
+
+          const candidate =
+            await adapter.getNextReadyTask();
+
+          return candidate
+            ? {
+                teamId,
+                candidate,
+                adapter,
+              }
+            : null;
+        },
+      ),
+    );
+
+  const found =
+    results.filter(
+      (
+        result,
+      ): result is TeamCandidate =>
+        result !== null,
+    );
+
+  if (
+    found.length === 0
+  ) {
+    return null;
+  }
+
+  return found.sort(
+    compareCandidates,
+  )[0]!;
+}
+
+/**
+ * Executes one global Auto Mode intake cycle across every automation-ready Team using PostgreSQL as the durable
+ * source of truth, selecting and claiming at most one Task.
  */
 export async function runAutoModeCycle(
-  teamId:
-    string,
   dependencies:
     AutoModeCycleDependencies = {},
 ): Promise<void> {
@@ -1093,6 +1238,36 @@ export async function runAutoModeCycle(
     dependencies.evaluateEligibility ??
     evaluateAutoModeEligibility;
 
+  const listReadyTeamIds =
+    dependencies.listAutomationReadyTeamIds ??
+    (async () => {
+      const teams =
+        await listTeams();
+
+      const ready =
+        await Promise.all(
+          teams.map(
+            async (
+              team,
+            ) =>
+              (
+                await readReady(
+                  team.id,
+                )
+              )
+                ? team.id
+                : null,
+          ),
+        );
+
+      return ready.filter(
+        (
+          id,
+        ): id is string =>
+          id !== null,
+      );
+    });
+
   const createAdapter =
     dependencies.createNotionAdapter ??
     (() => {
@@ -1106,105 +1281,124 @@ export async function runAutoModeCycle(
     startTask;
 
   /**
-   * Rechecks the persisted switch and eligibility gate immediately before any remote claim or local start.
+   * Builds a recheck of the persisted switch and eligibility gate for one Team, immediately before any remote
+   * claim or local start.
    */
-  async function canClaim(): Promise<boolean> {
-    if (
-      !await readReady(
-        teamId,
-      )
-    ) {
-      return false;
-    }
+  function canClaim(
+    teamId:
+      string,
+  ): CanClaimTask {
+    return async () => {
+      if (
+        !await readReady(
+          teamId,
+        )
+      ) {
+        return false;
+      }
 
-    return (
-      await evaluateEligibility(
-        teamId,
-      )
-    ).eligible;
+      return (
+        await evaluateEligibility(
+          teamId,
+        )
+      ).eligible;
+    };
   }
 
   if (
-    !await readReady(
-      teamId,
-    )
+    await getActiveRunSnapshot()
   ) {
     return;
   }
 
-  const eligibility =
-    await evaluateEligibility(
-      teamId,
-    );
+  const eligibleTeamIds =
+    await listReadyTeamIds();
 
   if (
-    !eligibility.eligible
+    eligibleTeamIds.length === 0
   ) {
     return;
   }
 
   const recoverable =
-    await findRecoverablePendingNotionTask();
+    await findRecoverablePendingNotionTask(
+      readReady,
+    );
 
   if (
     recoverable
   ) {
+    const claim =
+      canClaim(
+        recoverable.teamId,
+      );
+
     if (
-      !await canClaim()
+      !await claim()
     ) {
       return;
     }
 
     const adapter =
-      createAdapter();
+      await createAdapter(
+        recoverable.teamId,
+      );
 
     await claimPersistedNotionTask(
       recoverable,
       adapter,
       startExistingTask,
-      canClaim,
+      claim,
     );
 
     return;
   }
 
+  const winner =
+    await selectGlobalWinner(
+      eligibleTeamIds,
+      createAdapter,
+    );
+
   if (
-    !await canClaim()
+    !winner
   ) {
     return;
   }
 
-  const adapter =
-    createAdapter();
-
-  const candidate =
-    await adapter.getNextReadyTask();
-
-  if (
-    !candidate
-  ) {
-    return;
-  }
+  const claim =
+    canClaim(
+      winner.teamId,
+    );
 
   if (
-    !await canClaim()
+    !await claim()
   ) {
     return;
   }
 
   const persisted =
     await persistNotionCandidate(
-      candidate,
+      winner.teamId,
+      winner.candidate,
     );
+
+  if (
+    persisted.teamMismatch
+  ) {
+    throw new Error(
+      `Notion page ${winner.candidate.externalId} is already claimed by Team ${persisted.task.teamId}; refusing to move it to ${winner.teamId}.`,
+    );
+  }
 
   if (
     !persisted.inserted
   ) {
     await reconcileExistingNotionTask(
       persisted.task,
-      adapter,
+      winner.adapter,
       startExistingTask,
-      canClaim,
+      claim,
       () =>
         readReady(
           persisted.task.teamId,
@@ -1216,8 +1410,8 @@ export async function runAutoModeCycle(
 
   await claimPersistedNotionTask(
     persisted.task,
-    adapter,
+    winner.adapter,
     startExistingTask,
-    canClaim,
+    claim,
   );
 }

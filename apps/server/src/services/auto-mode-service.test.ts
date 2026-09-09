@@ -18,6 +18,7 @@ import {
   db,
 } from "../db/client.js";
 import {
+  DEVELOPMENT_TEAM_ID,
   RESOLUTION_TEAM_ID,
 } from "../db/seed-ids.js";
 import {
@@ -172,8 +173,11 @@ async function runCycle(
     ) => Promise<unknown>,
 ) {
   await runAutoModeCycle(
-    RESOLUTION_TEAM_ID,
     {
+      listAutomationReadyTeamIds:
+        async () => [
+          RESOLUTION_TEAM_ID,
+        ],
       isTeamAutomationReady:
         readyTeam,
       evaluateEligibility:
@@ -893,7 +897,7 @@ describe.sequential(
 
         const isTeamAutomationReady =
           vi.fn()
-            .mockResolvedValueOnce(
+            .mockResolvedValue(
               false,
             );
 
@@ -901,7 +905,6 @@ describe.sequential(
           vi.fn();
 
         await runAutoModeCycle(
-          RESOLUTION_TEAM_ID,
           {
             isTeamAutomationReady,
             evaluateEligibility:
@@ -916,6 +919,64 @@ describe.sequential(
         expect(
           mocks.getNextReadyTask,
         ).not.toHaveBeenCalled();
+
+        expect(
+          mocks.updateStatus,
+        ).not.toHaveBeenCalled();
+
+        expect(
+          startExistingTask,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
+    it(
+      "throws a data-integrity error when a duplicate externalId already exists under a different Team",
+      async () => {
+        const candidate =
+          createCandidate();
+
+        // Not "pending" so it is excluded from recoverable-task recovery and the cycle instead
+        // reaches remote candidate selection, where the conflicting externalId is discovered.
+        await db
+          .insert(tasks)
+          .values({
+            teamId:
+              DEVELOPMENT_TEAM_ID,
+            projectPath:
+              project.path,
+            title:
+              candidate.title,
+            instruction:
+              candidate.instruction,
+            status:
+              "completed",
+            source:
+              "notion",
+            externalId:
+              candidate.externalId,
+            externalUrl:
+              candidate.externalUrl,
+            priority:
+              candidate.priority,
+          });
+
+        const mocks =
+          createAdapter(
+            candidate,
+          );
+
+        const startExistingTask =
+          vi.fn();
+
+        await expect(
+          runCycle(
+            mocks.adapter,
+            startExistingTask,
+          ),
+        ).rejects.toThrow(
+          /already claimed by Team/,
+        );
 
         expect(
           mocks.updateStatus,

@@ -13,9 +13,6 @@ import {
   db,
 } from "../db/client.js";
 import {
-  RESOLUTION_TEAM_ID,
-} from "../db/seed-ids.js";
-import {
   runs,
   tasks,
 } from "../db/schema.js";
@@ -108,7 +105,6 @@ describe.sequential(
           vi.fn();
 
         await runAutoModeCycle(
-          RESOLUTION_TEAM_ID,
           {
             isTeamAutomationReady:
               async () =>
@@ -129,7 +125,7 @@ describe.sequential(
     );
 
     it(
-      "does no eligibility, source, or claim work when the Team is not automation-ready",
+      "does no eligibility, source, or claim work when no Team is automation-ready",
       async () => {
         const evaluateEligibility =
           vi.fn();
@@ -141,7 +137,6 @@ describe.sequential(
           vi.fn();
 
         await runAutoModeCycle(
-          RESOLUTION_TEAM_ID,
           {
             isTeamAutomationReady:
               async () =>

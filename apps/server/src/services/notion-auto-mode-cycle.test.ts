@@ -430,13 +430,6 @@ describe.sequential(
 describe(
   "Notion synchronized Auto Mode cycle",
   () => {
-    /**
-     * Returns an enabled Team Auto Mode switch for cycle-order tests.
-     */
-    async function teamAutoModeEnabled() {
-      return true;
-    }
-
     it(
       "completes the authoritative Notion write before running intake",
       async () => {
@@ -462,8 +455,6 @@ describe(
               status:
                 "Done",
             }),
-          isTeamAutoModeEnabled:
-            teamAutoModeEnabled,
           createNotionAdapter:
             () => ({
               getNextReadyTask:
@@ -526,8 +517,6 @@ describe(
               status:
                 "Done" as const,
             }),
-          isTeamAutoModeEnabled:
-            teamAutoModeEnabled,
           createNotionAdapter:
             () => ({
               getNextReadyTask:
@@ -592,8 +581,6 @@ describe(
               status:
                 "Blocked" as const,
             }),
-          isTeamAutoModeEnabled:
-            teamAutoModeEnabled,
           createNotionAdapter:
             () => ({
               getNextReadyTask:
@@ -630,8 +617,10 @@ describe(
     );
 
     it(
-      "still reconciles terminal Notion state when Auto Mode has been switched off",
+      "always reconciles terminal Notion state and still hands off to intake, regardless of Team Auto Mode",
       async () => {
+        // Team-level Auto Mode gating is now entirely the multi-Team intake cycle's own concern
+        // (Slice 5); this layer's only job is unconditional lifecycle writeback followed by intake.
         const updateStatus =
           vi.fn()
             .mockResolvedValue(
@@ -639,7 +628,10 @@ describe(
             );
 
         const runIntakeCycle =
-          vi.fn();
+          vi.fn()
+            .mockResolvedValue(
+              undefined,
+            );
 
         await runNotionAutoModeCycle({
           getLifecycleTarget:
@@ -651,9 +643,6 @@ describe(
               status:
                 "Done",
             }),
-          isTeamAutoModeEnabled:
-            async () =>
-              false,
           createNotionAdapter:
             () => ({
               getNextReadyTask:
@@ -672,18 +661,23 @@ describe(
 
         expect(
           runIntakeCycle,
-        ).not.toHaveBeenCalled();
+        ).toHaveBeenCalledTimes(
+          1,
+        );
       },
     );
 
     it(
-      "does not create a Notion adapter for a cancelled lifecycle projection when the Team's Auto Mode is off",
+      "does not create a Notion adapter for a cancelled lifecycle projection with nothing to reconcile",
       async () => {
         const createNotionAdapter =
           vi.fn();
 
         const runIntakeCycle =
-          vi.fn();
+          vi.fn()
+            .mockResolvedValue(
+              undefined,
+            );
 
         await runNotionAutoModeCycle({
           getLifecycleTarget:
@@ -695,9 +689,6 @@ describe(
               status:
                 null,
             }),
-          isTeamAutoModeEnabled:
-            async () =>
-              false,
           createNotionAdapter,
           runIntakeCycle,
         });
@@ -708,18 +699,23 @@ describe(
 
         expect(
           runIntakeCycle,
-        ).not.toHaveBeenCalled();
+        ).toHaveBeenCalledTimes(
+          1,
+        );
       },
     );
 
     it(
-      "does not create an adapter or run intake when no Notion-backed workflow has ever executed",
+      "still runs multi-Team intake when no Notion-backed workflow has ever executed",
       async () => {
         const createNotionAdapter =
           vi.fn();
 
         const runIntakeCycle =
-          vi.fn();
+          vi.fn()
+            .mockResolvedValue(
+              undefined,
+            );
 
         await runNotionAutoModeCycle({
           getLifecycleTarget:
@@ -735,7 +731,91 @@ describe(
 
         expect(
           runIntakeCycle,
-        ).not.toHaveBeenCalled();
+        ).toHaveBeenCalledTimes(
+          1,
+        );
+      },
+    );
+
+    it(
+      "forwards a Team-scoped adapter factory into intake so every eligible Team's own data source can be queried",
+      async () => {
+        const resolutionAdapter = {
+          getNextReadyTask:
+            vi.fn(),
+          updateStatus:
+            vi.fn(),
+        };
+
+        const developmentAdapter = {
+          getNextReadyTask:
+            vi.fn(),
+          updateStatus:
+            vi.fn(),
+        };
+
+        const createNotionAdapter =
+          vi.fn(
+            (
+              teamId:
+                string,
+            ) =>
+              teamId ===
+              RESOLUTION_TEAM_ID
+                ? resolutionAdapter
+                : developmentAdapter,
+          );
+
+        let observedResolutionAdapter:
+          unknown;
+
+        let observedDevelopmentAdapter:
+          unknown;
+
+        const runIntakeCycle =
+          vi.fn(
+            async (
+              dependencies?: {
+                createNotionAdapter?:
+                  (
+                    teamId:
+                      string,
+                  ) => unknown;
+              },
+            ) => {
+              observedResolutionAdapter =
+                dependencies
+                  ?.createNotionAdapter?.(
+                    RESOLUTION_TEAM_ID,
+                  );
+
+              observedDevelopmentAdapter =
+                dependencies
+                  ?.createNotionAdapter?.(
+                    DEVELOPMENT_TEAM_ID,
+                  );
+            },
+          );
+
+        await runNotionAutoModeCycle({
+          getLifecycleTarget:
+            async () =>
+              null,
+          createNotionAdapter,
+          runIntakeCycle,
+        });
+
+        expect(
+          observedResolutionAdapter,
+        ).toBe(
+          resolutionAdapter,
+        );
+
+        expect(
+          observedDevelopmentAdapter,
+        ).toBe(
+          developmentAdapter,
+        );
       },
     );
   },

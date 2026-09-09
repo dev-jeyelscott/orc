@@ -50,8 +50,6 @@ export type NotionLifecycleTarget = {
 };
 
 type RunIntakeCycle = (
-  teamId:
-    string,
   dependencies?:
     AutoModeCycleDependencies,
 ) => Promise<void>;
@@ -59,11 +57,6 @@ type RunIntakeCycle = (
 export type NotionAutoModeCycleDependencies = {
   getLifecycleTarget?:
     () => Promise<NotionLifecycleTarget | null>;
-  isTeamAutoModeEnabled?:
-    (
-      teamId:
-        string,
-    ) => Promise<boolean>;
   createNotionAdapter?:
     (
       teamId:
@@ -316,25 +309,8 @@ async function createProductionNotionAdapterForTeam(
 }
 
 /**
- * Reads one Team's own persisted Auto Mode switch.
- */
-async function readTeamAutoModeEnabled(
-  teamId:
-    string,
-): Promise<boolean> {
-  const team =
-    await getTeam(
-      teamId,
-    );
-
-  return (
-    team?.autoModeEnabled ??
-    false
-  );
-}
-
-/**
- * Runs remote lifecycle reconciliation before allowing the existing Auto Mode intake path to claim more work.
+ * Runs remote lifecycle reconciliation for the most recently active Notion-backed workflow, then runs the
+ * existing multi-Team Auto Mode intake cycle so every automation-ready Team's queue is considered.
  */
 export async function runNotionAutoModeCycle(
   dependencies:
@@ -344,11 +320,7 @@ export async function runNotionAutoModeCycle(
     dependencies.getLifecycleTarget ??
     getLatestNotionLifecycleTarget;
 
-  const readTeamEnabled =
-    dependencies.isTeamAutoModeEnabled ??
-    readTeamAutoModeEnabled;
-
-  const createAdapter =
+  const createAdapterForIntake =
     dependencies.createNotionAdapter ??
     createProductionNotionAdapterForTeam;
 
@@ -359,15 +331,11 @@ export async function runNotionAutoModeCycle(
   const lifecycleTarget =
     await readLifecycleTarget();
 
-  let adapter:
-    AutoModeNotionAdapter | null =
-    null;
-
   if (
     lifecycleTarget?.status
   ) {
-    adapter =
-      await createAdapter(
+    const adapter =
+      await createAdapterForIntake(
         lifecycleTarget.teamId,
       );
 
@@ -377,30 +345,8 @@ export async function runNotionAutoModeCycle(
     );
   }
 
-  if (
-    !lifecycleTarget
-  ) {
-    // No Notion-backed workflow has ever run yet; deciding which Team should poll first with
-    // zero history is Slice 5's multi-Team candidate-selection concern, not this cycle's.
-    return;
-  }
-
-  if (
-    !await readTeamEnabled(
-      lifecycleTarget.teamId,
-    )
-  ) {
-    return;
-  }
-
-  await intake(
-    lifecycleTarget.teamId,
-    adapter
-      ? {
-          createNotionAdapter:
-            () =>
-              adapter!,
-        }
-      : {},
-  );
+  await intake({
+    createNotionAdapter:
+      createAdapterForIntake,
+  });
 }
