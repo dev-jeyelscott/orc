@@ -41,6 +41,9 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import {
+  getRunDocumentContextItems,
+} from "@/lib/run-document-context";
+import {
   aggregateRunUsage,
   describeDomainEvent,
   findLatestFailure,
@@ -127,7 +130,7 @@ function eventToneClass(
 }
 
 /**
- * Opens secondary authoritative run observability in an on-demand right-side inspector.
+ * Opens secondary authoritative Run observability in an on-demand right-side inspector.
  */
 export function RunInspectorDrawer({
   detail,
@@ -156,7 +159,7 @@ export function RunInspectorDrawer({
               </DrawerTitle>
 
               <DrawerDescription className="mt-1">
-                Inspect persisted identity, usage, events, and failure state.
+                Inspect persisted identity, immutable document context, usage, events, and failure state.
               </DrawerDescription>
             </div>
 
@@ -180,20 +183,39 @@ export function RunInspectorDrawer({
             defaultValue="facts"
             className="min-h-0"
           >
-            <TabsList className="w-full">
-              <TabsTrigger value="facts">
+            <TabsList className="w-full justify-start overflow-x-auto">
+              <TabsTrigger
+                value="facts"
+                className="shrink-0"
+              >
                 Facts
               </TabsTrigger>
 
-              <TabsTrigger value="usage">
+              <TabsTrigger
+                value="context"
+                className="shrink-0"
+              >
+                Context
+              </TabsTrigger>
+
+              <TabsTrigger
+                value="usage"
+                className="shrink-0"
+              >
                 Usage
               </TabsTrigger>
 
-              <TabsTrigger value="events">
+              <TabsTrigger
+                value="events"
+                className="shrink-0"
+              >
                 Events
               </TabsTrigger>
 
-              <TabsTrigger value="failure">
+              <TabsTrigger
+                value="failure"
+                className="shrink-0"
+              >
                 Failure
               </TabsTrigger>
             </TabsList>
@@ -203,6 +225,15 @@ export function RunInspectorDrawer({
               className="mt-3"
             >
               <FactsTab
+                detail={detail}
+              />
+            </TabsContent>
+
+            <TabsContent
+              value="context"
+              className="mt-3"
+            >
+              <DocumentContextTab
                 detail={detail}
               />
             </TabsContent>
@@ -254,7 +285,7 @@ export function RunInspectorDrawer({
 }
 
 /**
- * Renders immutable identity and lifecycle facts for the selected run.
+ * Renders immutable identity and lifecycle facts for the selected Run.
  */
 function FactsTab({
   detail,
@@ -341,6 +372,99 @@ function FactsTab({
         />
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Renders immutable Project Document provenance selected when the Run started.
+ */
+function DocumentContextTab({
+  detail,
+}: DetailTabProps) {
+  const items =
+    getRunDocumentContextItems(
+      detail,
+    );
+
+  if (!items.length) {
+    return (
+      <Card size="sm">
+        <CardHeader>
+          <CardTitle>
+            Project Document Context
+          </CardTitle>
+        </CardHeader>
+
+        <CardContent>
+          <p className="text-xs text-text-muted">
+            No Project Document context was selected for this Run.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-[11px] leading-4 text-text-muted">
+        These references come from the immutable Run snapshot. Current Project Document rows are not consulted.
+      </p>
+
+      {items.map(
+        (item) => (
+          <Card
+            key={item.key}
+            size="sm"
+          >
+            <CardHeader>
+              <CardTitle className="break-all">
+                {item.fileName}
+              </CardTitle>
+            </CardHeader>
+
+            <CardContent className="grid gap-3 text-xs">
+              {item.heading ? (
+                <FactRow
+                  label="Heading"
+                  value={item.heading}
+                />
+              ) : null}
+
+              <FactRow
+                label="Document ID"
+                value={
+                  item.documentId
+                }
+                mono
+              />
+
+              <FactRow
+                label="Document SHA"
+                value={
+                  item.documentContentHash
+                }
+                mono
+              />
+
+              <FactRow
+                label="Chunk"
+                value={String(
+                  item.chunkSequence,
+                )}
+              />
+
+              <FactRow
+                label="Chunk SHA"
+                value={
+                  item.chunkContentHash
+                }
+                mono
+              />
+            </CardContent>
+          </Card>
+        ),
+      )}
+    </div>
   );
 }
 

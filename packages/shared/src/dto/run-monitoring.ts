@@ -3,6 +3,9 @@ import { z } from "zod";
 import { harnessSchema } from "../enums/harness.js";
 import { agentExecutionSchema } from "./agent-execution.js";
 import { domainEventSchema } from "./event.js";
+import {
+  projectDocumentProvenanceCollectionSchema,
+} from "./project-document.js";
 import { runSchema } from "./run.js";
 import { taskSchema } from "./task.js";
 
@@ -45,6 +48,8 @@ export const runMonitoringDetailSchema = z.object({
   executions: z.array(agentExecutionSchema),
   events: z.array(domainEventSchema),
   executionPlan: z.array(workflowPlanAgentSchema),
+  taskDocumentContext:
+    projectDocumentProvenanceCollectionSchema.optional(),
 });
 
 export type WorkflowPlanAgent = z.infer<

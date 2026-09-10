@@ -5,7 +5,10 @@ import {
 import { z } from "zod";
 
 import {
+  projectDocumentProvenanceCollectionSchema,
+  uploadedProjectDocumentContextCollectionSchema,
   workflowPlanAgentSchema,
+  type ProjectDocumentProvenance,
   type RunMonitoringDetail,
   type RunMonitoringSummary,
   type WorkflowPlanAgent,
@@ -23,6 +26,15 @@ const workflowSnapshotProjectionSchema = z
     agents: z.array(
       workflowPlanAgentSchema,
     ),
+  })
+  .passthrough();
+
+const workflowSnapshotDocumentContextSchema = z
+  .object({
+    taskDocumentContext:
+      uploadedProjectDocumentContextCollectionSchema
+        .optional()
+        .default([]),
   })
   .passthrough();
 
@@ -46,6 +58,49 @@ export function projectExecutionPlan(
       left.layer - right.layer ||
       left.executionOrder -
         right.executionOrder,
+  );
+}
+
+/**
+ * Projects immutable Run-owned Project Document context into content-free provenance.
+ */
+export function projectTaskDocumentContext(
+  snapshot: unknown,
+): ProjectDocumentProvenance {
+  const parsed =
+    workflowSnapshotDocumentContextSchema.safeParse(
+      snapshot,
+    );
+
+  if (!parsed.success) {
+    return [];
+  }
+
+  return projectDocumentProvenanceCollectionSchema.parse(
+    parsed.data.taskDocumentContext.map(
+      (ref) => ({
+        source:
+          ref.source,
+        documentId:
+          ref.documentId,
+        fileName:
+          ref.fileName,
+        documentContentHash:
+          ref.documentContentHash,
+        chunkSequence:
+          ref.chunkSequence,
+        chunkContentHash:
+          ref.chunkContentHash,
+        ...(
+          ref.heading
+            ? {
+                heading:
+                  ref.heading,
+              }
+            : {}
+        ),
+      }),
+    ),
   );
 }
 
@@ -137,7 +192,7 @@ export async function listRunMonitoringSummaries(): Promise<
 }
 
 /**
- * Loads the existing run detail and adds the safe immutable execution plan needed by the monitoring UI.
+ * Loads existing Run detail and adds safe immutable snapshot projections needed by the monitoring UI.
  */
 export async function getRunMonitoringDetail(
   id: string,
@@ -168,13 +223,20 @@ export async function getRunMonitoringDetail(
     return null;
   }
 
+  const snapshot =
+    snapshotRows[0]
+      ?.workflowSnapshot ??
+    null;
+
   return {
     ...detail,
     executionPlan:
       projectExecutionPlan(
-        snapshotRows[0]
-          ?.workflowSnapshot ??
-          null,
+        snapshot,
+      ),
+    taskDocumentContext:
+      projectTaskDocumentContext(
+        snapshot,
       ),
   };
 }

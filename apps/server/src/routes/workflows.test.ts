@@ -82,10 +82,14 @@ let app:
 
 beforeEach(
   async () => {
-    mocks.createAndStartTask
-      .mockReset();
-
-    mocks.skipRun.mockReset();
+    for (
+      const mock of
+      Object.values(
+        mocks,
+      )
+    ) {
+      mock.mockReset();
+    }
 
     app =
       Fastify();
@@ -262,12 +266,165 @@ describe(
 
         const response =
           await app.inject({
-            method: "POST",
-            url: `/api/runs/${runId}/skip`,
+            method:
+              "POST",
+            url:
+              `/api/runs/${runId}/skip`,
           });
 
-        expect(response.statusCode).toBe(200);
-        expect(mocks.skipRun).toHaveBeenCalledWith(runId);
+        expect(
+          response.statusCode,
+        ).toBe(
+          200,
+        );
+
+        expect(
+          mocks.skipRun,
+        ).toHaveBeenCalledWith(
+          runId,
+        );
+      },
+    );
+  },
+);
+
+describe(
+  "workflow monitoring routes",
+  () => {
+    it(
+      "returns immutable compact Project Document provenance only from detailed Run monitoring",
+      async () => {
+        const runId =
+          crypto.randomUUID();
+
+        const taskId =
+          crypto.randomUUID();
+
+        const documentId =
+          crypto.randomUUID();
+
+        mocks.getRunMonitoringDetail
+          .mockResolvedValue({
+            run: {
+              id:
+                runId,
+              taskId,
+              teamId:
+                TEAM_ID,
+              projectPath:
+                "/home/user/workspace/orc",
+              status:
+                "completed",
+              currentAgentId:
+                null,
+              executionCount:
+                1,
+              terminalReason:
+                null,
+              createdAt:
+                "2026-09-10T00:00:00.000Z",
+              updatedAt:
+                "2026-09-10T00:05:00.000Z",
+            },
+            task:
+              null,
+            executions:
+              [],
+            events:
+              [],
+            executionPlan:
+              [],
+            taskDocumentContext: [
+              {
+                source:
+                  "project_document",
+                documentId,
+                fileName:
+                  "requirements.md",
+                documentContentHash:
+                  "a".repeat(64),
+                chunkSequence:
+                  3,
+                chunkContentHash:
+                  "b".repeat(64),
+                heading:
+                  "Historical requirements",
+              },
+            ],
+          });
+
+        const response =
+          await app.inject({
+            method:
+              "GET",
+            url:
+              `/api/runs/${runId}/monitoring`,
+          });
+
+        expect(
+          response.statusCode,
+        ).toBe(
+          200,
+        );
+
+        expect(
+          mocks.getRunMonitoringDetail,
+        ).toHaveBeenCalledWith(
+          runId,
+        );
+
+        expect(
+          response.json()
+            .taskDocumentContext,
+        ).toEqual([
+          {
+            source:
+              "project_document",
+            documentId,
+            fileName:
+              "requirements.md",
+            documentContentHash:
+              "a".repeat(64),
+            chunkSequence:
+              3,
+            chunkContentHash:
+              "b".repeat(64),
+            heading:
+              "Historical requirements",
+          },
+        ]);
+      },
+    );
+
+    it(
+      "keeps the monitoring collection response free of detailed context",
+      async () => {
+        mocks.listRunMonitoringSummaries
+          .mockResolvedValue([]);
+
+        const response =
+          await app.inject({
+            method:
+              "GET",
+            url:
+              "/api/runs/monitoring",
+          });
+
+        expect(
+          response.statusCode,
+        ).toBe(
+          200,
+        );
+
+        expect(
+          response.json(),
+        ).toEqual({
+          runs: [],
+        });
+
+        expect(
+          mocks.getRunMonitoringDetail,
+        ).not.toHaveBeenCalled();
       },
     );
   },
