@@ -261,6 +261,8 @@ describe(
               "project_document",
             documentId:
               DOCUMENT_ID,
+            fileName:
+              "roadmap.md",
             documentContentHash:
               DOCUMENT_HASH,
             chunkSequence:
@@ -282,6 +284,8 @@ describe(
               "project_document",
             documentId:
               DOCUMENT_ID,
+            fileName:
+              "roadmap.md",
             documentContentHash:
               DOCUMENT_HASH,
             chunkSequence:
@@ -320,6 +324,8 @@ describe(
                 "project_document" as const,
               documentId:
                 DOCUMENT_ID,
+              fileName:
+                "roadmap.md",
               documentContentHash:
                 DOCUMENT_HASH,
               chunkSequence:
@@ -354,6 +360,8 @@ describe(
                 "project_document",
               documentId:
                 DOCUMENT_ID,
+              fileName:
+                "roadmap.md",
               documentContentHash:
                 DOCUMENT_HASH,
               chunkSequence:
@@ -384,6 +392,8 @@ describe(
                 "project_document" as const,
               documentId:
                 DOCUMENT_ID,
+              fileName:
+                "roadmap.md",
               documentContentHash:
                 DOCUMENT_HASH,
               chunkSequence:
@@ -454,6 +464,8 @@ describe(
               "vault",
             documentId:
               DOCUMENT_ID,
+            fileName:
+              "roadmap.md",
             documentContentHash:
               DOCUMENT_HASH,
             chunkSequence:
