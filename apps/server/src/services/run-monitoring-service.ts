@@ -38,6 +38,12 @@ const workflowSnapshotDocumentContextSchema = z
   })
   .passthrough();
 
+type NormalizedRunMonitoringDetail =
+  RunMonitoringDetail & {
+    taskDocumentContext:
+      ProjectDocumentProvenance;
+  };
+
 /**
  * Converts an immutable workflow snapshot into the safe agent plan exposed to operators.
  */
@@ -196,7 +202,9 @@ export async function listRunMonitoringSummaries(): Promise<
  */
 export async function getRunMonitoringDetail(
   id: string,
-): Promise<RunMonitoringDetail | null> {
+): Promise<
+  NormalizedRunMonitoringDetail | null
+> {
   const [
     detail,
     snapshotRows,
