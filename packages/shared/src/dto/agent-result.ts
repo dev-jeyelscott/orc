@@ -6,6 +6,10 @@ import {
   knowledgeRefCollectionSchema,
 } from "./knowledge.js";
 
+import {
+  projectDocumentProvenanceCollectionSchema,
+} from "./project-document.js";
+
 const commitHashSchema = z
   .string()
   .trim()
@@ -29,6 +33,9 @@ export const agentResultSchema = z.strictObject({
   commit: commitHashSchema.nullable().default(null),
   knowledgeRefs:
     knowledgeRefCollectionSchema
+      .optional(),
+  projectDocumentRefs:
+    projectDocumentProvenanceCollectionSchema
       .optional(),
 });
 

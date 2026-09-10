@@ -408,6 +408,16 @@ export const uploadedProjectDocumentContextRefSchema =
     })
     .strict();
 
+/**
+ * Defines result provenance using the immutable Project Document context identity without document content.
+ */
+export const projectDocumentProvenanceRefSchema =
+  uploadedProjectDocumentContextRefSchema
+    .omit({
+      excerpt:
+        true,
+    });
+
 export const uploadedProjectDocumentContextCollectionSchema =
   z
     .array(
@@ -491,6 +501,67 @@ export const uploadedProjectDocumentContextCollectionSchema =
       },
     );
 
+/**
+ * Bounds lightweight Project Document result provenance to the same immutable references supplied to a worker.
+ */
+export const projectDocumentProvenanceCollectionSchema =
+  z
+    .array(
+      projectDocumentProvenanceRefSchema,
+    )
+    .max(
+      MAX_PROJECT_DOCUMENT_CONTEXT_ITEMS,
+    )
+    .superRefine(
+      (
+        refs,
+        context,
+      ) => {
+        const seen =
+          new Set<string>();
+
+        refs.forEach(
+          (
+            ref,
+            index,
+          ) => {
+            const key =
+              [
+                ref.documentId,
+                ref.chunkSequence,
+                ref.chunkContentHash,
+              ].join(
+                "\u0000",
+              );
+
+            if (
+              seen.has(
+                key,
+              )
+            ) {
+              context.addIssue({
+                code:
+                  z
+                    .ZodIssueCode
+                    .custom,
+                path: [
+                  index,
+                ],
+                message:
+                  "Project Document provenance references must be unique",
+              });
+
+              return;
+            }
+
+            seen.add(
+              key,
+            );
+          },
+        );
+      },
+    );
+
 export type ProjectDocumentId = z.infer<
   typeof projectDocumentIdSchema
 >;
@@ -538,4 +609,14 @@ export type UploadedProjectDocumentContextRef =
 export type UploadedProjectDocumentContext =
   z.infer<
     typeof uploadedProjectDocumentContextCollectionSchema
+  >;
+
+export type ProjectDocumentProvenanceRef =
+  z.infer<
+    typeof projectDocumentProvenanceRefSchema
+  >;
+
+export type ProjectDocumentProvenance =
+  z.infer<
+    typeof projectDocumentProvenanceCollectionSchema
   >;
