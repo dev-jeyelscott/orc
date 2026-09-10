@@ -1051,8 +1051,9 @@ function resolveExecutionAgent(
 }
 
 /**
- * Starts a worker whose run row has already atomically claimed that agent and injects
- * initial durable knowledge only when the claimed agent is the snapshot's first worker.
+ * Starts a worker whose run row has already atomically claimed that agent, injecting
+ * first-worker durable knowledge plus immutable Run-owned Project Document context
+ * for every claimed worker execution.
  */
 async function launchClaimedAgent(
   claimedRun:
@@ -1093,14 +1094,9 @@ async function launchClaimedAgent(
         : null;
 
     const taskDocumentNote =
-      snapshot
-        .agents[0]
-        ?.id ===
-      snapshotAgent.id
-        ? composeTaskDocumentContext(
-            snapshot.taskDocumentContext,
-          )
-        : null;
+      composeTaskDocumentContext(
+        snapshot.taskDocumentContext,
+      );
 
     const instruction =
       [
