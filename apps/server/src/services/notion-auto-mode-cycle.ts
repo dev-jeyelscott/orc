@@ -14,6 +14,9 @@ import {
   db,
 } from "../db/client.js";
 import {
+  logger,
+} from "../logger.js";
+import {
   agentExecutions,
   runs,
   tasks,
@@ -316,7 +319,9 @@ async function createProductionNotionAdapterForTeam(
 
 /**
  * Runs remote lifecycle reconciliation for the most recently active Notion-backed workflow, then runs the
- * existing multi-Team Auto Mode intake cycle so every automation-ready Team's queue is considered.
+ * existing multi-Team Auto Mode intake cycle so every automation-ready Team's queue is considered. A
+ * lifecycle push failure (for example a Notion Status option mismatch) is logged and swallowed rather
+ * than rethrown, so it can never block intake for the rest of the fleet.
  */
 export async function runNotionAutoModeCycle(
   dependencies:
@@ -340,15 +345,40 @@ export async function runNotionAutoModeCycle(
   if (
     lifecycleTarget?.status
   ) {
-    const adapter =
-      await createAdapterForIntake(
-        lifecycleTarget.teamId,
-      );
+    try {
+      const adapter =
+        await createAdapterForIntake(
+          lifecycleTarget.teamId,
+        );
 
-    await adapter.updateStatus(
-      lifecycleTarget.pageId,
-      lifecycleTarget.status,
-    );
+      await adapter.updateStatus(
+        lifecycleTarget.pageId,
+        lifecycleTarget.status,
+      );
+    } catch (error) {
+      logger.error(
+        {
+          error:
+            error instanceof Error
+              ? {
+                  name:
+                    error.name,
+                  message:
+                    error.message,
+                  stack:
+                    error.stack,
+                }
+              : error,
+          pageId:
+            lifecycleTarget.pageId,
+          teamId:
+            lifecycleTarget.teamId,
+          status:
+            lifecycleTarget.status,
+        },
+        "Notion lifecycle status sync failed; continuing with Auto Mode intake",
+      );
+    }
   }
 
   await intake({

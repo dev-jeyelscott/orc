@@ -59,6 +59,25 @@ export type NotionTaskStatus =
     typeof notionTaskStatusSchema
   >;
 
+/**
+ * Maps orc's canonical Notion lifecycle status to the exact Status option name configured in the
+ * live Notion database. Notion's API does not support renaming an existing status option, so this
+ * accommodates the workspace's own casing instead of overloading the local canonical value.
+ */
+function notionStatusOptionName(
+  status:
+    NotionTaskStatus,
+): string {
+  if (
+    status ===
+    "In Progress"
+  ) {
+    return "In progress";
+  }
+
+  return status;
+}
+
 export type NotionTaskCandidate = {
   source:
     "notion";
@@ -905,7 +924,9 @@ export class NotionTaskSourceAdapter {
             Status: {
               status: {
                 name:
-                  validatedStatus,
+                  notionStatusOptionName(
+                    validatedStatus,
+                  ),
               },
             },
           },

@@ -493,7 +493,7 @@ describe(
     );
 
     it(
-      "prevents a new claim when terminal writeback fails and retries it on the next cycle",
+      "does not block intake when terminal writeback fails, and retries the writeback on the next cycle",
       async () => {
         const updateStatus =
           vi.fn()
@@ -535,13 +535,13 @@ describe(
           runNotionAutoModeCycle(
             dependencies,
           ),
-        ).rejects.toThrow(
-          "Notion unavailable",
-        );
+        ).resolves.toBeUndefined();
 
         expect(
           runIntakeCycle,
-        ).not.toHaveBeenCalled();
+        ).toHaveBeenCalledTimes(
+          1,
+        );
 
         await runNotionAutoModeCycle(
           dependencies,
@@ -556,7 +556,7 @@ describe(
         expect(
           runIntakeCycle,
         ).toHaveBeenCalledTimes(
-          1,
+          2,
         );
       },
     );

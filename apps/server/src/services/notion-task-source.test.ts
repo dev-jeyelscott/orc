@@ -547,8 +547,14 @@ describe(
           properties: {
             Status: {
               status: {
+                // The live Notion database's Status option is "In progress" (lowercase "p"); Notion's
+                // API does not support renaming an existing status option, so orc maps its canonical
+                // "In Progress" value to that exact live option name when writing.
                 name:
-                  status,
+                  status ===
+                  "In Progress"
+                    ? "In progress"
+                    : status,
               },
             },
           },
