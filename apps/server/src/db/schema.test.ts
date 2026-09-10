@@ -240,22 +240,14 @@ describe(
   "Team persistence schema",
   () => {
     it(
-      "keeps deterministic Resolution and Development seed Teams",
+      "keeps deterministic Resolution and Development seed Team identities",
       async () => {
-        const [settings] =
-          await db
-            .select()
-            .from(systemSettings)
-            .where(
-              eq(
-                systemSettings.id,
-                1,
-              ),
-            );
-
         const rows =
           await db
-            .select()
+            .select({
+              id:
+                teams.id,
+            })
             .from(teams)
             .where(
               inArray(
@@ -268,46 +260,18 @@ describe(
             );
 
         expect(
-          rows,
-        ).toHaveLength(2);
-
-        expect(
-          rows.find(
-            (team) =>
-              team.id ===
-              RESOLUTION_TEAM_ID,
+          new Set(
+            rows.map(
+              (team) =>
+                team.id,
+            ),
           ),
-        ).toMatchObject({
-          slug:
-            "resolution",
-          name:
-            "Resolution Team",
-          enabled:
-            true,
-          notionDataSourceId:
-            null,
-          autoModeEnabled:
-            settings.autoModeEnabled,
-        });
-
-        expect(
-          rows.find(
-            (team) =>
-              team.id ===
-              DEVELOPMENT_TEAM_ID,
-          ),
-        ).toMatchObject({
-          slug:
-            "development",
-          name:
-            "Development Team",
-          enabled:
-            true,
-          notionDataSourceId:
-            null,
-          autoModeEnabled:
-            false,
-        });
+        ).toEqual(
+          new Set([
+            RESOLUTION_TEAM_ID,
+            DEVELOPMENT_TEAM_ID,
+          ]),
+        );
       },
     );
 

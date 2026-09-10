@@ -1,8 +1,10 @@
 import {
   eq,
+  inArray,
 } from "drizzle-orm";
 import {
   afterEach,
+  beforeEach,
   describe,
   expect,
   it,
@@ -12,13 +14,10 @@ import {
   db,
 } from "../db/client.js";
 import {
-  DEVELOPMENT_TEAM_ID,
-  RESOLUTION_TEAM_ID,
-} from "../db/seed-ids.js";
-import {
   agentExecutions,
   runs,
   tasks,
+  teams,
 } from "../db/schema.js";
 import {
   evaluateAutoModeEligibility,
@@ -27,8 +26,40 @@ import {
 const projectPath =
   `/tmp/orc-auto-mode-team-eligibility-${crypto.randomUUID()}`;
 
+const resolutionTeamId =
+  crypto.randomUUID();
+
+const developmentTeamId =
+  crypto.randomUUID();
+
 const createdRunIds =
   new Set<string>();
+
+/**
+ * Creates isolated Team fixtures so assertions never depend on mutable seeded Team history.
+ */
+async function createTestTeams(): Promise<void> {
+  await db
+    .insert(teams)
+    .values([
+      {
+        id:
+          resolutionTeamId,
+        slug:
+          `eligibility-resolution-${crypto.randomUUID()}`,
+        name:
+          "Eligibility Resolution Team",
+      },
+      {
+        id:
+          developmentTeamId,
+        slug:
+          `eligibility-development-${crypto.randomUUID()}`,
+        name:
+          "Eligibility Development Team",
+      },
+    ]);
+}
 
 /**
  * Inserts one Task and Run owned by the given Team for eligibility isolation tests.
@@ -168,7 +199,23 @@ async function cleanup(): Promise<void> {
         projectPath,
       ),
     );
+
+  await db
+    .delete(teams)
+    .where(
+      inArray(
+        teams.id,
+        [
+          resolutionTeamId,
+          developmentTeamId,
+        ],
+      ),
+    );
 }
+
+beforeEach(
+  createTestTeams,
+);
 
 afterEach(
   cleanup,
@@ -181,16 +228,13 @@ describe.sequential(
       "never lets Resolution Team's recent approval history affect Development Team's own eligibility",
       async () => {
         await createTeamRun(
-          RESOLUTION_TEAM_ID,
+          resolutionTeamId,
           "completed",
           "approved",
         );
 
-        // Resolution's own history now reflects a just-approved completion (ready or cooldown
-        // depending on the configured post-approval delay); the important assertion is that
-        // Development, with no history of its own, is entirely unaffected by it.
         await evaluateAutoModeEligibility(
-          RESOLUTION_TEAM_ID,
+          resolutionTeamId,
           new Date(
             "2099-01-01T00:00:01.000Z",
           ),
@@ -198,7 +242,7 @@ describe.sequential(
 
         const development =
           await evaluateAutoModeEligibility(
-            DEVELOPMENT_TEAM_ID,
+            developmentTeamId,
             new Date(
               "2099-01-01T00:00:01.000Z",
             ),
@@ -222,13 +266,13 @@ describe.sequential(
       "never lets Resolution Team failed/blocked history block Development Team",
       async () => {
         await createTeamRun(
-          RESOLUTION_TEAM_ID,
+          resolutionTeamId,
           "blocked",
         );
 
         const resolution =
           await evaluateAutoModeEligibility(
-            RESOLUTION_TEAM_ID,
+            resolutionTeamId,
             new Date(
               "2099-01-01T00:00:01.000Z",
             ),
@@ -242,7 +286,7 @@ describe.sequential(
 
         const development =
           await evaluateAutoModeEligibility(
-            DEVELOPMENT_TEAM_ID,
+            developmentTeamId,
             new Date(
               "2099-01-01T00:00:01.000Z",
             ),
@@ -266,13 +310,13 @@ describe.sequential(
       "blocks both Teams from claiming while any Team's Run is active, without collapsing one Team's status into the other's",
       async () => {
         await createTeamRun(
-          RESOLUTION_TEAM_ID,
+          resolutionTeamId,
           "running",
         );
 
         const resolution =
           await evaluateAutoModeEligibility(
-            RESOLUTION_TEAM_ID,
+            resolutionTeamId,
           );
 
         expect(
@@ -288,7 +332,7 @@ describe.sequential(
 
         const development =
           await evaluateAutoModeEligibility(
-            DEVELOPMENT_TEAM_ID,
+            developmentTeamId,
           );
 
         expect(

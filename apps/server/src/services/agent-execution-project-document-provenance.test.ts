@@ -92,9 +92,11 @@ implements PtyProcess {
 
   /** Accepts input writes required by the PTY contract. */
   write(
-    _data:
+    data:
       string,
-  ): void {}
+  ): void {
+    void data;
+  }
 
   /** Accepts process termination requests for the fake PTY. */
   kill(): void {}

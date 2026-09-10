@@ -96,7 +96,7 @@ describe(
     );
 
     it(
-      "accepts older detail payloads without Project Document provenance",
+      "normalizes older detail payloads without Project Document provenance to an empty collection",
       () => {
         const parsed =
           runMonitoringDetailSchema.parse({
@@ -109,7 +109,7 @@ describe(
 
         expect(
           parsed.taskDocumentContext,
-        ).toBeUndefined();
+        ).toEqual([]);
       },
     );
 

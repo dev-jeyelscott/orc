@@ -49,7 +49,7 @@ export const runMonitoringDetailSchema = z.object({
   events: z.array(domainEventSchema),
   executionPlan: z.array(workflowPlanAgentSchema),
   taskDocumentContext:
-    projectDocumentProvenanceCollectionSchema.optional(),
+    projectDocumentProvenanceCollectionSchema.default([]),
 });
 
 export type WorkflowPlanAgent = z.infer<

@@ -1,11 +1,11 @@
-import type {
-  Harness,
-  OrchestratorSettings,
-} from "@orc/shared";
+import type { Harness, OrchestratorSettings } from "@orc/shared";
 
-export const harnessOptions: Record<Harness, { models: string[]; reasoning: string[] }> = {
+export const harnessOptions: Record<
+  Harness,
+  { models: string[]; reasoning: string[] }
+> = {
   codex: {
-    models: ["default", "gpt-5.6", "gpt-5.6-terra", "gpt-5.6-luna"],
+    models: ["default", "gpt-5.6", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"],
     reasoning: ["none", "low", "medium", "high", "xhigh", "max"],
   },
   claude: {
@@ -25,31 +25,18 @@ export const harnessOptions: Record<Harness, { models: string[]; reasoning: stri
  * Changes the Orchestrator harness and selects canonical provider defaults when supported.
  */
 export function changeOrchestratorHarness(
-  current:
-    OrchestratorSettings,
-  harness:
-    Harness,
+  current: OrchestratorSettings,
+  harness: Harness,
 ): OrchestratorSettings {
-  const options =
-    harnessOptions[
-      harness
-    ];
+  const options = harnessOptions[harness];
 
-  const model =
-    options.models.includes(
-      "default",
-    )
-      ? "default"
-      : options.models[0] ??
-        current.model;
+  const model = options.models.includes("default")
+    ? "default"
+    : (options.models[0] ?? current.model);
 
-  const reasoning =
-    options.reasoning.includes(
-      "low",
-    )
-      ? "low"
-      : options.reasoning[0] ??
-        current.reasoning;
+  const reasoning = options.reasoning.includes("low")
+    ? "low"
+    : (options.reasoning[0] ?? current.reasoning);
 
   return {
     ...current,
@@ -63,23 +50,12 @@ export function changeOrchestratorHarness(
  * Prepends an unsupported persisted value so the operator can see it until choosing a supported option.
  */
 export function includePersistedOption(
-  options:
-    readonly string[],
-  persistedValue:
-    string,
+  options: readonly string[],
+  persistedValue: string,
 ): string[] {
-  if (
-    options.includes(
-      persistedValue,
-    )
-  ) {
-    return [
-      ...options,
-    ];
+  if (options.includes(persistedValue)) {
+    return [...options];
   }
 
-  return [
-    persistedValue,
-    ...options,
-  ];
+  return [persistedValue, ...options];
 }
