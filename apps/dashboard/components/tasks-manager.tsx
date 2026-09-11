@@ -26,11 +26,8 @@ import {
   TaskCreateDrawer,
 } from "@/components/task-create-drawer";
 import {
-  TaskDetailPanel,
-} from "@/components/task-detail-panel";
-import {
-  TaskObservabilityPanel,
-} from "@/components/task-observability-panel";
+  TaskDetailDrawer,
+} from "@/components/task-detail-drawer";
 import {
   TaskQueue,
 } from "@/components/task-queue";
@@ -41,8 +38,8 @@ import {
   Button,
 } from "@/components/ui/button";
 import {
-  Spinner,
-} from "@/components/ui/spinner";
+  Skeleton,
+} from "@/components/ui/skeleton";
 import {
   Switch,
 } from "@/components/ui/switch";
@@ -63,9 +60,9 @@ import {
   getRun,
   getRuns,
   getTasks,
+  getTeamAutomationStatuses,
   retryRun,
   skipRun,
-  getTeamAutomationStatuses,
 } from "@/lib/workflows";
 
 const activeRunStatuses =
@@ -77,42 +74,47 @@ const activeRunStatuses =
   ]);
 
 type RunDetailErrorState = {
-  runId:
-    string;
-  message:
-    string;
+  runId: string;
+  message: string;
 };
 
 /**
  * Converts an unknown request failure into a stable Tasks-page message.
  */
 function getErrorMessage(
-  error:
-    unknown,
-  fallback:
-    string,
+  error: unknown,
+  fallback: string,
 ): string {
-  return error instanceof Error
+  return error instanceof
+    Error
     ? error.message
     : fallback;
 }
 
 /**
- * Orders related runs newest first even if a future API stops returning them in creation order.
+ * Orders related Runs newest first independently of API list ordering.
  */
 function compareRunsNewestFirst(
-  left:
-    Run,
-  right:
-    Run,
+  left: Run,
+  right: Run,
 ): number {
-  return (
+  const difference =
     new Date(
       right.createdAt,
     ).getTime() -
     new Date(
       left.createdAt,
-    ).getTime()
+    ).getTime();
+
+  if (
+    difference !==
+    0
+  ) {
+    return difference;
+  }
+
+  return right.id.localeCompare(
+    left.id,
   );
 }
 
@@ -146,7 +148,7 @@ function formatAutomationState(
 
   if (
     state ===
-      "ready"
+    "ready"
   ) {
     return "Ready";
   }
@@ -162,7 +164,8 @@ function formatAutomationState(
 }
 
 /**
- * Converts a server-owned Team configuration failure into concise operator text.
+ * Converts a server-owned Team configuration failure into concise operator
+ * text.
  */
 function formatAutomationUnavailableReason(
   reason:
@@ -200,7 +203,7 @@ function formatAutomationUnavailableReason(
 }
 
 /**
- * Maps backend automation state onto the existing semantic badge variants.
+ * Maps backend automation state onto existing semantic Badge variants.
  */
 function getAutomationBadgeVariant(
   state:
@@ -227,8 +230,10 @@ function getAutomationBadgeVariant(
   if (
     state ===
       "waiting_approval" ||
-    state === "cooldown" ||
-    state === "unavailable"
+    state ===
+      "cooldown" ||
+    state ===
+      "unavailable"
   ) {
     return "warning";
   }
@@ -237,7 +242,8 @@ function getAutomationBadgeVariant(
 }
 
 /**
- * Owns Tasks command-center state while delegating queue, detail, drawer, and observability rendering.
+ * Owns Tasks page data and workflow actions while delegating collection and
+ * detail presentation to focused components.
  */
 export function TasksManager() {
   const [
@@ -268,120 +274,121 @@ export function TasksManager() {
     selectedTaskId,
     setSelectedTaskId,
   ] =
-    useState<string | null>(
-      null,
-    );
+    useState<
+      string | null
+    >(null);
+
+  const [
+    detailOpen,
+    setDetailOpen,
+  ] =
+    useState(false);
 
   const [
     query,
     setQuery,
   ] =
-    useState(
-      "",
-    );
+    useState("");
 
   const [
     createOpen,
     setCreateOpen,
   ] =
-    useState(
-      false,
-    );
+    useState(false);
 
   const [
     loading,
     setLoading,
   ] =
-    useState(
-      true,
-    );
+    useState(true);
 
   const [
     isRefreshing,
     setIsRefreshing,
   ] =
-    useState(
-      false,
-    );
+    useState(false);
 
   const [
     workError,
     setWorkError,
   ] =
-    useState<string | null>(
-      null,
-    );
+    useState<
+      string | null
+    >(null);
 
   const [
     projectError,
     setProjectError,
   ] =
-    useState<string | null>(
-      null,
-    );
+    useState<
+      string | null
+    >(null);
 
   const [
     busyRunId,
     setBusyRunId,
   ] =
-    useState<string | null>(
-      null,
-    );
+    useState<
+      string | null
+    >(null);
 
   const [
     latestRunDetail,
     setLatestRunDetail,
   ] =
-    useState<RunDetail | null>(
-      null,
-    );
+    useState<
+      RunDetail | null
+    >(null);
 
   const [
     runDetailErrorState,
     setRunDetailErrorState,
   ] =
-    useState<RunDetailErrorState | null>(
-      null,
-    );
+    useState<
+      RunDetailErrorState | null
+    >(null);
 
   const [
     automationTeams,
     setAutomationTeams,
   ] =
-    useState<Team[]>([]);
+    useState<Team[]>(
+      [],
+    );
 
   const [
     automationStatuses,
     setAutomationStatuses,
   ] =
-    useState<TeamAutomationStatus[]>([]);
+    useState<
+      TeamAutomationStatus[]
+    >([]);
 
   const [
     automationLoading,
     setAutomationLoading,
   ] =
-    useState(
-      true,
-    );
+    useState(true);
 
   const [
     automationUpdatingTeamId,
     setAutomationUpdatingTeamId,
   ] =
-    useState<string | null>(
-      null,
-    );
+    useState<
+      string | null
+    >(null);
 
   const [
     automationError,
     setAutomationError,
   ] =
-    useState<string | null>(
-      null,
-    );
+    useState<
+      string | null
+    >(null);
 
   /**
-   * Loads filesystem-backed project metadata without making project discovery failure hide task history.
+   * Loads filesystem-backed Project metadata without allowing discovery failure
+   * to hide persisted Task history.
    */
   const loadProjects =
     useCallback(
@@ -397,7 +404,9 @@ export function TasksManager() {
           setProjectError(
             result.error,
           );
-        } catch (error) {
+        } catch (
+          error
+        ) {
           setProjectError(
             getErrorMessage(
               error,
@@ -410,7 +419,8 @@ export function TasksManager() {
     );
 
   /**
-   * Loads task and run lists together because queue selection and related-run resolution depend on both collections.
+   * Loads authoritative Task and Run history and preserves an existing detail
+   * selection only while that Task still exists.
    */
   const loadWork =
     useCallback(
@@ -420,10 +430,12 @@ export function TasksManager() {
             nextTasks,
             nextRuns,
           ] =
-            await Promise.all([
-              getTasks(),
-              getRuns(),
-            ]);
+            await Promise.all(
+              [
+                getTasks(),
+                getRuns(),
+              ],
+            );
 
           setTasks(
             nextTasks,
@@ -438,11 +450,15 @@ export function TasksManager() {
           );
 
           setSelectedTaskId(
-            (current) => {
+            (
+              current,
+            ) => {
               if (
                 current &&
                 nextTasks.some(
-                  (task) =>
+                  (
+                    task,
+                  ) =>
                     task.id ===
                     current,
                 )
@@ -450,31 +466,12 @@ export function TasksManager() {
                 return current;
               }
 
-              const activeRun =
-                nextRuns.find(
-                  (run) =>
-                    activeRunStatuses.has(
-                      run.status,
-                    ),
-                );
-
-              const runningTask =
-                nextTasks.find(
-                  (task) =>
-                    task.status ===
-                    "running",
-                );
-
-              return (
-                activeRun?.taskId ??
-                runningTask?.id ??
-                nextTasks[0]
-                  ?.id ??
-                null
-              );
+              return null;
             },
           );
-        } catch (error) {
+        } catch (
+          error
+        ) {
           setWorkError(
             getErrorMessage(
               error,
@@ -487,7 +484,8 @@ export function TasksManager() {
     );
 
   /**
-   * Loads Team configuration and server-derived automation status without duplicating scheduler gates in the browser.
+   * Loads Team configuration and server-derived automation state without
+   * duplicating scheduler eligibility rules in the browser.
    */
   const loadAutomation =
     useCallback(
@@ -497,10 +495,12 @@ export function TasksManager() {
             teams,
             statuses,
           ] =
-            await Promise.all([
-              getTeams(),
-              getTeamAutomationStatuses(),
-            ]);
+            await Promise.all(
+              [
+                getTeams(),
+                getTeamAutomationStatuses(),
+              ],
+            );
 
           setAutomationTeams(
             teams,
@@ -513,7 +513,9 @@ export function TasksManager() {
           setAutomationError(
             null,
           );
-        } catch (error) {
+        } catch (
+          error
+        ) {
           setAutomationError(
             getErrorMessage(
               error,
@@ -535,14 +537,17 @@ export function TasksManager() {
         false;
 
       /**
-       * Loads the initial project, task, run, and Auto Mode state before clearing page-level loading.
+       * Loads all initial Tasks page data before clearing the page-level loading
+       * state.
        */
-      async function initialize() {
-        await Promise.all([
-          loadProjects(),
-          loadWork(),
-          loadAutomation(),
-        ]);
+      async function initialize(): Promise<void> {
+        await Promise.all(
+          [
+            loadProjects(),
+            loadWork(),
+            loadAutomation(),
+          ],
+        );
 
         if (
           !cancelled
@@ -592,7 +597,9 @@ export function TasksManager() {
     useMemo(
       () =>
         runs.find(
-          (run) =>
+          (
+            run,
+          ) =>
             activeRunStatuses.has(
               run.status,
             ),
@@ -608,7 +615,9 @@ export function TasksManager() {
       () =>
         new Map(
           automationStatuses.map(
-            (status) => [
+            (
+              status,
+            ) => [
               status.teamId,
               status,
             ],
@@ -623,7 +632,9 @@ export function TasksManager() {
     useMemo(
       () =>
         tasks.find(
-          (task) =>
+          (
+            task,
+          ) =>
             task.id ===
             selectedTaskId,
         ) ??
@@ -638,14 +649,14 @@ export function TasksManager() {
     useMemo(
       () =>
         selectedTask
-          ? (
-              projects.find(
-                (project) =>
-                  project.path ===
-                  selectedTask.projectPath,
-              ) ??
-              null
-            )
+          ? projects.find(
+              (
+                project,
+              ) =>
+                project.path ===
+                selectedTask.projectPath,
+            ) ??
+            null
           : null,
       [
         projects,
@@ -659,7 +670,9 @@ export function TasksManager() {
         selectedTask
           ? runs
               .filter(
-                (run) =>
+                (
+                  run,
+                ) =>
                   run.taskId ===
                   selectedTask.id,
               )
@@ -687,8 +700,9 @@ export function TasksManager() {
     null;
 
   const visibleRunDetail =
-    latestRunDetail?.run
-      .id === latestRunId
+    latestRunDetail
+      ?.run.id ===
+    latestRunId
       ? latestRunDetail
       : null;
 
@@ -696,11 +710,11 @@ export function TasksManager() {
     runDetailErrorState
       ?.runId ===
     latestRunId
-      ? runDetailErrorState
-          .message
+      ? runDetailErrorState.message
       : null;
 
   const runDetailLoading =
+    detailOpen &&
     Boolean(
       latestRunId,
     ) &&
@@ -710,6 +724,7 @@ export function TasksManager() {
   useEffect(
     () => {
       if (
+        !detailOpen ||
         !latestRunId ||
         !latestRunStatus
       ) {
@@ -720,9 +735,10 @@ export function TasksManager() {
         false;
 
       /**
-       * Refreshes only the selected task's latest run and merges authoritative state back into page-level summaries.
+       * Loads and polls deep Run detail only while the selected Task drawer is
+       * open, then merges authoritative state back into page summaries.
        */
-      async function loadSelectedRunDetail() {
+      async function loadSelectedRunDetail(): Promise<void> {
         try {
           const detail =
             await getRun(
@@ -744,9 +760,13 @@ export function TasksManager() {
           );
 
           setRuns(
-            (current) =>
+            (
+              current,
+            ) =>
               current.map(
-                (run) =>
+                (
+                  run,
+                ) =>
                   run.id ===
                   detail.run.id
                     ? detail.run
@@ -754,36 +774,41 @@ export function TasksManager() {
               ),
           );
 
-          const refreshedTask =
-            detail.task;
-
           if (
-            refreshedTask
+            detail.task
           ) {
             setTasks(
-              (current) =>
+              (
+                current,
+              ) =>
                 current.map(
-                  (task) =>
+                  (
+                    task,
+                  ) =>
                     task.id ===
-                    refreshedTask.id
-                      ? refreshedTask
+                    detail.task!.id
+                      ? detail.task!
                       : task,
                 ),
             );
           }
-        } catch (error) {
+        } catch (
+          error
+        ) {
           if (
             !cancelled
           ) {
-            setRunDetailErrorState({
-              runId:
-                latestRunId,
-              message:
-                getErrorMessage(
-                  error,
-                  "Unable to load the latest run",
-                ),
-            });
+            setRunDetailErrorState(
+              {
+                runId:
+                  latestRunId,
+                message:
+                  getErrorMessage(
+                    error,
+                    "Unable to load the latest run",
+                  ),
+              },
+            );
           }
         }
       }
@@ -819,25 +844,28 @@ export function TasksManager() {
       };
     },
     [
+      detailOpen,
       latestRunId,
       latestRunStatus,
     ],
   );
 
   /**
-   * Refreshes all page-level data while selected-run polling remains responsible for deep observability.
+   * Refreshes all page-level Project, Task, Run, and Auto Mode data.
    */
-  async function refreshAll() {
+  async function refreshAll(): Promise<void> {
     setIsRefreshing(
       true,
     );
 
     try {
-      await Promise.all([
-        loadProjects(),
-        loadWork(),
-        loadAutomation(),
-      ]);
+      await Promise.all(
+        [
+          loadProjects(),
+          loadWork(),
+          loadAutomation(),
+        ],
+      );
     } finally {
       setIsRefreshing(
         false,
@@ -846,17 +874,22 @@ export function TasksManager() {
   }
 
   /**
-   * Adds the newly created immediate-start manual task to local state before background reconciliation.
+   * Inserts a newly created immediate-start Task and Run into local state and
+   * opens its detail drawer before normal reconciliation.
    */
   function handleCreated(
     created:
       TaskWithRun,
-  ) {
+  ): void {
     setTasks(
-      (current) => [
+      (
+        current,
+      ) => [
         created.task,
         ...current.filter(
-          (task) =>
+          (
+            task,
+          ) =>
             task.id !==
             created.task.id,
         ),
@@ -864,10 +897,14 @@ export function TasksManager() {
     );
 
     setRuns(
-      (current) => [
+      (
+        current,
+      ) => [
         created.run,
         ...current.filter(
-          (run) =>
+          (
+            run,
+          ) =>
             run.id !==
             created.run.id,
         ),
@@ -878,6 +915,10 @@ export function TasksManager() {
       created.task.id,
     );
 
+    setDetailOpen(
+      true,
+    );
+
     setWorkError(
       null,
     );
@@ -886,14 +927,37 @@ export function TasksManager() {
   }
 
   /**
-   * Persists one Team's automation intent through Team CRUD, then reloads the server-owned gates and workflow state.
+   * Opens the existing Task detail and observability experience for one
+   * collection item.
+   */
+  function handleViewTask(
+    taskId: string,
+  ): void {
+    setSelectedTaskId(
+      taskId,
+    );
+
+    setLatestRunDetail(
+      null,
+    );
+
+    setRunDetailErrorState(
+      null,
+    );
+
+    setDetailOpen(
+      true,
+    );
+  }
+
+  /**
+   * Persists one Team's Auto Mode intent and reloads server-owned automation
+   * gates and workflow state.
    */
   async function handleAutoModeChange(
-    team:
-      Team,
-    checked:
-      boolean,
-  ) {
+    team: Team,
+    checked: boolean,
+  ): Promise<void> {
     setAutomationUpdatingTeamId(
       team.id,
     );
@@ -907,15 +971,19 @@ export function TasksManager() {
         await updateTeam(
           team.id,
           {
-          autoModeEnabled:
-            checked,
+            autoModeEnabled:
+              checked,
           },
         );
 
       setAutomationTeams(
-        (current) =>
+        (
+          current,
+        ) =>
           current.map(
-            (currentTeam) =>
+            (
+              currentTeam,
+            ) =>
               currentTeam.id ===
               updatedTeam.id
                 ? updatedTeam
@@ -923,11 +991,15 @@ export function TasksManager() {
           ),
       );
 
-      await Promise.all([
-        loadAutomation(),
-        loadWork(),
-      ]);
-    } catch (error) {
+      await Promise.all(
+        [
+          loadAutomation(),
+          loadWork(),
+        ],
+      );
+    } catch (
+      error
+    ) {
       setAutomationError(
         getErrorMessage(
           error,
@@ -942,12 +1014,12 @@ export function TasksManager() {
   }
 
   /**
-   * Cancels an active related run after explicit operator confirmation and refreshes authoritative task and run state.
+   * Cancels an active related Run after explicit operator confirmation and
+   * reloads authoritative workflow state.
    */
   async function cancelRelatedRun(
-    runId:
-      string,
-  ) {
+    runId: string,
+  ): Promise<void> {
     if (
       !window.confirm(
         "Cancel this active workflow?",
@@ -966,7 +1038,9 @@ export function TasksManager() {
       );
 
       await loadWork();
-    } catch (error) {
+    } catch (
+      error
+    ) {
       setWorkError(
         getErrorMessage(
           error,
@@ -980,11 +1054,13 @@ export function TasksManager() {
     }
   }
 
-  /** Skips one active Notion Auto Mode run and reloads the queue after the scheduler is signalled. */
+  /**
+   * Skips one active Notion Auto Mode Run and reloads workflow state after the
+   * scheduler is signalled.
+   */
   async function skipRelatedRun(
-    runId:
-      string,
-  ) {
+    runId: string,
+  ): Promise<void> {
     if (
       !window.confirm(
         "Skip this Notion task and continue to the next Ready task?",
@@ -993,12 +1069,19 @@ export function TasksManager() {
       return;
     }
 
-    setBusyRunId(runId);
+    setBusyRunId(
+      runId,
+    );
 
     try {
-      await skipRun(runId);
+      await skipRun(
+        runId,
+      );
+
       await loadWork();
-    } catch (error) {
+    } catch (
+      error
+    ) {
       setWorkError(
         getErrorMessage(
           error,
@@ -1006,17 +1089,19 @@ export function TasksManager() {
         ),
       );
     } finally {
-      setBusyRunId(null);
+      setBusyRunId(
+        null,
+      );
     }
   }
 
   /**
-   * Retries the final execution only for backend-supported failed or blocked runs.
+   * Retries the final execution only for backend-supported failed or blocked
+   * Runs and reloads authoritative workflow state.
    */
   async function retryRelatedRun(
-    runId:
-      string,
-  ) {
+    runId: string,
+  ): Promise<void> {
     setBusyRunId(
       runId,
     );
@@ -1027,7 +1112,9 @@ export function TasksManager() {
       );
 
       await loadWork();
-    } catch (error) {
+    } catch (
+      error
+    ) {
       setWorkError(
         getErrorMessage(
           error,
@@ -1050,7 +1137,7 @@ export function TasksManager() {
           </h1>
 
           <p className="mt-1 text-sm text-text-muted">
-            Start and monitor orchestrated work across discovered repositories.
+            Track and manage recent orchestrated work.
           </p>
         </div>
 
@@ -1065,7 +1152,9 @@ export function TasksManager() {
                 />
               }
             >
-              <PlayIcon />
+              <PlayIcon
+                aria-hidden="true"
+              />
 
               <span className="font-mono">
                 Run{" "}
@@ -1086,85 +1175,13 @@ export function TasksManager() {
             </Button>
           ) : null}
 
-          <div className="neon-surface flex flex-wrap items-center gap-2 rounded-lg border border-border-default bg-surface-elevated px-3 py-2 shadow-xs">
-            <span className="text-sm font-medium text-text-primary">
-              Auto Mode
-            </span>
-
-            {automationTeams.map(
-              (team) => {
-                const status =
-                  automationStatusByTeamId.get(
-                    team.id,
-                  );
-
-                const detail =
-                  status?.blockedByActiveRun
-                    ? "Waiting for active run"
-                    : formatAutomationUnavailableReason(
-                        status?.unavailableReason ??
-                          null,
-                      );
-
-                return (
-                  <div
-                    key={team.id}
-                    className="flex items-center gap-1.5 border-l border-divider pl-2 first:border-l-0 first:pl-0"
-                  >
-                    <span className="max-w-28 truncate text-xs font-medium text-text-secondary">
-                      {team.name}
-                    </span>
-
-                    <Badge
-                      variant={getAutomationBadgeVariant(
-                        status?.state ??
-                          "off",
-                      )}
-                    >
-                      {formatAutomationState(
-                        status?.state ??
-                          "off",
-                      )}
-                    </Badge>
-
-                    {detail ? (
-                      <span className="max-w-40 truncate text-xs text-text-muted">
-                        {detail}
-                      </span>
-                    ) : null}
-
-                    <Switch
-                      size="sm"
-                      checked={
-                        team.autoModeEnabled
-                      }
-                      onCheckedChange={(
-                        checked,
-                      ) => {
-                        void handleAutoModeChange(
-                          team,
-                          checked,
-                        );
-                      }}
-                      disabled={
-                        automationLoading ||
-                        automationUpdatingTeamId ===
-                          team.id
-                      }
-                      aria-label={`Toggle ${team.name} Auto Mode`}
-                    />
-                  </div>
-                );
-              },
-            )}
-          </div>
-
           <Button
             type="button"
             variant="outline"
-            onClick={() => {
-              void refreshAll();
-            }}
+            size="sm"
+            onClick={() =>
+              void refreshAll()
+            }
             disabled={
               loading ||
               isRefreshing
@@ -1184,11 +1201,12 @@ export function TasksManager() {
 
           <Button
             type="button"
-            onClick={() => {
+            size="sm"
+            onClick={() =>
               setCreateOpen(
                 true,
-              );
-            }}
+              )
+            }
           >
             <PlusIcon
               aria-hidden="true"
@@ -1199,12 +1217,115 @@ export function TasksManager() {
         </div>
       </header>
 
+      <section
+        className="neon-surface flex flex-wrap items-center gap-2 rounded-lg border border-border-default bg-surface-elevated px-3 py-2 shadow-xs"
+        aria-label="Team Auto Mode"
+      >
+        <span className="me-1 text-sm font-medium text-text-primary">
+          Auto Mode
+        </span>
+
+        {automationTeams.map(
+          (
+            team,
+          ) => {
+            const status =
+              automationStatusByTeamId.get(
+                team.id,
+              );
+
+            const detail =
+              status
+                ?.blockedByActiveRun
+                ? "Waiting for active run"
+                : formatAutomationUnavailableReason(
+                    status
+                      ?.unavailableReason ??
+                      null,
+                  );
+
+            return (
+              <div
+                key={
+                  team.id
+                }
+                className="flex min-w-0 items-center gap-1.5 border-l border-divider pl-2 first:border-l-0 first:pl-0"
+              >
+                <span className="max-w-32 truncate text-xs font-medium text-text-secondary">
+                  {
+                    team.name
+                  }
+                </span>
+
+                <Badge
+                  variant={getAutomationBadgeVariant(
+                    status
+                      ?.state ??
+                      "off",
+                  )}
+                >
+                  {formatAutomationState(
+                    status
+                      ?.state ??
+                      "off",
+                  )}
+                </Badge>
+
+                {detail ? (
+                  <span
+                    className="hidden max-w-44 truncate text-xs text-text-muted xl:inline"
+                    title={
+                      detail
+                    }
+                  >
+                    {
+                      detail
+                    }
+                  </span>
+                ) : null}
+
+                <Switch
+                  size="sm"
+                  checked={
+                    team.autoModeEnabled
+                  }
+                  onCheckedChange={(
+                    checked,
+                  ) => {
+                    void handleAutoModeChange(
+                      team,
+                      checked,
+                    );
+                  }}
+                  disabled={
+                    automationLoading ||
+                    automationUpdatingTeamId ===
+                      team.id
+                  }
+                  aria-label={`Toggle ${team.name} Auto Mode`}
+                />
+              </div>
+            );
+          },
+        )}
+
+        {automationLoading &&
+        automationTeams.length ===
+          0 ? (
+          <span className="text-xs text-text-muted">
+            Loading Team automation...
+          </span>
+        ) : null}
+      </section>
+
       {workError ? (
         <div
           role="alert"
           className="rounded-lg border border-status-error/30 bg-status-error/10 px-3 py-2 text-sm text-status-error"
         >
-          {workError}
+          {
+            workError
+          }
         </div>
       ) : null}
 
@@ -1213,94 +1334,130 @@ export function TasksManager() {
           role="alert"
           className="rounded-lg border border-status-error/30 bg-status-error/10 px-3 py-2 text-sm text-status-error"
         >
-          {automationError}
+          {
+            automationError
+          }
         </div>
       ) : null}
 
       {loading &&
       tasks.length ===
         0 ? (
-        <section className="neon-surface flex min-h-[34rem] items-center justify-center rounded-lg border border-border-default bg-surface-elevated shadow-xs">
-          <div className="flex items-center gap-2 text-sm text-text-muted">
-            <Spinner className="size-4" />
+        <section
+          className="space-y-3"
+          aria-label="Loading tasks"
+        >
+          <div className="neon-surface flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-default bg-surface-elevated p-3 shadow-xs">
+            <Skeleton className="h-8 w-full max-w-md" />
 
-            Loading tasks and runs...
+            <div className="flex gap-2">
+              <Skeleton className="h-8 w-48" />
+
+              <Skeleton className="h-8 w-28" />
+            </div>
+          </div>
+
+          <div className="neon-table-surface overflow-hidden rounded-lg border bg-surface-elevated">
+            {Array.from(
+              {
+                length:
+                  7,
+              },
+            ).map(
+              (
+                _,
+                index,
+              ) => (
+                <div
+                  key={
+                    index
+                  }
+                  className="grid grid-cols-[2fr_2.5fr_0.8fr_0.5fr] gap-4 border-b border-divider p-4 last:border-b-0"
+                >
+                  <Skeleton className="h-9 w-full" />
+                  <Skeleton className="h-5 w-full" />
+                  <Skeleton className="h-5 w-20" />
+                  <Skeleton className="ms-auto h-7 w-16" />
+                </div>
+              ),
+            )}
           </div>
         </section>
       ) : (
-        <div className="grid min-w-0 gap-3 lg:grid-cols-[18rem_minmax(0,1fr)] 2xl:grid-cols-[19rem_minmax(32rem,1.35fr)_minmax(30rem,1fr)]">
-          <TaskQueue
-            tasks={
-              tasks
-            }
-            runs={
-              runs
-            }
-            selectedTaskId={
-              selectedTaskId
-            }
-            query={
-              query
-            }
-            onQueryChange={
-              setQuery
-            }
-            onSelect={
-              setSelectedTaskId
-            }
-          />
-
-          <TaskDetailPanel
-            task={
-              selectedTask
-            }
-            project={
-              selectedProject
-            }
-            runs={
-              selectedRuns
-            }
-            latestRunDetail={
-              visibleRunDetail
-            }
-            runDetailLoading={
-              runDetailLoading
-            }
-            runDetailError={
-              runDetailError
-            }
-            busyRunId={
-              busyRunId
-            }
-            onCancelRun={
-              cancelRelatedRun
-            }
-            onSkipRun={
-              skipRelatedRun
-            }
-            onRetryRun={
-              retryRelatedRun
-            }
-          />
-
-          <div className="min-w-0 lg:col-span-2 2xl:col-span-1">
-            <TaskObservabilityPanel
-              latestRunId={
-                latestRunId
-              }
-              detail={
-                visibleRunDetail
-              }
-              loading={
-                runDetailLoading
-              }
-              error={
-                runDetailError
-              }
-            />
-          </div>
-        </div>
+        <TaskQueue
+          tasks={
+            tasks
+          }
+          runs={
+            runs
+          }
+          teams={
+            automationTeams
+          }
+          query={
+            query
+          }
+          busyRunId={
+            busyRunId
+          }
+          onQueryChange={
+            setQuery
+          }
+          onViewTask={
+            handleViewTask
+          }
+          onCancelRun={
+            cancelRelatedRun
+          }
+          onSkipRun={
+            skipRelatedRun
+          }
+          onRetryRun={
+            retryRelatedRun
+          }
+        />
       )}
+
+      <TaskDetailDrawer
+        open={
+          detailOpen &&
+          selectedTask !==
+            null
+        }
+        onOpenChange={
+          setDetailOpen
+        }
+        task={
+          selectedTask
+        }
+        project={
+          selectedProject
+        }
+        runs={
+          selectedRuns
+        }
+        latestRunDetail={
+          visibleRunDetail
+        }
+        runDetailLoading={
+          runDetailLoading
+        }
+        runDetailError={
+          runDetailError
+        }
+        busyRunId={
+          busyRunId
+        }
+        onCancelRun={
+          cancelRelatedRun
+        }
+        onSkipRun={
+          skipRelatedRun
+        }
+        onRetryRun={
+          retryRelatedRun
+        }
+      />
 
       <TaskCreateDrawer
         open={
