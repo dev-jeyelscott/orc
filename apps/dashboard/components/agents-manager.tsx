@@ -1,13 +1,16 @@
 "use client";
 
 import {
-  ActivityIcon,
   AlertTriangleIcon,
   BotIcon,
+  LayoutGridIcon,
+  ListIcon,
+  PencilIcon,
   PlusIcon,
   RefreshCwIcon,
   RouteIcon,
   SearchIcon,
+  TableIcon,
 } from "lucide-react";
 import {
   useCallback,
@@ -19,44 +22,13 @@ import {
 
 import type {
   AgentMonitoringOverview,
-  AgentMonitoringRange,
-  AgentObservability,
   AgentWithRoutes,
   Team,
 } from "@orc/shared";
 
 import {
-  getAgentExecutionMetrics,
-} from "@/lib/agent-executions";
-import {
-  getAgentMonitoringOverview,
-  getAgentObservability,
-} from "@/lib/agents";
-import {
-  AGENT_TIME_RANGE_OPTIONS,
-  describeAgentMonitoringEvent,
-  filterAgents,
-  formatIdentifier,
-  groupAgentsByLayer,
-  scopeAgentsToTeam,
-  type AgentStatusFilter,
-} from "@/lib/agent-presentation";
-import {
-  formatRelativeTime,
-} from "@/lib/run-observability";
-import {
-  cn,
-} from "@/lib/utils";
-
-import {
   AgentConfigDrawer,
 } from "@/components/agent-config-drawer";
-import {
-  AgentInspector,
-  AgentLiveObservability,
-  AgentRouteHealth,
-  type AgentProcessMetrics,
-} from "@/components/agent-observability";
 import {
   AgentWorkflowView,
 } from "@/components/agent-workflow-view";
@@ -64,11 +36,18 @@ import {
   MetricCard,
 } from "@/components/metric-card";
 import {
+  Avatar,
+  AvatarFallback,
+} from "@/components/ui/avatar";
+import {
   Badge,
 } from "@/components/ui/badge";
 import {
   Button,
 } from "@/components/ui/button";
+import {
+  ButtonGroup,
+} from "@/components/ui/button-group";
 import {
   Card,
   CardContent,
@@ -76,39 +55,72 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Input,
-} from "@/components/ui/input";
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "@/components/ui/native-select";
+import {
+  Spinner,
+} from "@/components/ui/spinner";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
+  getAgentMonitoringOverview,
+} from "@/lib/agents";
+import {
+  formatIdentifier,
+  scopeAgentsToTeam,
+  type AgentStatusFilter,
+} from "@/lib/agent-presentation";
+import {
+  getAgentInitials,
+  getAgentToneIndex,
+} from "@/lib/team-presentation";
+import {
+  countConfiguredLayers,
+  getAgentCapabilityLabels,
+  getTeamRouteRows,
+  getVisibleTeamAgents,
+  getWorkflowOrderedAgents,
+  type TeamAgentSortKey,
+  type TeamAgentViewMode,
+} from "@/lib/team-workspace-presentation";
+import {
+  cn,
+} from "@/lib/utils";
 
-const LIVE_METRICS_INTERVAL_MS =
-  3_000;
-
-const OBSERVABILITY_INTERVAL_MS =
-  5_000;
-
-type AgentsManagerProps = {
-  team:
-    Team;
-};
-
-type LiveMetricsState = {
-  executionId: string;
-  metrics:
-    AgentProcessMetrics;
-};
-
-type ObservabilityErrorState = {
-  agentId: string;
-  range:
-    AgentMonitoringRange;
-  message: string;
-};
+const agentToneClasses = [
+  "bg-brand-accent/15 text-brand-accent",
+  "bg-status-running/15 text-status-running",
+  "bg-status-success/15 text-status-success",
+  "bg-status-warning/15 text-status-warning",
+  "bg-neon-cyan/15 text-neon-cyan",
+  "bg-neon-violet/15 text-neon-violet",
+] as const;
 
 /**
  * Converts unknown request failures into concise operator-facing text.
@@ -118,7 +130,7 @@ function errorMessage(
 ): string {
   return error instanceof Error
     ? error.message
-    : "Unable to load agent monitoring data";
+    : "Unable to load Team Agent configuration";
 }
 
 /**
@@ -128,15 +140,705 @@ function isAbortError(
   error: unknown,
 ): boolean {
   return (
-    error instanceof
-      DOMException &&
-    error.name ===
-      "AbortError"
+    error instanceof DOMException &&
+    error.name === "AbortError"
   );
 }
 
 /**
- * Renders Team-scoped Agent configuration, routing, and observability.
+ * Formats one Agent update timestamp without inventing runtime activity.
+ */
+function formatUpdatedAt(
+  value: string,
+): string {
+  const timestamp =
+    Date.parse(value);
+
+  if (
+    !Number.isFinite(timestamp)
+  ) {
+    return "Unknown";
+  }
+
+  return new Intl.DateTimeFormat(
+    "en",
+    {
+      dateStyle: "medium",
+      timeStyle: "short",
+    },
+  ).format(
+    new Date(timestamp),
+  );
+}
+
+/**
+ * Renders one deterministic Agent initials avatar using existing semantic color tokens.
+ */
+function AgentAvatar({
+  agent,
+}: {
+  agent: AgentWithRoutes;
+}) {
+  const toneClass =
+    agentToneClasses[
+      getAgentToneIndex(
+        agent.id,
+        agentToneClasses.length,
+      )
+    ];
+
+  return (
+    <Avatar
+      size="sm"
+      title={`${agent.name}, ${agent.role}`}
+      aria-label={`${agent.name}, ${agent.role}`}
+      className={cn(
+        !agent.enabled &&
+          "opacity-55 grayscale",
+      )}
+    >
+      <AvatarFallback
+        className={cn(
+          "text-[10px] font-semibold",
+          toneClass,
+        )}
+      >
+        {getAgentInitials(
+          agent.name,
+        )}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
+
+/**
+ * Renders Agent identity with the concise role, layer, and model secondary line from the redesign.
+ */
+function AgentIdentity({
+  agent,
+  onEdit,
+}: {
+  agent: AgentWithRoutes;
+  onEdit: (agentId: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        onEdit(agent.id)
+      }
+      className="group flex min-w-0 items-center gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+      aria-label={`Edit ${agent.name}`}
+    >
+      <AgentAvatar
+        agent={agent}
+      />
+
+      <span className="min-w-0">
+        <span className="block truncate font-medium text-text-primary group-hover:text-link">
+          {agent.name}
+        </span>
+
+        <span className="mt-0.5 block truncate text-xs text-text-muted">
+          {agent.role}{" "}
+          · L{agent.layer}{" "}
+          · {agent.model}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+/**
+ * Renders only persisted Agent capability flags as compact badges.
+ */
+function AgentCapabilities({
+  agent,
+}: {
+  agent: AgentWithRoutes;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {getAgentCapabilityLabels(
+        agent,
+      ).map((capability) => (
+        <Badge
+          key={capability}
+          variant="outline"
+          className="font-normal"
+        >
+          {capability}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Renders persisted Agent enabled state through the shared semantic badge system.
+ */
+function AgentStatus({
+  agent,
+}: {
+  agent: AgentWithRoutes;
+}) {
+  return (
+    <Badge
+      variant={
+        agent.enabled
+          ? "success"
+          : "disabled"
+      }
+    >
+      {agent.enabled
+        ? "Enabled"
+        : "Disabled"}
+    </Badge>
+  );
+}
+
+type AgentCollectionViewProps = {
+  agents: AgentWithRoutes[];
+  onEdit: (agentId: string) => void;
+};
+
+/**
+ * Renders the default high-signal Team Agent table.
+ */
+function AgentTableView({
+  agents,
+  onEdit,
+}: AgentCollectionViewProps) {
+  return (
+    <div className="overflow-x-auto">
+      <Table className="min-w-[900px]">
+        <TableHeader className="bg-surface-interactive/45">
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="h-9 px-4 text-xs text-text-secondary">
+              Agent
+            </TableHead>
+            <TableHead className="h-9 px-4 text-xs text-text-secondary">
+              Execution Order
+            </TableHead>
+            <TableHead className="h-9 px-4 text-xs text-text-secondary">
+              Capabilities
+            </TableHead>
+            <TableHead className="h-9 px-4 text-xs text-text-secondary">
+              Status
+            </TableHead>
+            <TableHead className="h-9 px-4 text-xs text-text-secondary">
+              Last Updated
+            </TableHead>
+            <TableHead className="h-9 w-14 px-3 text-right text-xs text-text-secondary">
+              <span className="sr-only">
+                Actions
+              </span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+
+        <TableBody>
+          {agents.map((agent) => (
+            <TableRow
+              key={agent.id}
+              className="h-16 border-divider hover:bg-surface-interactive/45"
+            >
+              <TableCell className="px-4 py-2.5">
+                <AgentIdentity
+                  agent={agent}
+                  onEdit={onEdit}
+                />
+              </TableCell>
+
+              <TableCell className="px-4 py-2.5">
+                <div className="text-sm text-text-secondary">
+                  {agent.executionOrder}
+                </div>
+                <div className="mt-0.5 text-xs text-text-muted">
+                  Layer {agent.layer}
+                </div>
+              </TableCell>
+
+              <TableCell className="px-4 py-2.5">
+                <AgentCapabilities
+                  agent={agent}
+                />
+              </TableCell>
+
+              <TableCell className="px-4 py-2.5">
+                <AgentStatus
+                  agent={agent}
+                />
+              </TableCell>
+
+              <TableCell className="whitespace-nowrap px-4 py-2.5 text-xs text-text-secondary">
+                {formatUpdatedAt(
+                  agent.updatedAt,
+                )}
+              </TableCell>
+
+              <TableCell className="px-3 py-2.5 text-right">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() =>
+                    onEdit(agent.id)
+                  }
+                  aria-label={`Edit ${agent.name}`}
+                >
+                  <PencilIcon />
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+/**
+ * Renders a relaxed horizontal Agent list using the same filtered and sorted collection.
+ */
+function AgentListView({
+  agents,
+  onEdit,
+}: AgentCollectionViewProps) {
+  return (
+    <div className="divide-y divide-divider">
+      {agents.map((agent) => (
+        <div
+          key={agent.id}
+          className="flex flex-col gap-3 px-4 py-3 transition-colors hover:bg-surface-interactive/35 lg:flex-row lg:items-center"
+        >
+          <div className="min-w-0 flex-1">
+            <AgentIdentity
+              agent={agent}
+              onEdit={onEdit}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+            <AgentCapabilities
+              agent={agent}
+            />
+
+            <span className="whitespace-nowrap text-xs text-text-muted">
+              Order {agent.executionOrder}
+            </span>
+
+            <AgentStatus
+              agent={agent}
+            />
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                onEdit(agent.id)
+              }
+            >
+              <PencilIcon />
+              Edit
+            </Button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Renders the persisted technical configuration fields required for a denser Agent comparison.
+ */
+function AgentDetailedView({
+  agents,
+  onEdit,
+}: AgentCollectionViewProps) {
+  return (
+    <div className="overflow-x-auto">
+      <Table className="min-w-[1180px]">
+        <TableHeader className="bg-surface-interactive/45">
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="h-9 px-4 text-xs text-text-secondary">
+              Agent
+            </TableHead>
+            <TableHead className="h-9 px-4 text-xs text-text-secondary">
+              Layer / Order
+            </TableHead>
+            <TableHead className="h-9 px-4 text-xs text-text-secondary">
+              Harness / Model
+            </TableHead>
+            <TableHead className="h-9 px-4 text-xs text-text-secondary">
+              Reasoning
+            </TableHead>
+            <TableHead className="h-9 px-4 text-xs text-text-secondary">
+              Capabilities
+            </TableHead>
+            <TableHead className="h-9 px-4 text-xs text-text-secondary">
+              Status
+            </TableHead>
+            <TableHead className="h-9 px-4 text-xs text-text-secondary">
+              Updated
+            </TableHead>
+            <TableHead className="h-9 w-14 px-3 text-right text-xs text-text-secondary">
+              <span className="sr-only">
+                Actions
+              </span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+
+        <TableBody>
+          {agents.map((agent) => (
+            <TableRow
+              key={agent.id}
+              className="h-16 border-divider hover:bg-surface-interactive/45"
+            >
+              <TableCell className="px-4 py-2.5">
+                <AgentIdentity
+                  agent={agent}
+                  onEdit={onEdit}
+                />
+              </TableCell>
+
+              <TableCell className="px-4 py-2.5 font-mono text-xs text-text-secondary">
+                L{agent.layer} · #{agent.executionOrder}
+              </TableCell>
+
+              <TableCell className="px-4 py-2.5 text-xs">
+                <div className="font-mono text-text-secondary">
+                  {agent.harness}
+                </div>
+                <div className="mt-0.5 font-mono text-text-muted">
+                  {agent.model}
+                </div>
+              </TableCell>
+
+              <TableCell className="px-4 py-2.5 text-xs text-text-secondary">
+                {agent.reasoning}
+              </TableCell>
+
+              <TableCell className="px-4 py-2.5">
+                <AgentCapabilities
+                  agent={agent}
+                />
+              </TableCell>
+
+              <TableCell className="px-4 py-2.5">
+                <AgentStatus
+                  agent={agent}
+                />
+              </TableCell>
+
+              <TableCell className="whitespace-nowrap px-4 py-2.5 text-xs text-text-secondary">
+                {formatUpdatedAt(
+                  agent.updatedAt,
+                )}
+              </TableCell>
+
+              <TableCell className="px-3 py-2.5 text-right">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() =>
+                    onEdit(agent.id)
+                  }
+                  aria-label={`Edit ${agent.name}`}
+                >
+                  <PencilIcon />
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+/**
+ * Renders responsive Agent cards without changing collection semantics.
+ */
+function AgentGridView({
+  agents,
+  onEdit,
+}: AgentCollectionViewProps) {
+  return (
+    <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      {agents.map((agent) => (
+        <Card
+          key={agent.id}
+          size="sm"
+          className="gap-3 rounded-lg bg-surface-card shadow-none ring-1 ring-border-default transition-colors hover:bg-surface-interactive/35"
+        >
+          <CardHeader className="gap-3">
+            <div className="flex items-start justify-between gap-3">
+              <AgentIdentity
+                agent={agent}
+                onEdit={onEdit}
+              />
+
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={() =>
+                  onEdit(agent.id)
+                }
+                aria-label={`Edit ${agent.name}`}
+              >
+                <PencilIcon />
+              </Button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <AgentStatus
+                agent={agent}
+              />
+              <Badge variant="outline">
+                Order {agent.executionOrder}
+              </Badge>
+            </div>
+          </CardHeader>
+
+          <CardContent className="grid gap-3 text-xs">
+            <AgentCapabilities
+              agent={agent}
+            />
+
+            <div className="grid grid-cols-[88px_1fr] gap-2 border-t border-divider pt-3">
+              <span className="text-text-muted">
+                Harness
+              </span>
+              <span className="font-mono text-text-secondary">
+                {agent.harness}
+              </span>
+
+              <span className="text-text-muted">
+                Reasoning
+              </span>
+              <span className="text-text-secondary">
+                {agent.reasoning}
+              </span>
+
+              <span className="text-text-muted">
+                Updated
+              </span>
+              <span className="text-text-secondary">
+                {formatUpdatedAt(
+                  agent.updatedAt,
+                )}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Renders the generic workflow execution order from current persisted Agent configuration.
+ */
+function ExecutionOrderCard({
+  agents,
+}: {
+  agents: AgentWithRoutes[];
+}) {
+  const orderedAgents =
+    getWorkflowOrderedAgents(
+      agents,
+    );
+
+  return (
+    <Card
+      size="sm"
+      className="min-w-0"
+    >
+      <CardHeader className="border-b border-divider">
+        <div>
+          <CardTitle>
+            Execution Order
+          </CardTitle>
+          <p className="mt-1 text-xs text-text-muted">
+            Layer first, then configured same-layer order.
+          </p>
+        </div>
+      </CardHeader>
+
+      <CardContent className="p-0">
+        {orderedAgents.length === 0 ? (
+          <p className="p-5 text-xs text-text-muted">
+            No Agents are configured for this Team.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table className="min-w-[560px]">
+              <TableHeader className="bg-surface-interactive/35">
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="h-9 w-12 px-3 text-xs text-text-secondary">
+                    #
+                  </TableHead>
+                  <TableHead className="h-9 px-3 text-xs text-text-secondary">
+                    Agent
+                  </TableHead>
+                  <TableHead className="h-9 px-3 text-xs text-text-secondary">
+                    Layer
+                  </TableHead>
+                  <TableHead className="h-9 px-3 text-xs text-text-secondary">
+                    Order
+                  </TableHead>
+                  <TableHead className="h-9 px-3 text-xs text-text-secondary">
+                    Status
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+
+              <TableBody>
+                {orderedAgents.map(
+                  (agent, index) => (
+                    <TableRow
+                      key={agent.id}
+                      className="border-divider"
+                    >
+                      <TableCell className="px-3 py-2.5 font-mono text-xs text-text-muted">
+                        {index + 1}
+                      </TableCell>
+                      <TableCell className="px-3 py-2.5 text-xs font-medium text-text-primary">
+                        {agent.name}
+                      </TableCell>
+                      <TableCell className="px-3 py-2.5 font-mono text-xs text-text-secondary">
+                        {agent.layer}
+                      </TableCell>
+                      <TableCell className="px-3 py-2.5 font-mono text-xs text-text-secondary">
+                        {agent.executionOrder}
+                      </TableCell>
+                      <TableCell className="px-3 py-2.5">
+                        <AgentStatus
+                          agent={agent}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ),
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Renders persisted explicit routing records without inferring role-specific behavior.
+ */
+function RoutingRulesCard({
+  agents,
+}: {
+  agents: AgentWithRoutes[];
+}) {
+  const routeRows =
+    getTeamRouteRows(
+      agents,
+    );
+
+  return (
+    <Card
+      size="sm"
+      className="min-w-0"
+    >
+      <CardHeader className="border-b border-divider">
+        <div>
+          <CardTitle>
+            Routing Rules
+          </CardTitle>
+          <p className="mt-1 text-xs text-text-muted">
+            Explicit persisted outcome routes for this Team.
+          </p>
+        </div>
+      </CardHeader>
+
+      <CardContent className="p-0">
+        {routeRows.length === 0 ? (
+          <p className="p-5 text-xs text-text-muted">
+            No explicit routing rules are configured. Normal enabled-Agent progression follows layer and execution order.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table className="min-w-[680px]">
+              <TableHeader className="bg-surface-interactive/35">
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="h-9 px-3 text-xs text-text-secondary">
+                    From
+                  </TableHead>
+                  <TableHead className="h-9 px-3 text-xs text-text-secondary">
+                    Outcome
+                  </TableHead>
+                  <TableHead className="h-9 px-3 text-xs text-text-secondary">
+                    To
+                  </TableHead>
+                  <TableHead className="h-9 px-3 text-xs text-text-secondary">
+                    Status
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+
+              <TableBody>
+                {routeRows.map((route) => (
+                  <TableRow
+                    key={route.id}
+                    className="border-divider"
+                  >
+                    <TableCell className="px-3 py-2.5 text-xs font-medium text-text-primary">
+                      {route.sourceName}
+                    </TableCell>
+                    <TableCell className="px-3 py-2.5 text-xs text-text-secondary">
+                      {formatIdentifier(
+                        route.outcome,
+                      )}
+                    </TableCell>
+                    <TableCell className="px-3 py-2.5 text-xs text-text-secondary">
+                      {route.terminal
+                        ? formatIdentifier(
+                            route.destination,
+                          )
+                        : route.destination}
+                    </TableCell>
+                    <TableCell className="px-3 py-2.5">
+                      <Badge
+                        variant={
+                          route.enabled
+                            ? "success"
+                            : "disabled"
+                        }
+                      >
+                        {route.enabled
+                          ? "Enabled"
+                          : "Disabled"}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+type AgentsManagerProps = {
+  team: Team;
+};
+
+/**
+ * Renders the dedicated Team workspace with focused Agents and Workflow tabs.
  */
 export function AgentsManager({
   team,
@@ -144,1390 +846,826 @@ export function AgentsManager({
   const [
     overview,
     setOverview,
-  ] =
-    useState<AgentMonitoringOverview | null>(
-      null,
-    );
-
+  ] = useState<AgentMonitoringOverview | null>(
+    null,
+  );
   const [
-    selectedAgentId,
-    setSelectedAgentId,
-  ] =
-    useState<string | null>(
-      null,
-    );
-
-  const [
-    observability,
-    setObservability,
-  ] =
-    useState<AgentObservability | null>(
-      null,
-    );
-
-  const [
-    liveMetricsState,
-    setLiveMetricsState,
-  ] =
-    useState<LiveMetricsState | null>(
-      null,
-    );
-
-  const [
-    range,
-    setRange,
-  ] =
-    useState<AgentMonitoringRange>(
-      "7d",
-    );
-
-  const [
-    search,
-    setSearch,
-  ] =
-    useState("");
-
-  const [
-    layerFilter,
-    setLayerFilter,
-  ] =
-    useState("all");
-
-  const [
-    statusFilter,
-    setStatusFilter,
-  ] =
-    useState<AgentStatusFilter>(
-      "all",
-    );
-
-  const [
-    loading,
-    setLoading,
-  ] =
-    useState(true);
-
+    status,
+    setStatus,
+  ] = useState<
+    "loading" | "loaded" | "error"
+  >("loading");
   const [
     error,
     setError,
-  ] =
-    useState<string | null>(
-      null,
-    );
-
+  ] = useState<string | null>(
+    null,
+  );
   const [
-    observabilityErrorState,
-    setObservabilityErrorState,
-  ] =
-    useState<ObservabilityErrorState | null>(
-      null,
-    );
-
+    refreshError,
+    setRefreshError,
+  ] = useState<string | null>(
+    null,
+  );
+  const [
+    refreshing,
+    setRefreshing,
+  ] = useState(false);
+  const [
+    search,
+    setSearch,
+  ] = useState("");
+  const [
+    layerFilter,
+    setLayerFilter,
+  ] = useState("all");
+  const [
+    statusFilter,
+    setStatusFilter,
+  ] = useState<AgentStatusFilter>(
+    "all",
+  );
+  const [
+    sortKey,
+    setSortKey,
+  ] = useState<TeamAgentSortKey>(
+    "name",
+  );
+  const [
+    viewMode,
+    setViewMode,
+  ] = useState<TeamAgentViewMode>(
+    "table",
+  );
+  const [
+    selectedAgentId,
+    setSelectedAgentId,
+  ] = useState<string | null>(
+    null,
+  );
   const [
     drawerOpen,
     setDrawerOpen,
-  ] =
-    useState(false);
-
+  ] = useState(false);
   const [
     drawerMode,
     setDrawerMode,
-  ] =
-    useState<
-      "create" | "edit"
-    >("create");
-
+  ] = useState<
+    "create" | "edit"
+  >("create");
   const [
     drawerSession,
     setDrawerSession,
-  ] =
-    useState(0);
-
+  ] = useState(0);
   const overviewAbort =
     useRef<AbortController | null>(
       null,
     );
 
   /**
-   * Loads the selected Team's complete Agent overview while preventing stale response writes.
+   * Loads the Team-scoped Agent and route read model while preserving prior data on explicit refresh failures.
    */
-  const loadOverview =
-    useCallback(
-      async (
-        nextRange:
-          AgentMonitoringRange,
-        preferredAgentId?:
-          string,
-      ) => {
-        overviewAbort.current?.abort();
-
-        const controller =
-          new AbortController();
-
-        overviewAbort.current =
-          controller;
-
-        try {
-          const next =
-            await getAgentMonitoringOverview(
-              nextRange,
-              team.id,
-              controller.signal,
-            );
-
-          if (
-            controller.signal
-              .aborted
-          ) {
-            return;
-          }
-
-          const scopedAgents =
-            scopeAgentsToTeam(
-              next.agents,
-              team.id,
-            );
-
-          const scopedOverview = {
-            ...next,
-            agents:
-              scopedAgents,
-          };
-
-          setOverview(
-            scopedOverview,
-          );
-
-          setError(
-            null,
-          );
-
-          setSelectedAgentId(
-            (current) => {
-              if (
-                preferredAgentId &&
-                scopedAgents.some(
-                  (agent) =>
-                    agent.id ===
-                    preferredAgentId,
-                )
-              ) {
-                return preferredAgentId;
-              }
-
-              if (
-                current &&
-                scopedAgents.some(
-                  (agent) =>
-                    agent.id ===
-                    current,
-                )
-              ) {
-                return current;
-              }
-
-              return (
-                scopedAgents[0]
-                  ?.id ??
-                null
-              );
-            },
-          );
-        } catch (caught) {
-          if (
-            !isAbortError(
-              caught,
-            )
-          ) {
-            setError(
-              errorMessage(
-                caught,
-              ),
-            );
-          }
-        } finally {
-          if (
-            !controller.signal
-              .aborted
-          ) {
-            setLoading(
-              false,
-            );
-          }
-        }
-      },
-      [
-        team.id,
-      ],
-    );
-
-  useEffect(() => {
-    let disposed =
-      false;
-
-    queueMicrotask(
-      () => {
-        if (!disposed) {
-          void loadOverview(
-            range,
-          );
-        }
-      },
-    );
-
-    return () => {
-      disposed =
-        true;
-
+  const loadOverview = useCallback(
+    async (
+      preferredAgentId?: string,
+      preserveOnError = false,
+    ) => {
       overviewAbort.current?.abort();
-    };
-  }, [
-    range,
-    loadOverview,
-  ]);
 
-  useEffect(() => {
-    const agentId =
-      selectedAgentId;
-
-    if (!agentId) {
-      return;
-    }
-
-    const stableAgentId:
-      string =
-      agentId;
-
-    let cancelled =
-      false;
-
-    let timeout:
-      ReturnType<
-        typeof setTimeout
-      > | null =
-      null;
-
-    let controller:
-      AbortController | null =
-      null;
-
-    /**
-     * Loads one selected-Agent observability snapshot and polls only while it remains active.
-     */
-    async function loadSelectedObservability() {
-      controller?.abort();
-
-      controller =
+      const controller =
         new AbortController();
+
+      overviewAbort.current =
+        controller;
+
+      if (!preserveOnError) {
+        setStatus("loading");
+        setError(null);
+      }
+
+      setRefreshError(null);
 
       try {
         const next =
-          await getAgentObservability(
-            stableAgentId,
-            range,
+          await getAgentMonitoringOverview(
+            "7d",
+            team.id,
             controller.signal,
           );
 
         if (
-          cancelled ||
-          controller.signal
-            .aborted
+          controller.signal.aborted
         ) {
           return;
         }
 
-        setObservability(
-          next,
-        );
+        const scopedAgents =
+          scopeAgentsToTeam(
+            next.agents,
+            team.id,
+          );
+        const scopedOverview = {
+          ...next,
+          agents: scopedAgents,
+        };
 
-        setObservabilityErrorState(
-          null,
+        setOverview(
+          scopedOverview,
         );
+        setStatus("loaded");
+        setError(null);
+        setSelectedAgentId(
+          (current) => {
+            if (
+              preferredAgentId &&
+              scopedAgents.some(
+                (agent) =>
+                  agent.id ===
+                  preferredAgentId,
+              )
+            ) {
+              return preferredAgentId;
+            }
 
-        if (
-          next.activeExecution
-        ) {
-          timeout =
-            setTimeout(
-              () =>
-                void loadSelectedObservability(),
-              OBSERVABILITY_INTERVAL_MS,
+            if (
+              current &&
+              scopedAgents.some(
+                (agent) =>
+                  agent.id === current,
+              )
+            ) {
+              return current;
+            }
+
+            return (
+              scopedAgents[0]?.id ??
+              null
             );
-        }
+          },
+        );
       } catch (caught) {
         if (
-          !cancelled &&
-          !isAbortError(
-            caught,
-          )
+          isAbortError(caught)
         ) {
-          setObservabilityErrorState({
-            agentId:
-              stableAgentId,
-            range,
-            message:
-              errorMessage(
-                caught,
-              ),
-          });
+          return;
+        }
+
+        const message =
+          errorMessage(caught);
+
+        if (preserveOnError) {
+          setRefreshError(message);
+        } else {
+          setError(message);
+          setStatus("error");
+        }
+      } finally {
+        if (
+          !controller.signal.aborted
+        ) {
+          setRefreshing(false);
         }
       }
-    }
-
-    void loadSelectedObservability();
-
-    return () => {
-      cancelled =
-        true;
-
-      controller?.abort();
-
-      if (timeout) {
-        clearTimeout(
-          timeout,
-        );
-      }
-    };
-  }, [
-    selectedAgentId,
-    range,
-  ]);
-
-  const visibleObservability =
-    observability?.agentId ===
-      selectedAgentId &&
-    observability.range ===
-      range
-      ? observability
-      : null;
-
-  const visibleObservabilityError =
-    observabilityErrorState
-      ?.agentId ===
-      selectedAgentId &&
-    observabilityErrorState
-      ?.range ===
-      range
-      ? observabilityErrorState
-          .message
-      : null;
-
-  const observabilityLoading =
-    Boolean(
-      selectedAgentId,
-    ) &&
-    !visibleObservability &&
-    !visibleObservabilityError;
-
-  const activeExecutionId =
-    visibleObservability
-      ?.activeExecution
-      ?.id ??
-    null;
+    },
+    [team.id],
+  );
 
   useEffect(() => {
-    const executionId =
-      activeExecutionId;
-
-    if (!executionId) {
-      return;
-    }
-
-    const stableExecutionId:
-      string =
-      executionId;
-
-    let cancelled =
-      false;
-
-    /**
-     * Loads live process metrics only while the selected execution remains active.
-     */
-    async function loadLiveMetrics() {
-      try {
-        const next =
-          await getAgentExecutionMetrics(
-            stableExecutionId,
-          );
-
-        if (!cancelled) {
-          setLiveMetricsState({
-            executionId:
-              stableExecutionId,
-            metrics:
-              next,
-          });
-        }
-      } catch {
-        if (!cancelled) {
-          setLiveMetricsState({
-            executionId:
-              stableExecutionId,
-            metrics: {
-              cpuPercent:
-                null,
-              memoryBytes:
-                null,
-            },
-          });
-        }
-      }
-    }
-
-    void loadLiveMetrics();
-
-    const interval =
-      setInterval(
-        () =>
-          void loadLiveMetrics(),
-        LIVE_METRICS_INTERVAL_MS,
-      );
+    void loadOverview();
 
     return () => {
-      cancelled =
-        true;
-
-      clearInterval(
-        interval,
-      );
+      overviewAbort.current?.abort();
     };
-  }, [
-    activeExecutionId,
-  ]);
+  }, [loadOverview]);
 
-  const liveMetrics =
-    liveMetricsState
-      ?.executionId ===
-      activeExecutionId
-      ? liveMetricsState.metrics
-      : null;
-
-  const agents =
-    useMemo(
-      () =>
-        scopeAgentsToTeam(
-          overview?.agents ??
-            [],
-          team.id,
-        ),
-      [
-        overview?.agents,
+  const agents = useMemo(
+    () =>
+      scopeAgentsToTeam(
+        overview?.agents ?? [],
         team.id,
-      ],
-    );
+      ),
+    [
+      overview?.agents,
+      team.id,
+    ],
+  );
+
+  const availableLayers = useMemo(
+    () =>
+      [
+        ...new Set(
+          agents.map(
+            (agent) =>
+              agent.layer,
+          ),
+        ),
+      ].sort(
+        (left, right) =>
+          left - right,
+      ),
+    [agents],
+  );
+
+  const visibleAgents = useMemo(
+    () =>
+      getVisibleTeamAgents(
+        agents,
+        search,
+        layerFilter === "all"
+          ? null
+          : Number(layerFilter),
+        statusFilter,
+        sortKey,
+      ),
+    [
+      agents,
+      search,
+      layerFilter,
+      statusFilter,
+      sortKey,
+    ],
+  );
 
   const selectedAgent =
     agents.find(
       (agent) =>
         agent.id ===
         selectedAgentId,
-    ) ??
-    null;
+    ) ?? null;
 
-  const availableLayers =
-    useMemo(
-      () =>
-        [
-          ...new Set(
-            agents.map(
-              (agent) =>
-                agent.layer,
-            ),
-          ),
-        ].sort(
-          (
-            left,
-            right,
-          ) =>
-            left -
-            right,
-        ),
-      [agents],
-    );
-
-  const filteredAgents =
-    useMemo(
-      () =>
-        filterAgents(
-          agents,
-          search,
-          layerFilter ===
-            "all"
-            ? null
-            : Number(
-                layerFilter,
-              ),
-          statusFilter,
-        ),
-      [
+  const routeRows = useMemo(
+    () =>
+      getTeamRouteRows(
         agents,
-        search,
-        layerFilter,
-        statusFilter,
-      ],
-    );
+      ),
+    [agents],
+  );
 
-  const activeGraphAgentId =
-    visibleObservability
-      ?.activeExecution
-      ? selectedAgentId
-      : null;
+  const enabledRouteCount =
+    routeRows.filter(
+      (route) =>
+        route.enabled,
+    ).length;
 
   /**
-   * Selects one current Agent for the index, graph, inspector, and observability sections.
-   */
-  function selectAgent(
-    agentId: string,
-  ) {
-    setSelectedAgentId(
-      agentId,
-    );
-  }
-
-  /**
-   * Opens a fresh Team-owned create-Agent drawer session.
+   * Opens a fresh Team-scoped create-Agent drawer session.
    */
   function openCreateDrawer() {
-    setDrawerMode(
-      "create",
-    );
-
+    setDrawerMode("create");
     setDrawerSession(
       (current) =>
         current + 1,
     );
-
-    setDrawerOpen(
-      true,
-    );
+    setDrawerOpen(true);
   }
 
   /**
-   * Opens a fresh edit drawer session for the currently selected persisted Agent.
+   * Selects one persisted Agent and opens the existing configuration drawer for editing.
    */
-  function openEditDrawer() {
-    if (!selectedAgent) {
-      return;
-    }
-
-    setDrawerMode(
-      "edit",
-    );
-
-    setDrawerSession(
-      (current) =>
-        current + 1,
-    );
-
-    setDrawerOpen(
-      true,
-    );
-  }
-
-  /**
-   * Reloads this Team's configuration after one persisted Agent or route mutation.
-   */
-  async function refreshAfterMutation(
-    preferredAgentId:
-      string | null,
+  function openEditDrawer(
+    agentId: string,
   ) {
-    setLoading(
-      true,
+    setSelectedAgentId(agentId);
+    setDrawerMode("edit");
+    setDrawerSession(
+      (current) =>
+        current + 1,
     );
+    setDrawerOpen(true);
+  }
+
+  /**
+   * Refreshes Team Agent configuration while keeping the current successful snapshot visible on failure.
+   */
+  async function refresh() {
+    setRefreshing(true);
 
     await loadOverview(
-      range,
-      preferredAgentId ??
+      selectedAgentId ??
         undefined,
+      status === "loaded",
     );
   }
 
-  return (
-    <div className="flex min-w-0 flex-col gap-3">
-      <header className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="font-heading text-xl font-semibold text-text-primary">
-              {team.name} Agents
-            </h2>
+  /**
+   * Reloads the Team Agent collection after the existing drawer persists an Agent or route mutation.
+   */
+  async function refreshAfterMutation(
+    preferredAgentId: string | null,
+  ) {
+    setRefreshing(true);
 
-            <Badge
-              variant={
-                team.enabled
-                  ? "success"
-                  : "disabled"
-              }
-            >
-              {team.enabled
-                ? "Team Enabled"
-                : "Team Disabled"}
-            </Badge>
-          </div>
-
-          <p className="mt-1 text-sm text-text-muted">
-            Configure worker agents, layers, observability, and routes for this Team only.
-          </p>
-        </div>
-
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <div className="relative min-w-[15rem] flex-1 xl:w-[20rem]">
-            <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-text-muted" />
-
-            <Input
-              value={
-                search
-              }
-              onChange={(
-                event,
-              ) =>
-                setSearch(
-                  event.target
-                    .value,
-                )
-              }
-              className="pl-8"
-              placeholder="Search agents, roles, slugs..."
-              aria-label="Search agents"
-            />
-          </div>
-
-          <Select
-            value={
-              layerFilter
-            }
-            onValueChange={(
-              value,
-            ) =>
-              setLayerFilter(
-                value ??
-                  "all",
-              )
-            }
-          >
-            <SelectTrigger
-              className="min-w-28"
-              aria-label="Filter by layer"
-            >
-              <SelectValue />
-            </SelectTrigger>
-
-            <SelectContent align="end">
-              <SelectItem value="all">
-                All Layers
-              </SelectItem>
-
-              {availableLayers.map(
-                (
-                  layer,
-                ) => (
-                  <SelectItem
-                    key={
-                      layer
-                    }
-                    value={String(
-                      layer,
-                    )}
-                  >
-                    Layer{" "}
-                    {
-                      layer
-                    }
-                  </SelectItem>
-                ),
-              )}
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={
-              statusFilter
-            }
-            onValueChange={(
-              value,
-            ) =>
-              setStatusFilter(
-                (
-                  value ??
-                  "all"
-                ) as AgentStatusFilter,
-              )
-            }
-          >
-            <SelectTrigger
-              className="min-w-28"
-              aria-label="Filter by status"
-            >
-              <SelectValue />
-            </SelectTrigger>
-
-            <SelectContent align="end">
-              <SelectItem value="all">
-                All Status
-              </SelectItem>
-
-              <SelectItem value="enabled">
-                Enabled
-              </SelectItem>
-
-              <SelectItem value="disabled">
-                Disabled
-              </SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={
-              range
-            }
-            onValueChange={(
-              value,
-            ) => {
-              if (
-                value &&
-                value !==
-                  range
-              ) {
-                setLoading(
-                  true,
-                );
-
-                setRange(
-                  value as
-                    AgentMonitoringRange,
-                );
-              }
-            }}
-          >
-            <SelectTrigger
-              className="min-w-32"
-              aria-label="Monitoring range"
-            >
-              <SelectValue />
-            </SelectTrigger>
-
-            <SelectContent align="end">
-              {AGENT_TIME_RANGE_OPTIONS.map(
-                (
-                  option,
-                ) => (
-                  <SelectItem
-                    key={
-                      option.value
-                    }
-                    value={
-                      option.value
-                    }
-                  >
-                    {
-                      option.label
-                    }
-                  </SelectItem>
-                ),
-              )}
-            </SelectContent>
-          </Select>
-
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="outline"
-            onClick={() => {
-              setLoading(
-                true,
-              );
-
-              void loadOverview(
-                range,
-              );
-            }}
-            disabled={
-              loading
-            }
-            aria-label={`Refresh ${team.name} agents`}
-          >
-            <RefreshCwIcon
-              className={
-                loading
-                  ? "animate-spin"
-                  : undefined
-              }
-            />
-          </Button>
-
-          <Button
-            type="button"
-            onClick={
-              openCreateDrawer
-            }
-          >
-            <PlusIcon />
-            Create Agent
-          </Button>
-        </div>
-      </header>
-
-      {error ? (
-        <p
-          role="alert"
-          className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error"
-        >
-          {error}
-        </p>
-      ) : null}
-
-      {loading &&
-      !overview ? (
-        <Card size="sm">
-          <CardContent className="py-12 text-center text-sm text-text-muted">
-            Loading Team Agent configuration...
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {overview ? (
-        <>
-          <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard
-              label="Enabled Agents"
-              value={String(
-                overview.metrics
-                  .enabledAgents,
-              )}
-              description={`of ${overview.metrics.totalAgents} total`}
-              icon={
-                <BotIcon className="size-4 text-status-success" />
-              }
-            />
-
-            <MetricCard
-              label="Active Executions"
-              value={String(
-                overview.metrics
-                  .activeExecutions,
-              )}
-              description={`Across ${overview.metrics.activeRuns} active run${overview.metrics.activeRuns === 1 ? "" : "s"}`}
-              icon={
-                <ActivityIcon className="size-4 text-status-running" />
-              }
-            />
-
-            <MetricCard
-              label="Route Rules"
-              value={String(
-                overview.metrics
-                  .enabledRouteRules,
-              )}
-              description="Enabled routes"
-              icon={
-                <RouteIcon className="size-4 text-brand-accent" />
-              }
-            />
-
-            <MetricCard
-              label="Validation Issues"
-              value={String(
-                overview
-                  .validationIssues
-                  .length,
-              )}
-              description={
-                overview
-                  .validationIssues
-                  .length >
-                0
-                  ? "Needs attention"
-                  : "No issues detected"
-              }
-              icon={
-                <AlertTriangleIcon
-                  className={cn(
-                    "size-4",
-                    overview
-                      .validationIssues
-                      .length >
-                      0
-                      ? "text-status-warning"
-                      : "text-status-success",
-                  )}
-                />
-              }
-            />
-          </section>
-
-          <section className="grid min-w-0 items-start gap-3 xl:grid-cols-[minmax(18rem,0.75fr)_minmax(32rem,1.65fr)] 2xl:grid-cols-[minmax(18rem,0.72fr)_minmax(32rem,1.7fr)_minmax(22rem,1fr)] 2xl:items-stretch">
-            <div className="min-w-0 2xl:h-full 2xl:[&>[data-slot=card]]:h-full">
-              <AgentIndex
-                agents={
-                  filteredAgents
-                }
-                totalCount={
-                  agents.length
-                }
-                totalLayers={
-                  overview.metrics
-                    .layers
-                }
-                selectedAgentId={
-                  selectedAgentId
-                }
-                onSelect={
-                  selectAgent
-                }
-              />
-            </div>
-
-            <div className="min-w-0 2xl:h-full 2xl:[&>[data-slot=card]]:h-full 2xl:[&>[data-slot=card]>[data-slot=card-content]]:flex 2xl:[&>[data-slot=card]>[data-slot=card-content]]:min-h-0 2xl:[&>[data-slot=card]>[data-slot=card-content]]:flex-1 2xl:[&_.agents-react-flow]:!h-full">
-              <AgentWorkflowView
-                agents={
-                  agents
-                }
-                selectedAgentId={
-                  selectedAgentId
-                }
-                activeAgentId={
-                  activeGraphAgentId
-                }
-                onSelectAgent={
-                  selectAgent
-                }
-              />
-            </div>
-
-            <div className="min-w-0 xl:col-span-2 2xl:col-span-1 2xl:h-full 2xl:[&>[data-slot=card]]:h-full">
-              {selectedAgent ? (
-                <AgentInspector
-                  agent={
-                    selectedAgent
-                  }
-                  agents={
-                    agents
-                  }
-                  onEdit={
-                    openEditDrawer
-                  }
-                />
-              ) : (
-                <Card
-                  size="sm"
-                  className="self-start"
-                >
-                  <CardContent className="py-12 text-center text-sm text-text-muted">
-                    Select an agent to inspect its configuration.
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          </section>
-
-          {selectedAgent ? (
-            <AgentLiveObservability
-              agent={
-                selectedAgent
-              }
-              observability={
-                visibleObservability
-              }
-              loading={
-                observabilityLoading
-              }
-              error={
-                visibleObservabilityError
-              }
-              range={
-                range
-              }
-              liveMetrics={
-                liveMetrics
-              }
-            />
-          ) : null}
-
-          <section className="grid min-w-0 items-start gap-3 xl:grid-cols-[1fr_1.05fr_0.85fr]">
-            <RecentAuditEvents
-              overview={
-                overview
-              }
-            />
-
-            <ValidationNotices
-              overview={
-                overview
-              }
-            />
-
-            <AgentRouteHealth
-              agents={
-                agents
-              }
-            />
-          </section>
-
-          <AgentConfigDrawer
-            key={`${team.id}:${drawerSession}:${drawerMode}:${
-              drawerMode ===
-              "edit"
-                ? selectedAgent?.id ??
-                  "none"
-                : "create"
-            }`}
-            open={
-              drawerOpen
-            }
-            mode={
-              drawerMode
-            }
-            createTeamId={
-              team.id
-            }
-            agent={
-              drawerMode ===
-                "edit"
-                ? selectedAgent
-                : null
-            }
-            agents={
-              agents
-            }
-            onOpenChange={
-              setDrawerOpen
-            }
-            onRefresh={
-              refreshAfterMutation
-            }
-          />
-        </>
-      ) : null}
-    </div>
-  );
-}
-
-type AgentIndexProps = {
-  agents:
-    AgentWithRoutes[];
-  totalCount: number;
-  totalLayers: number;
-  selectedAgentId:
-    string | null;
-  onSelect:
-    (agentId: string) => void;
-};
-
-/**
- * Renders the compact searchable Agent index grouped by numeric workflow layer.
- */
-function AgentIndex({
-  agents,
-  totalCount,
-  totalLayers,
-  selectedAgentId,
-  onSelect,
-}: AgentIndexProps) {
-  const groups =
-    groupAgentsByLayer(
-      agents,
+    await loadOverview(
+      preferredAgentId ??
+        undefined,
+      true,
     );
+  }
+
+  if (
+    status === "loading" &&
+    !overview
+  ) {
+    return (
+      <Empty className="min-h-[28rem] border border-border-default bg-surface-elevated">
+        <Spinner className="size-6" />
+        <EmptyTitle>
+          Loading Team Agents...
+        </EmptyTitle>
+      </Empty>
+    );
+  }
+
+  if (
+    status === "error" &&
+    !overview
+  ) {
+    return (
+      <Empty className="min-h-[28rem] border border-border-default bg-surface-elevated">
+        <EmptyHeader>
+          <EmptyMedia
+            variant="icon"
+            className="bg-status-error/10 text-status-error"
+          >
+            <AlertTriangleIcon />
+          </EmptyMedia>
+
+          <EmptyTitle>
+            Failed to load Team Agents
+          </EmptyTitle>
+
+          <EmptyDescription>
+            {error ??
+              "Could not load the Team Agent configuration."}
+          </EmptyDescription>
+        </EmptyHeader>
+
+        <EmptyContent>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              void loadOverview()
+            }
+          >
+            <RefreshCwIcon />
+            Retry
+          </Button>
+        </EmptyContent>
+      </Empty>
+    );
+  }
+
+  if (!overview) {
+    return null;
+  }
 
   return (
-    <Card
-      size="sm"
-      className="min-w-0 self-start"
-    >
-      <CardHeader className="border-b border-divider">
-        <div className="flex items-center justify-between gap-3">
-          <CardTitle>
-            Agent Index
-          </CardTitle>
-
-          <span className="text-[10px] text-text-muted">
-            {totalCount}{" "}
-            agent
-            {totalCount ===
-            1
-              ? ""
-              : "s"}{" "}
-            ·{" "}
-            {
-              totalLayers
-            }{" "}
-            layer
-            {totalLayers ===
-            1
-              ? ""
-              : "s"}
+    <div className="flex min-w-0 flex-col gap-4">
+      {refreshError ? (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-status-error/30 bg-status-error/5 px-3 py-2 text-xs text-status-error"
+        >
+          <span>
+            Failed to refresh Team Agents. {refreshError}
           </span>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            onClick={() =>
+              void refresh()
+            }
+            disabled={refreshing}
+          >
+            Retry
+          </Button>
         </div>
-      </CardHeader>
+      ) : null}
 
-      <CardContent className="flex flex-1 flex-col p-0">
-        {agents.length ===
-        0 ? (
-          <p className="p-6 text-center text-xs text-text-muted">
-            No agents match the current filters.
-          </p>
-        ) : (
-          <div className="max-h-[30rem] overflow-y-auto">
-            {groups.map(
-              (group) => (
-                <div
-                  key={
-                    group.layer
+      <Tabs
+        defaultValue="agents"
+        className="min-w-0 gap-4"
+      >
+        <TabsList
+          variant="line"
+          className="w-full justify-start border-b border-divider pb-0"
+        >
+          <TabsTrigger
+            value="agents"
+            className="flex-none px-3 py-2.5"
+          >
+            Agents
+          </TabsTrigger>
+
+          <TabsTrigger
+            value="workflow"
+            className="flex-none px-3 py-2.5"
+          >
+            Workflow
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent
+          value="agents"
+          className="min-w-0"
+        >
+          <section
+            className="min-w-0 overflow-hidden rounded-lg border border-border-default bg-surface-elevated shadow-xs"
+            aria-label={`${team.name} Agents browser`}
+          >
+            <div className="grid gap-3 border-b border-divider p-3 2xl:grid-cols-[minmax(18rem,1fr)_auto] 2xl:items-center">
+              <InputGroup className="w-full min-w-0 2xl:max-w-xl">
+                <InputGroupAddon>
+                  <SearchIcon
+                    aria-hidden="true"
+                  />
+                </InputGroupAddon>
+
+                <InputGroupInput
+                  type="search"
+                  value={search}
+                  onChange={(event) =>
+                    setSearch(
+                      event.target.value,
+                    )
                   }
-                >
-                  <div className="border-b border-divider bg-surface-interactive/25 px-3 py-1.5 text-[10px] font-medium text-text-secondary">
-                    Layer{" "}
-                    {
-                      group.layer
-                    }{" "}
-                    <span className="text-text-muted">
-                      ·{" "}
-                      {
-                        group.agents
-                          .length
-                      }{" "}
-                      agent
-                      {group.agents
-                        .length ===
-                      1
-                        ? ""
-                        : "s"}
-                    </span>
-                  </div>
+                  placeholder="Search Agents..."
+                  aria-label="Search Agents"
+                />
+              </InputGroup>
 
-                  {group.agents.map(
-                    (
-                      agent,
-                    ) => (
-                      <button
-                        key={
-                          agent.id
-                        }
-                        type="button"
-                        onClick={() =>
-                          onSelect(
-                            agent.id,
-                          )
-                        }
-                        aria-pressed={
-                          selectedAgentId ===
-                          agent.id
-                        }
-                        className={cn(
-                          "flex w-full items-center gap-2.5 border-b border-divider px-3 py-2.5 text-left transition-colors last:border-0",
-                          "hover:bg-surface-interactive/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring",
-                          selectedAgentId ===
-                            agent.id &&
-                            "bg-status-running/8 ring-1 ring-inset ring-status-running/40",
-                          !agent.enabled &&
-                            "opacity-70",
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "flex size-8 shrink-0 items-center justify-center rounded-md",
-                            selectedAgentId ===
-                              agent.id
-                              ? "bg-status-running/15 text-status-running"
-                              : "bg-brand-accent/10 text-brand-accent",
-                          )}
-                          aria-hidden="true"
-                        >
-                          <BotIcon className="size-4" />
-                        </span>
-
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-xs font-medium text-text-primary">
-                            {
-                              agent.name
-                            }
-                          </span>
-
-                          <span className="mt-0.5 block truncate text-[10px] text-text-muted">
-                            {
-                              agent.role
-                            }{" "}
-                            · #
-                            {
-                              agent.executionOrder
-                            }
-                          </span>
-                        </span>
-
-                        <Badge
-                          variant={
-                            agent.enabled
-                              ? "success"
-                              : "disabled"
-                          }
-                          className="h-4 px-1.5 text-[9px]"
-                        >
-                          {agent.enabled
-                            ? "Enabled"
-                            : "Disabled"}
-                        </Badge>
-                      </button>
-                    ),
-                  )}
-                </div>
-              ),
-            )}
-          </div>
-        )}
-
-        <div className="mt-auto border-t border-divider px-3 py-2 text-[10px] text-text-muted">
-          Showing{" "}
-          {agents.length} of{" "}
-          {totalCount} agents
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-type OverviewPanelProps = {
-  overview:
-    AgentMonitoringOverview;
-};
-
-/**
- * Renders recent persisted runtime events associated with this Team's Agent activity.
- */
-function RecentAuditEvents({
-  overview,
-}: OverviewPanelProps) {
-  return (
-    <Card
-      size="sm"
-      className="min-w-0 self-start"
-    >
-      <CardHeader className="border-b border-divider">
-        <CardTitle>
-          Recent Audit Events
-        </CardTitle>
-      </CardHeader>
-
-      <CardContent className="p-0">
-        {overview.recentEvents.length ===
-        0 ? (
-          <p className="p-5 text-xs text-text-muted">
-            No recent persisted Agent events.
-          </p>
-        ) : (
-          <div className="divide-y divide-divider">
-            {overview.recentEvents.map(
-              (
-                event,
-              ) => (
-                <div
-                  key={
-                    event.id
+              <div className="flex min-w-0 flex-wrap items-center gap-2 2xl:justify-end">
+                <NativeSelect
+                  size="default"
+                  className="w-full sm:w-44"
+                  value={sortKey}
+                  onChange={(event) =>
+                    setSortKey(
+                      event.target.value as TeamAgentSortKey,
+                    )
                   }
-                  className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 px-3 py-2"
+                  aria-label="Sort Agents"
                 >
-                  <span className="text-[10px] text-text-muted">
-                    {formatRelativeTime(
-                      event.createdAt,
+                  <NativeSelectOption value="name">
+                    Sorted by Name
+                  </NativeSelectOption>
+                  <NativeSelectOption value="workflow">
+                    Workflow Order
+                  </NativeSelectOption>
+                  <NativeSelectOption value="updatedAt">
+                    Recently Updated
+                  </NativeSelectOption>
+                </NativeSelect>
+
+                <NativeSelect
+                  size="default"
+                  className="w-full sm:w-36"
+                  value={statusFilter}
+                  onChange={(event) =>
+                    setStatusFilter(
+                      event.target.value as AgentStatusFilter,
+                    )
+                  }
+                  aria-label="Filter Agents by status"
+                >
+                  <NativeSelectOption value="all">
+                    All Status
+                  </NativeSelectOption>
+                  <NativeSelectOption value="enabled">
+                    Enabled
+                  </NativeSelectOption>
+                  <NativeSelectOption value="disabled">
+                    Disabled
+                  </NativeSelectOption>
+                </NativeSelect>
+
+                <NativeSelect
+                  size="default"
+                  className="w-full sm:w-36"
+                  value={layerFilter}
+                  onChange={(event) =>
+                    setLayerFilter(
+                      event.target.value,
+                    )
+                  }
+                  aria-label="Filter Agents by layer"
+                >
+                  <NativeSelectOption value="all">
+                    All Layers
+                  </NativeSelectOption>
+                  {availableLayers.map((layer) => (
+                    <NativeSelectOption
+                      key={layer}
+                      value={String(layer)}
+                    >
+                      Layer {layer}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    void refresh()
+                  }
+                  disabled={refreshing}
+                >
+                  <RefreshCwIcon
+                    className={cn(
+                      refreshing &&
+                        "animate-spin motion-reduce:animate-none",
                     )}
-                  </span>
+                  />
+                  Refresh
+                </Button>
 
-                  <div className="min-w-0">
-                    <p className="truncate text-xs text-text-secondary">
-                      {describeAgentMonitoringEvent(
-                        event,
-                        overview.agents,
-                      )}
-                    </p>
-
-                    <p className="mt-0.5 truncate font-mono text-[10px] text-text-muted">
-                      {formatIdentifier(
-                        event.type,
-                      )}
-                    </p>
-                  </div>
-                </div>
-              ),
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-/**
- * Renders Team-scoped deterministic configuration warnings and the immutable run-snapshot notice.
- */
-function ValidationNotices({
-  overview,
-}: OverviewPanelProps) {
-  return (
-    <Card
-      size="sm"
-      className="min-w-0 self-start"
-    >
-      <CardHeader className="border-b border-divider">
-        <CardTitle>
-          Validation & Notices
-        </CardTitle>
-      </CardHeader>
-
-      <CardContent className="p-0">
-        {overview.validationIssues.length ===
-        0 ? (
-          <div className="border-b border-divider px-3 py-3">
-            <p className="text-xs font-medium text-status-success">
-              No configuration issues detected
-            </p>
-
-            <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
-              Persisted Team configuration currently satisfies the deterministic checks available to this view.
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-divider">
-            {overview.validationIssues.map(
-              (
-                issue,
-              ) => (
-                <div
-                  key={
-                    issue.routeId
-                  }
-                  role="alert"
-                  className="flex gap-2 px-3 py-3"
+                <Button
+                  type="button"
+                  onClick={openCreateDrawer}
                 >
-                  <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0 text-status-warning" />
+                  <PlusIcon />
+                  Create Agent
+                </Button>
+              </div>
+            </div>
 
-                  <div>
-                    <p className="text-xs font-medium text-status-warning">
-                      Route target unavailable
-                    </p>
+            <div className="flex flex-col gap-2 border-b border-divider bg-surface-interactive/20 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-xs text-text-muted">
+                {visibleAgents.length} of {agents.length}{" "}
+                {agents.length === 1
+                  ? "Agent"
+                  : "Agents"}
+              </span>
 
-                    <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
-                      {
-                        issue.message
-                      }
-                    </p>
-                  </div>
-                </div>
-              ),
+              <ButtonGroup
+                className="w-full sm:w-auto"
+                aria-label="Agent view mode"
+              >
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(
+                    "flex-1 sm:flex-none",
+                    viewMode === "table" &&
+                      "border-brand-accent/50 bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/15",
+                  )}
+                  aria-pressed={
+                    viewMode === "table"
+                  }
+                  onClick={() =>
+                    setViewMode("table")
+                  }
+                >
+                  <TableIcon />
+                  Table
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(
+                    "flex-1 sm:flex-none",
+                    viewMode === "list" &&
+                      "border-brand-accent/50 bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/15",
+                  )}
+                  aria-pressed={
+                    viewMode === "list"
+                  }
+                  onClick={() =>
+                    setViewMode("list")
+                  }
+                >
+                  <ListIcon />
+                  List
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(
+                    "flex-1 sm:flex-none",
+                    viewMode === "details" &&
+                      "border-brand-accent/50 bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/15",
+                  )}
+                  aria-pressed={
+                    viewMode === "details"
+                  }
+                  onClick={() =>
+                    setViewMode("details")
+                  }
+                >
+                  <TableIcon />
+                  Detailed
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(
+                    "flex-1 sm:flex-none",
+                    viewMode === "grid" &&
+                      "border-brand-accent/50 bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/15",
+                  )}
+                  aria-pressed={
+                    viewMode === "grid"
+                  }
+                  onClick={() =>
+                    setViewMode("grid")
+                  }
+                >
+                  <LayoutGridIcon />
+                  Grid
+                </Button>
+              </ButtonGroup>
+            </div>
+
+            {agents.length === 0 ? (
+              <Empty className="min-h-72 rounded-none border-0">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <BotIcon />
+                  </EmptyMedia>
+
+                  <EmptyTitle>
+                    No Agents configured
+                  </EmptyTitle>
+
+                  <EmptyDescription>
+                    Create the first Agent for this Team.
+                  </EmptyDescription>
+                </EmptyHeader>
+
+                <EmptyContent>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={openCreateDrawer}
+                  >
+                    <PlusIcon />
+                    Create Agent
+                  </Button>
+                </EmptyContent>
+              </Empty>
+            ) : visibleAgents.length === 0 ? (
+              <Empty className="min-h-64 rounded-none border-0">
+                <EmptyHeader>
+                  <EmptyTitle>
+                    No matching Agents
+                  </EmptyTitle>
+
+                  <EmptyDescription>
+                    No Agent matches the current search, layer, and status filters.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ) : (
+              <>
+                {viewMode === "table" ? (
+                  <AgentTableView
+                    agents={visibleAgents}
+                    onEdit={openEditDrawer}
+                  />
+                ) : null}
+
+                {viewMode === "list" ? (
+                  <AgentListView
+                    agents={visibleAgents}
+                    onEdit={openEditDrawer}
+                  />
+                ) : null}
+
+                {viewMode === "details" ? (
+                  <AgentDetailedView
+                    agents={visibleAgents}
+                    onEdit={openEditDrawer}
+                  />
+                ) : null}
+
+                {viewMode === "grid" ? (
+                  <AgentGridView
+                    agents={visibleAgents}
+                    onEdit={openEditDrawer}
+                  />
+                ) : null}
+              </>
             )}
+          </section>
+        </TabsContent>
+
+        <TabsContent
+          value="workflow"
+          className="min-w-0"
+        >
+          <div className="grid min-w-0 gap-3">
+            <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Total Agents"
+                value={String(
+                  agents.length,
+                )}
+                description="Configured for this Team"
+                icon={
+                  <BotIcon className="size-4 text-brand-accent" />
+                }
+              />
+
+              <MetricCard
+                label="Enabled Agents"
+                value={String(
+                  agents.filter(
+                    (agent) =>
+                      agent.enabled,
+                  ).length,
+                )}
+                description="Eligible for future run snapshots"
+                icon={
+                  <BotIcon className="size-4 text-status-success" />
+                }
+              />
+
+              <MetricCard
+                label="Enabled Routes"
+                value={String(
+                  enabledRouteCount,
+                )}
+                description={`${routeRows.length} explicit route${routeRows.length === 1 ? "" : "s"} configured`}
+                icon={
+                  <RouteIcon className="size-4 text-status-running" />
+                }
+              />
+
+              <MetricCard
+                label="Layers"
+                value={String(
+                  countConfiguredLayers(
+                    agents,
+                  ),
+                )}
+                description="Configured workflow layers"
+                icon={
+                  <TableIcon className="size-4 text-text-secondary" />
+                }
+              />
+            </section>
+
+            {overview.validationIssues.length > 0 ? (
+              <div
+                role="alert"
+                className="flex gap-2 rounded-lg border border-status-warning/30 bg-status-warning/10 p-3 text-xs text-status-warning"
+              >
+                <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  {overview.validationIssues.length}{" "}
+                  workflow configuration issue
+                  {overview.validationIssues.length === 1
+                    ? ""
+                    : "s"}{" "}
+                  detected. Review affected Agent routes before the next run.
+                </span>
+              </div>
+            ) : null}
+
+            <AgentWorkflowView
+              agents={agents}
+              selectedAgentId={selectedAgentId}
+              onSelectAgent={setSelectedAgentId}
+            />
+
+            <section className="grid min-w-0 items-start gap-3 xl:grid-cols-2">
+              <ExecutionOrderCard
+                agents={agents}
+              />
+
+              <RoutingRulesCard
+                agents={agents}
+              />
+            </section>
           </div>
-        )}
+        </TabsContent>
+      </Tabs>
 
-        <div className="flex gap-2 px-3 py-3">
-          <BotIcon className="mt-0.5 size-3.5 shrink-0 text-status-running" />
-
-          <div>
-            <p className="text-xs font-medium text-status-running">
-              Snapshot note
-            </p>
-
-            <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
-              Active runs keep their own immutable Team Agent snapshot. Changes here affect future runs only.
-            </p>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+      <AgentConfigDrawer
+        key={`${team.id}:${drawerSession}:${drawerMode}:${
+          drawerMode === "edit"
+            ? selectedAgent?.id ?? "none"
+            : "create"
+        }`}
+        open={drawerOpen}
+        mode={drawerMode}
+        createTeamId={team.id}
+        agent={
+          drawerMode === "edit"
+            ? selectedAgent
+            : null
+        }
+        agents={agents}
+        onOpenChange={setDrawerOpen}
+        onRefresh={refreshAfterMutation}
+      />
+    </div>
   );
 }

@@ -130,6 +130,22 @@ export async function getTeams(): Promise<
 }
 
 /**
+ * Loads one persisted Team for its dedicated dashboard workspace.
+ */
+export function getTeam(
+  teamId: string,
+  signal?: AbortSignal,
+): Promise<Team> {
+  return requestTeam(
+    `/api/teams/${teamId}`,
+    {
+      cache: "no-store",
+      signal,
+    },
+  );
+}
+
+/**
  * Creates one Team configuration.
  */
 export function createTeam(
