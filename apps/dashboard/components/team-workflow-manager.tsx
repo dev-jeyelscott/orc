@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { AlertTriangleIcon, PlusIcon, RefreshCwIcon, Trash2Icon, UsersIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -390,7 +392,7 @@ export function TeamWorkflowManager({ team }: { team: Team }) {
 
               {candidateAgents.filter((agent) => !memberAgentIds.has(agent.id)).length === 0 ? (
                 <p className="rounded-md border border-dashed border-border-default p-4 text-sm text-text-muted">
-                  No unassigned Agents are available. Create one from the Agents page.
+                  No unassigned Agents are available. <Link href="/agents" className="underline">Create one from the Agents page.</Link>
                 </p>
               ) : (
                 <ul className="flex flex-col gap-2">

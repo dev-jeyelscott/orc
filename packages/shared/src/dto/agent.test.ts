@@ -59,3 +59,16 @@ describe("createAgentSchema", () => {
     ).toBe(false);
   });
 });
+
+it("preserves false, null and omitted overrides and rejects invalid enums", async () => {
+  const { updateAgentSchema, previewAgentSchema } = await import("./agent.js");
+  for (const key of ["canWriteOverride", "canRunCommandsOverride", "canCommitOverride"]) {
+    for (const value of [true, false, null]) expect(updateAgentSchema.parse({ [key]: value })).toEqual({ [key]: value });
+  }
+  expect(updateAgentSchema.parse({})).toEqual({});
+  expect(updateAgentSchema.safeParse({ harnessOverride: "unknown" }).success).toBe(false);
+  expect(updateAgentSchema.safeParse({ sandboxModeOverride: "none" }).success).toBe(false);
+  expect(createAgentSchema.parse({ ...baseAgent, harnessOverride: null, sandboxModeOverride: null })).toMatchObject({ harnessOverride: null, sandboxModeOverride: null });
+  expect(previewAgentSchema.parse({ departmentId: baseAgent.departmentId }).enabled).toBe(true);
+  expect(createAgentSchema.parse(baseAgent)).not.toHaveProperty("teamId");
+});

@@ -54,6 +54,11 @@ const navigation = [
     icon: UsersIcon,
   },
   {
+    title: "Agents",
+    url: "/agents",
+    icon: BotIcon,
+  },
+  {
     title: "Departments",
     url: "/departments",
     icon: Building2Icon,

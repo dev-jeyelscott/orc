@@ -25,7 +25,7 @@ const idParams =
  * Parses and validates Team workflow route data with a supplied Zod schema.
  */
 function parse<T>(
-  schema: z.ZodType<T, z.ZodTypeDef, any>,
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>,
   value: unknown,
 ): T {
   const parsed = schema.safeParse(value);

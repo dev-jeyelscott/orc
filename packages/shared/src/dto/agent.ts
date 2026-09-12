@@ -46,6 +46,11 @@ const agentFieldsSchema =
     enabled:
       z.boolean()
         .default(true),
+    harnessOverride: harnessSchema.nullable().optional(),
+    canWriteOverride: z.boolean().nullable().optional(),
+    canRunCommandsOverride: z.boolean().nullable().optional(),
+    sandboxModeOverride: sandboxModeSchema.nullable().optional(),
+    canCommitOverride: z.boolean().nullable().optional(),
     modelOverride:
       overridableTextSchema,
     reasoningOverride:
@@ -60,10 +65,12 @@ const agentFieldsSchema =
 export const createAgentSchema =
   agentFieldsSchema;
 
+export const previewAgentSchema = agentFieldsSchema.omit({ name: true, slug: true });
+
 export const updateAgentSchema =
   agentFieldsSchema.partial();
 
-const effectiveAgentConfigSchema =
+export const effectiveAgentConfigSchema =
   z.object({
     role:
       z.string(),
@@ -97,6 +104,11 @@ export const agentSchema =
       departmentSchema,
     effective:
       effectiveAgentConfigSchema,
+    hasHarnessOverride: z.boolean(),
+    hasCanWriteOverride: z.boolean(),
+    hasCanRunCommandsOverride: z.boolean(),
+    hasSandboxModeOverride: z.boolean(),
+    hasCanCommitOverride: z.boolean(),
     hasModelOverride:
       z.boolean(),
     hasReasoningOverride:

@@ -23,6 +23,7 @@ import {
 } from "../db/seed-ids.js";
 import {
   createAgent,
+  previewAgent,
   deleteAgent,
   getAgent,
   listAgents,
@@ -208,6 +209,20 @@ describe(
         createdDepartmentIds.clear();
       },
     );
+
+    it("round-trips runtime overrides and clears them back to inheritance", async () => {
+      const row = await createTestAgent("Overrides");
+      const overrides = { harnessOverride: "claude" as const, modelOverride: "claude-sonnet-5", reasoningOverride: "low", canWriteOverride: true, canRunCommandsOverride: false, canCommitOverride: true, sandboxModeOverride: "read-only" as const, additionalPrompt: "Specialize in verification." };
+      const saved = await updateAgent(row.id, overrides);
+      expect(saved).toMatchObject({ ...overrides, hasHarnessOverride: true, hasCanWriteOverride: true, hasCanRunCommandsOverride: true, hasSandboxModeOverride: true, hasCanCommitOverride: true, effective: { harness: "claude", canWrite: true, canRunCommands: false, canCommit: true, sandboxMode: "read-only" } });
+      expect(await getAgent(row.id)).toEqual(saved);
+      expect(await updateAgent(row.id, { name: "Renamed override" })).toMatchObject(overrides);
+      const cleared = await updateAgent(row.id, { harnessOverride: null, modelOverride: null, reasoningOverride: null, canWriteOverride: null, canRunCommandsOverride: null, sandboxModeOverride: null, canCommitOverride: null });
+      expect(cleared).toMatchObject({ hasHarnessOverride: false, hasCanRunCommandsOverride: false, effective: { harness: "codex", canWrite: false, canRunCommands: true, canCommit: false } });
+      const beforePreview = await getAgent(row.id);
+      expect(await previewAgent({ departmentId: row.departmentId, enabled: true, additionalPrompt: "Draft only", canRunCommandsOverride: false })).toMatchObject({ canRunCommands: false });
+      expect(await getAgent(row.id)).toEqual(beforePreview);
+    });
 
     it(
       "preserves historical executions and snapshots after safe deletion",
@@ -432,6 +447,9 @@ describe(
         createdAgentIds.add(
           agent.id,
         );
+
+        expect(agent.currentTeamId).toBeNull();
+        expect(await db.select().from(teamMembers).where(eq(teamMembers.agentId, agent.id))).toHaveLength(0);
 
         expect(
           agent.effective.model,

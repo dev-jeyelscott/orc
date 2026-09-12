@@ -1,12 +1,6 @@
-import {
-  redirect,
-} from "next/navigation";
+import { AgentsManager } from "@/components/agents-manager";
 
-/**
- * Redirects the legacy standalone Agents route into the Team-owned management workspace.
- */
+/** Renders the independent Agent registry. */
 export default function AgentsPage() {
-  redirect(
-    "/teams",
-  );
+  return <AgentsManager />;
 }

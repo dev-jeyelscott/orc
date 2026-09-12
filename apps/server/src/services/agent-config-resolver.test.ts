@@ -89,3 +89,10 @@ describe("resolveEffectiveAgentConfig", () => {
     ).toBe(false);
   });
 });
+
+it("resolves every runtime override independently, including explicit denied permissions", () => {
+  const effective = resolveEffectiveAgentConfig({ ...agent, harnessOverride: "claude", canWriteOverride: true, canRunCommandsOverride: false, canCommitOverride: true, sandboxModeOverride: "workspace-write" }, department);
+  expect(effective).toMatchObject({ harness: "claude", canWrite: true, canRunCommands: false, canCommit: true, sandboxMode: "workspace-write", role: department.role, systemPrompt: department.systemPrompt });
+  expect(resolveEffectiveAgentConfig({ ...agent, canWriteOverride: false, canCommitOverride: false }, { ...department, canWrite: true, canCommit: true })).toMatchObject({ canWrite: false, canCommit: false });
+  expect(resolveEffectiveAgentConfig({ ...agent, harnessOverride: null, canWriteOverride: null, canRunCommandsOverride: null, sandboxModeOverride: null, canCommitOverride: null }, department)).toEqual(resolveEffectiveAgentConfig(agent, department));
+});

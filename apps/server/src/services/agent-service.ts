@@ -89,6 +89,16 @@ export function serializeAgent(
       row.name,
     enabled:
       row.enabled,
+    harnessOverride: row.harnessOverride ?? null,
+    hasHarnessOverride: row.harnessOverride != null,
+    canWriteOverride: row.canWriteOverride ?? null,
+    hasCanWriteOverride: row.canWriteOverride != null,
+    canRunCommandsOverride: row.canRunCommandsOverride ?? null,
+    hasCanRunCommandsOverride: row.canRunCommandsOverride != null,
+    sandboxModeOverride: row.sandboxModeOverride ?? null,
+    hasSandboxModeOverride: row.sandboxModeOverride != null,
+    canCommitOverride: row.canCommitOverride ?? null,
+    hasCanCommitOverride: row.canCommitOverride != null,
     modelOverride:
       row.modelOverride ??
       null,
@@ -379,6 +389,11 @@ export async function createAgent(
             input.name,
           enabled:
             input.enabled,
+          harnessOverride: input.harnessOverride ?? null,
+          canWriteOverride: input.canWriteOverride ?? null,
+          canRunCommandsOverride: input.canRunCommandsOverride ?? null,
+          sandboxModeOverride: input.sandboxModeOverride ?? null,
+          canCommitOverride: input.canCommitOverride ?? null,
           modelOverride:
             input.modelOverride ??
             null,
@@ -405,149 +420,45 @@ export async function createAgent(
  * Updates agent configuration in place. Team placement is never modified
  * here; it is owned exclusively by the Team workflow resource.
  */
-export async function updateAgent(
-  id:
-    string,
-  input:
-    UpdateAgent,
-): Promise<
-  Agent | null
-> {
+export async function updateAgent(id: string, input: UpdateAgent): Promise<Agent | null> {
   try {
-    if (
-      input.departmentId !==
-      undefined
-    ) {
-      await loadDepartmentOrThrow(
-        input.departmentId,
-      );
-    }
-
-    const patch = {
-      ...(
-        input.departmentId !==
-        undefined
-          ? {
-              departmentId:
-                input.departmentId,
-            }
-          : {}
-      ),
-      ...(
-        input.slug !==
-        undefined
-          ? {
-              slug:
-                input.slug,
-            }
-          : {}
-      ),
-      ...(
-        input.name !==
-        undefined
-          ? {
-              name:
-                input.name,
-            }
-          : {}
-      ),
-      ...(
-        input.enabled !==
-        undefined
-          ? {
-              enabled:
-                input.enabled,
-            }
-          : {}
-      ),
-      ...(
-        input.modelOverride !==
-        undefined
-          ? {
-              modelOverride:
-                input.modelOverride,
-            }
-          : {}
-      ),
-      ...(
-        input.reasoningOverride !==
-        undefined
-          ? {
-              reasoningOverride:
-                input.reasoningOverride,
-            }
-          : {}
-      ),
-      ...(
-        input.additionalPrompt !==
-        undefined
-          ? {
-              additionalPrompt:
-                input.additionalPrompt,
-            }
-          : {}
-      ),
-    };
-
-    const [agent] =
-      await db
-        .update(agents)
-        .set({
-          ...patch,
-          updatedAt:
-            new Date(),
-        })
-        .where(
-          eq(
-            agents.id,
-            id,
-          ),
-        )
-        .returning();
-
-    if (
-      !agent
-    ) {
-      return null;
-    }
-
-    const department =
-      await loadDepartmentOrThrow(
-        agent.departmentId,
-      );
-
-    const [currentMember] =
-      await db
-        .select({
-          teamId:
-            teamMembers.teamId,
-        })
-        .from(teamMembers)
-        .where(
-          eq(
-            teamMembers.agentId,
-            agent.id,
-          ),
-        );
-
-    return serializeAgent(
-      agent,
-      department,
-      currentMember?.teamId ??
-        null,
-    );
-  } catch (error) {
-    return translateDatabaseError(
-      error,
-    );
-  }
+    return await db.transaction(async (tx) => {
+      // Match Team workflow's lock so membership cannot change between validation and update.
+      await tx.execute(sql`LOCK TABLE ${teamMembers} IN SHARE ROW EXCLUSIVE MODE`);
+      const [existing] = await tx.select().from(agents).where(eq(agents.id, id));
+      if (!existing) return null;
+      const [member] = await tx.select({ teamId: teamMembers.teamId }).from(teamMembers).where(eq(teamMembers.agentId, id));
+      if (input.departmentId !== undefined && input.departmentId !== existing.departmentId && member) {
+        throw new AgentServiceError("Remove the Agent from its Team before changing Department", 409);
+      }
+      const [department] = await tx.select().from(departments).where(eq(departments.id, input.departmentId ?? existing.departmentId));
+      if (!department) throw new AgentServiceError("The selected Department does not exist", 400);
+      const patch = {
+        departmentId: input.departmentId,
+        name: input.name,
+        slug: input.slug,
+        enabled: input.enabled,
+        harnessOverride: input.harnessOverride,
+        modelOverride: input.modelOverride,
+        reasoningOverride: input.reasoningOverride,
+        canWriteOverride: input.canWriteOverride,
+        canRunCommandsOverride: input.canRunCommandsOverride,
+        sandboxModeOverride: input.sandboxModeOverride,
+        canCommitOverride: input.canCommitOverride,
+        additionalPrompt: input.additionalPrompt,
+      };
+      // Drizzle omits undefined values on update and preserves explicit null and false.
+      const [agent] = await tx.update(agents).set({ ...patch, updatedAt: new Date() }).where(eq(agents.id, id)).returning();
+      return serializeAgent(agent, department, member?.teamId ?? null);
+    });
+  } catch (error) { return translateDatabaseError(error); }
 }
 
 /**
- * Permanently deletes an agent only when no active workflow snapshot contains it.
+ * Permanently deletes an unassigned Agent only when no active Run snapshot contains it.
  *
  * Historical workflow snapshots are never updated. Database foreign keys remove
- * Team membership/routes and null historical execution references.
+ * historical execution references. Team membership must be removed beforehand.
  */
 export async function deleteAgent(
   id:
@@ -561,6 +472,8 @@ export async function deleteAgent(
         await tx.execute(
           sql`LOCK TABLE ${runs} IN SHARE MODE`,
         );
+
+        await tx.execute(sql`LOCK TABLE ${teamMembers} IN SHARE ROW EXCLUSIVE MODE`);
 
         const [existing] =
           await tx
@@ -581,6 +494,9 @@ export async function deleteAgent(
         ) {
           return false;
         }
+
+        const [member] = await tx.select({ id: teamMembers.id }).from(teamMembers).where(eq(teamMembers.agentId, id));
+        if (member) throw new AgentServiceError("Remove the Agent from its Team before deleting it", 409);
 
         const activeRuns =
           await tx
@@ -721,4 +637,10 @@ export async function listEnabledAgentsForFutureRuns(): Promise<
           null,
       ),
   );
+}
+
+/** Resolves a draft without saving Agent or Department configuration. */
+export async function previewAgent(input: Omit<CreateAgent, "name" | "slug">) {
+  const department = await loadDepartmentOrThrow(input.departmentId);
+  return resolveEffectiveAgentConfig({ ...input, modelOverride: input.modelOverride ?? null, reasoningOverride: input.reasoningOverride ?? null }, department);
 }

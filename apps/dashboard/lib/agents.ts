@@ -1,5 +1,6 @@
 import {
   agentListResponseSchema,
+  effectiveAgentConfigSchema,
   agentSchema,
   type Agent,
   type CreateAgent,
@@ -174,4 +175,9 @@ export function deleteAgent(
       method: "DELETE",
     },
   );
+}
+
+/** Resolves unsaved configuration using the same server resolver as future Runs. */
+export function previewAgent(input: Omit<CreateAgent, "name" | "slug">) {
+  return request("/api/agents/preview", { method: "POST", body: JSON.stringify(input) }, effectiveAgentConfigSchema);
 }

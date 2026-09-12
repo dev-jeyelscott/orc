@@ -525,6 +525,33 @@ afterEach(
 describe(
   "Team-scoped workflow start",
   () => {
+    it("freezes resolved overrides for active and historical Runs while future Runs see edits", async () => {
+      const { updateAgent } = await import("./agent-service.js");
+      const { updateDepartment } = await import("./department-service.js");
+      const source = await updateAgent(resolutionAgentId!, { harnessOverride: "claude", modelOverride: "claude-sonnet-5", reasoningOverride: "low", canWriteOverride: true, canRunCommandsOverride: false, canCommitOverride: true, sandboxModeOverride: "workspace-write", additionalPrompt: "Reusable specialization." });
+      let finish: ((value: ExecutionFinalization) => void | Promise<void>) | undefined;
+      mocks.startSnapshotAgentExecution.mockImplementationOnce(async (_run, snapshot, _instruction, onFinalized) => {
+        finish = onFinalized;
+        expect(snapshot).toMatchObject({ harness: "claude", canWrite: true, canRunCommands: false, canCommit: true, sandboxMode: "workspace-write" });
+        return { id: crypto.randomUUID() };
+      });
+      const first = await createAndStartTask({ projectId: project.id, teamId: RESOLUTION_TEAM_ID, title: "Frozen config", instruction: "Verify snapshots." });
+      const [before] = await db.select().from(runs).where(eq(runs.id, first.run.id));
+      await updateAgent(source!.id, { harnessOverride: null, modelOverride: null, canWriteOverride: null, canRunCommandsOverride: null, canCommitOverride: false, sandboxModeOverride: null });
+      await updateDepartment(source!.departmentId, { defaultModel: "future-model", canWrite: false, canRunCommands: true, systemPrompt: "Future base prompt." });
+      const [active] = await db.select().from(runs).where(eq(runs.id, first.run.id));
+      expect(active.workflowSnapshot).toEqual(before.workflowSnapshot);
+      await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+      await finish!({ executionId: crypto.randomUUID(), status: "completed", resultStatus: "completed", failureReason: null, result: completedResult() });
+      await waitForTerminalRun(first.run.id);
+      const next = await createAndStartTask({ projectId: project.id, teamId: RESOLUTION_TEAM_ID, title: "Future config", instruction: "Verify new defaults." });
+      const [future] = await db.select().from(runs).where(eq(runs.id, next.run.id));
+      expect(future.workflowSnapshot).toMatchObject({ agents: [expect.objectContaining({ id: source!.id, harness: "codex", model: "future-model", canWrite: false, canRunCommands: true, canCommit: false, systemPrompt: "Future base prompt.\n\nReusable specialization." })] });
+      const [historical] = await db.select().from(runs).where(eq(runs.id, first.run.id));
+      expect(historical.workflowSnapshot).toEqual(before.workflowSnapshot);
+      await waitForTerminalRun(next.run.id);
+    });
+
     it(
       "persists Task and Run Team and snapshots only enabled agents from that Team",
       async () => {

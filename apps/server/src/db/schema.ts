@@ -286,6 +286,11 @@ export const agents =
         )
           .notNull()
           .default(true),
+      harnessOverride: harnessEnum("harness_override"),
+      canWriteOverride: boolean("can_write_override"),
+      canRunCommandsOverride: boolean("can_run_commands_override"),
+      sandboxModeOverride: sandboxModeEnum("sandbox_mode_override"),
+      canCommitOverride: boolean("can_commit_override"),
       modelOverride:
         text(
           "model_override",

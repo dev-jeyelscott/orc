@@ -35,20 +35,20 @@ function readDashboardFile(
 }
 
 /**
- * Verifies Agents is no longer exposed as a top-level sidebar destination.
+ * Verifies Agents is exposed as a top-level sidebar destination.
  */
-function testAgentsRemovedFromSidebar(): void {
+function testAgentsInSidebar(): void {
   const source =
     readDashboardFile(
       "components/app-sidebar.tsx",
     );
 
-  assert.doesNotMatch(
+  assert.match(
     source,
     /title:\s*"Agents"/,
   );
 
-  assert.doesNotMatch(
+  assert.match(
     source,
     /url:\s*"\/agents"/,
   );
@@ -60,22 +60,20 @@ function testAgentsRemovedFromSidebar(): void {
 }
 
 /**
- * Verifies the legacy Agents page redirects into the Team management workspace.
+ * Verifies the Agent registry replaces the legacy redirect.
  */
-function testLegacyAgentsRedirect(): void {
+function testAgentsRegistry(): void {
   const source =
     readDashboardFile(
       "app/agents/page.tsx",
     );
 
-  assert.match(
-    source,
-    /redirect\(\s*"\/teams"\s*,?\s*\)/,
-  );
+  assert.doesNotMatch(source, /redirect\(/);
+  assert.match(source, /<AgentsManager/);
 }
 
-testAgentsRemovedFromSidebar();
-testLegacyAgentsRedirect();
+testAgentsInSidebar();
+testAgentsRegistry();
 
 console.log(
   "navigation contract tests passed",

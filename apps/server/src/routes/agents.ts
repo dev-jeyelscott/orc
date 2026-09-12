@@ -2,11 +2,13 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
   createAgentSchema,
+  previewAgentSchema,
   updateAgentSchema,
 } from "@orc/shared";
 
 import {
   AgentServiceError,
+  previewAgent,
   createAgent,
   deleteAgent,
   getAgent,
@@ -55,6 +57,14 @@ function sendError(
  * through the Team workflow resource, not here.
  */
 export async function agentRoutes(app: FastifyInstance) {
+  app.post("/api/agents/preview", async (request, reply) => {
+    try {
+      const input = parse(previewAgentSchema, request.body);
+      return await previewAgent({ ...input, enabled: input.enabled ?? true, additionalPrompt: input.additionalPrompt ?? "" });
+    }
+    catch (error) { return sendError(error, reply); }
+  });
+
   app.get("/api/agents", async () => ({
     agents: await listAgents(),
   }));
