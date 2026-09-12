@@ -23,6 +23,9 @@ import {
   dashboardRoutes,
 } from "./routes/dashboard.js";
 import {
+  departmentRoutes,
+} from "./routes/departments.js";
+import {
   eventRoutes,
 } from "./routes/events.js";
 import {
@@ -76,6 +79,10 @@ export async function buildApp() {
 
   await app.register(
     teamRoutes,
+  );
+
+  await app.register(
+    departmentRoutes,
   );
 
   await app.register(

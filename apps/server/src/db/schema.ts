@@ -136,6 +136,66 @@ const timestamps = {
       .defaultNow(),
 };
 
+/**
+ * Stores reusable, generic runtime defaults. Agents do not reference this
+ * table until the subsequent inheritance vertical slice is introduced.
+ */
+export const departments =
+  pgTable(
+    "departments",
+    {
+      id:
+        uuid("id")
+          .primaryKey()
+          .defaultRandom(),
+      slug:
+        text("slug")
+          .notNull()
+          .unique(),
+      name:
+        text("name")
+          .notNull(),
+      role:
+        text("role")
+          .notNull(),
+      description:
+        text("description")
+          .notNull()
+          .default(""),
+      enabled:
+        boolean("enabled")
+          .notNull()
+          .default(true),
+      harness:
+        harnessEnum("harness")
+          .notNull(),
+      defaultModel:
+        text("default_model")
+          .notNull(),
+      defaultReasoning:
+        text("default_reasoning")
+          .notNull(),
+      systemPrompt:
+        text("system_prompt")
+          .notNull(),
+      canWrite:
+        boolean("can_write")
+          .notNull()
+          .default(false),
+      canRunCommands:
+        boolean("can_run_commands")
+          .notNull()
+          .default(false),
+      sandboxMode:
+        sandboxModeEnum("sandbox_mode"),
+      canCommit:
+        boolean("can_commit")
+          .notNull()
+          .default(false),
+      ...timestamps,
+    },
+  );
+
 export const teams =
   pgTable(
     "teams",

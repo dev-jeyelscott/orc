@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BotIcon,
+  Building2Icon,
   FolderKanbanIcon,
   LayoutDashboardIcon,
   ListTodoIcon,
@@ -51,6 +52,11 @@ const navigation = [
     title: "Teams",
     url: "/teams",
     icon: UsersIcon,
+  },
+  {
+    title: "Departments",
+    url: "/departments",
+    icon: Building2Icon,
   },
   {
     title: "Orchestrator",
