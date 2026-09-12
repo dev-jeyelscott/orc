@@ -903,6 +903,8 @@ export async function startAgentExecution(
         agent.canWrite,
       canRunCommands:
         agent.canRunCommands,
+      sandboxMode:
+        agent.sandboxMode,
       canCommit:
         agent.canCommit,
     },

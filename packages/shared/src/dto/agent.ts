@@ -6,6 +6,9 @@ import {
   harnessSchema,
 } from "../enums/harness.js";
 import {
+  sandboxModeSchema,
+} from "../enums/sandbox-mode.js";
+import {
   agentRouteOutcomeSchema,
   terminalActionSchema,
 } from "../enums/agent-route.js";
@@ -71,6 +74,10 @@ const agentFieldsSchema =
     canRunCommands:
       z.boolean()
         .default(false),
+    sandboxMode:
+      sandboxModeSchema
+        .nullable()
+        .optional(),
     canCommit:
       z.boolean()
         .default(false),

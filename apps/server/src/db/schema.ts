@@ -32,6 +32,16 @@ export const harnessEnum =
     ],
   );
 
+export const sandboxModeEnum =
+  pgEnum(
+    "sandbox_mode",
+    [
+      "read-only",
+      "workspace-write",
+      "danger-full-access",
+    ],
+  );
+
 export const taskSourceEnum =
   pgEnum(
     "task_source",
@@ -255,6 +265,10 @@ export const agents =
         )
           .notNull()
           .default(false),
+      sandboxMode:
+        sandboxModeEnum(
+          "sandbox_mode",
+        ),
       canCommit:
         boolean(
           "can_commit",

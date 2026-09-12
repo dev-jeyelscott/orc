@@ -4,4 +4,5 @@ export * from "./run-status.js";
 export * from "./agent-execution-status.js";
 export * from "./agent-result-status.js";
 export * from "./harness.js";
+export * from "./sandbox-mode.js";
 export * from "./agent-route.js";

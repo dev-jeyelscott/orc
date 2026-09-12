@@ -414,6 +414,8 @@ function snapshotFromRows(
             agent.canWrite,
           canRunCommands:
             agent.canRunCommands,
+          sandboxMode:
+            agent.sandboxMode,
           canCommit:
             agent.canCommit,
         }),

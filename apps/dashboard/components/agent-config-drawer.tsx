@@ -19,6 +19,7 @@ import type {
   AgentRouteOutcome,
   AgentWithRoutes,
   CreateAgent,
+  SandboxMode,
   Team,
   TerminalAction,
 } from "@orc/shared";
@@ -88,6 +89,24 @@ const terminalActions:
     "block_run",
   ];
 
+const sandboxOptions: Array<{
+  value: SandboxMode;
+  label: string;
+}> = [
+  {
+    value: "read-only",
+    label: "Read only",
+  },
+  {
+    value: "workspace-write",
+    label: "Workspace write",
+  },
+  {
+    value: "danger-full-access",
+    label: "Full host access",
+  },
+];
+
 type Harness =
   NonNullable<
     CreateAgent["harness"]
@@ -109,6 +128,7 @@ const blankAgent:
     enabled: true,
     canWrite: false,
     canRunCommands: true,
+    sandboxMode: "workspace-write",
     canCommit: false,
   };
 
@@ -196,6 +216,8 @@ function createDraft(
       agent.canWrite,
     canRunCommands:
       agent.canRunCommands,
+    sandboxMode:
+      agent.sandboxMode,
     canCommit:
       agent.canCommit,
   };
@@ -1047,6 +1069,54 @@ export function AgentConfigDrawer({
                       saving
                     }
                   />
+
+                  {draft.harness === "codex" ? (
+                    <label className="grid gap-1.5 text-sm">
+                      <span className="font-medium text-text-secondary">
+                        Codex Sandbox
+                      </span>
+
+                      <Select
+                        value={
+                          draft.sandboxMode ?? "workspace-write"
+                        }
+                        onValueChange={(value) => {
+                          if (value) {
+                            update(
+                              "sandboxMode",
+                              value as SandboxMode,
+                            );
+                          }
+                        }}
+                      >
+                        <SelectTrigger
+                          className="w-full"
+                          disabled={saving}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+
+                        <SelectContent align="start">
+                          {sandboxOptions.map((option) => (
+                            <SelectItem
+                              key={option.value}
+                              value={option.value}
+                            >
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      <span className="text-xs text-text-muted">
+                        Full host access can reach Docker and other host resources when OS permissions permit.
+                      </span>
+                    </label>
+                  ) : (
+                    <p className="text-xs text-text-muted">
+                      Claude does not provide an equivalent CLI sandbox; its Bash permission controls command availability.
+                    </p>
+                  )}
 
                   <CapabilityToggle
                     label="Can Commit"

@@ -1,8 +1,12 @@
-import type { Harness } from "@orc/shared";
+import type {
+  Harness,
+  SandboxMode,
+} from "@orc/shared";
 
 export type RuntimeCapabilities = {
   canWrite: boolean;
   canRunCommands: boolean;
+  sandboxMode?: SandboxMode | null;
   canCommit: boolean;
 };
 

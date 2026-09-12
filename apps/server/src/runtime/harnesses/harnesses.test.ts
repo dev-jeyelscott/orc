@@ -15,6 +15,7 @@ const baseInput: StartWorkerInput = {
     systemPrompt: "Follow local conventions.",
     canWrite: false,
     canRunCommands: true,
+    sandboxMode: "workspace-write",
     canCommit: false,
   },
   instruction: "Implement the requested change.",
@@ -54,6 +55,24 @@ describe("harness adapters", () => {
     );
 
     expect(invocation.args.at(-1)).toBe(prompt);
+  });
+
+  it("uses the configured Codex sandbox instead of deriving one from capabilities", () => {
+    const input: StartWorkerInput = {
+      ...baseInput,
+      agent: {
+        ...baseInput.agent,
+        sandboxMode: "danger-full-access",
+      },
+    };
+
+    const invocation = codexHarness.createInvocation(
+      input,
+      composeInitialInstruction(input),
+      environment,
+    );
+
+    expect(invocation.args).toContain("danger-full-access");
   });
 
   it("constructs a Claude invocation with model, effort, cwd, and environment", () => {

@@ -94,9 +94,10 @@ export const codexHarness: HarnessAdapter = {
       );
     }
 
-    const sandboxMode = input.agent.canWrite || input.agent.canRunCommands
-      ? "workspace-write"
-      : "read-only";
+    const sandboxMode = input.agent.sandboxMode ??
+      (input.agent.canWrite || input.agent.canRunCommands
+        ? "workspace-write"
+        : "read-only");
 
     return {
       command: "codex",
