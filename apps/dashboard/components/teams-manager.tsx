@@ -12,44 +12,22 @@ import {
   TableIcon,
   UsersIcon,
 } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import type {
-  Agent,
-  Team,
-} from "@orc/shared";
+import type { Agent, Team } from "@orc/shared";
 
-import {
-  AgentsManager,
-} from "@/components/agents-manager";
-import {
-  TeamConfigDrawer,
-} from "@/components/team-config-drawer";
+import { AgentsManager } from "@/components/agents-manager";
+import { TeamConfigDrawer } from "@/components/team-config-drawer";
 import {
   Avatar,
   AvatarFallback,
   AvatarGroup,
   AvatarGroupCount,
 } from "@/components/ui/avatar";
-import {
-  Badge,
-} from "@/components/ui/badge";
-import {
-  Button,
-} from "@/components/ui/button";
-import {
-  ButtonGroup,
-} from "@/components/ui/button-group";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -80,9 +58,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import {
-  Spinner,
-} from "@/components/ui/spinner";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Table,
   TableBody,
@@ -91,9 +67,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  getAgents,
-} from "@/lib/agents";
+import { getAgents } from "@/lib/agents";
 import {
   AGENT_AVATAR_LIMIT,
   getAgentAvatarSummary,
@@ -105,12 +79,8 @@ import {
   type TeamStatusFilter,
   type TeamViewMode,
 } from "@/lib/team-presentation";
-import {
-  getTeams,
-} from "@/lib/teams";
-import {
-  cn,
-} from "@/lib/utils";
+import { getTeams } from "@/lib/teams";
+import { cn } from "@/lib/utils";
 
 const agentToneClasses = [
   "bg-brand-accent/15 text-brand-accent",
@@ -124,45 +94,30 @@ const agentToneClasses = [
 /**
  * Converts an unknown Teams workspace failure into concise operator-facing text.
  */
-function errorMessage(
-  error: unknown,
-): string {
-  return error instanceof Error
-    ? error.message
-    : "Unable to load Teams";
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unable to load Teams";
 }
 
 /**
  * Formats one Team timestamp for the secondary date line.
  */
-function formatUpdatedAt(
-  value: string,
-): string {
-  return new Intl.DateTimeFormat(
-    "en",
-    {
-      dateStyle: "medium",
-    },
-  ).format(
-    new Date(value),
-  );
+function formatUpdatedAt(value: string): string {
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+  }).format(new Date(value));
 }
 
 /**
  * Formats a persisted Team timestamp into a compact relative label without changing source data.
  */
-function formatRelativeUpdatedAt(
-  value: string,
-): string {
-  const timestamp =
-    Date.parse(value);
+function formatRelativeUpdatedAt(value: string): string {
+  const timestamp = Date.parse(value);
 
   if (!Number.isFinite(timestamp)) {
     return "Unknown";
   }
 
-  const elapsed =
-    Date.now() - timestamp;
+  const elapsed = Date.now() - timestamp;
 
   if (elapsed <= 0) {
     return "Just now";
@@ -200,17 +155,10 @@ function AgentAvatarStack({
   showCount = false,
 }: AgentAvatarStackProps) {
   if (agents.length === 0) {
-    return (
-      <span className="text-xs text-text-muted">
-        No Agents
-      </span>
-    );
+    return <span className="text-xs text-text-muted">No Agents</span>;
   }
 
-  const {
-    visibleAgents,
-    overflowCount,
-  } = getAgentAvatarSummary(
+  const { visibleAgents, overflowCount } = getAgentAvatarSummary(
     agents,
     AGENT_AVATAR_LIMIT,
   );
@@ -218,47 +166,31 @@ function AgentAvatarStack({
   return (
     <div className="flex min-w-0 items-center gap-2">
       <AvatarGroup>
-        {visibleAgents.map(
-          (agent) => {
-            const toneClass =
-              agentToneClasses[
-                getAgentToneIndex(
-                  agent.id,
-                  agentToneClasses.length,
-                )
-              ];
-            const accessibleLabel =
-              `${agent.name}, ${agent.role}${
-                agent.enabled
-                  ? ""
-                  : ", disabled"
-              }`;
+        {visibleAgents.map((agent) => {
+          const toneClass =
+            agentToneClasses[
+              getAgentToneIndex(agent.id, agentToneClasses.length)
+            ];
+          const accessibleLabel = `${agent.name}, ${agent.role}${
+            agent.enabled ? "" : ", disabled"
+          }`;
 
-            return (
-              <Avatar
-                key={agent.id}
-                size="sm"
-                title={accessibleLabel}
-                aria-label={accessibleLabel}
-                className={cn(
-                  !agent.enabled &&
-                    "opacity-50 grayscale",
-                )}
+          return (
+            <Avatar
+              key={agent.id}
+              size="sm"
+              title={accessibleLabel}
+              aria-label={accessibleLabel}
+              className={cn(!agent.enabled && "opacity-50 grayscale")}
+            >
+              <AvatarFallback
+                className={cn("text-[10px] font-semibold", toneClass)}
               >
-                <AvatarFallback
-                  className={cn(
-                    "text-[10px] font-semibold",
-                    toneClass,
-                  )}
-                >
-                  {getAgentInitials(
-                    agent.name,
-                  )}
-                </AvatarFallback>
-              </Avatar>
-            );
-          },
-        )}
+                {getAgentInitials(agent.name)}
+              </AvatarFallback>
+            </Avatar>
+          );
+        })}
 
         {overflowCount > 0 ? (
           <AvatarGroupCount
@@ -273,10 +205,7 @@ function AgentAvatarStack({
 
       {showCount ? (
         <span className="whitespace-nowrap text-xs text-text-muted">
-          {agents.length}{" "}
-          {agents.length === 1
-            ? "Agent"
-            : "Agents"}
+          {agents.length} {agents.length === 1 ? "Agent" : "Agents"}
         </span>
       ) : null}
     </div>
@@ -291,17 +220,11 @@ type TeamIdentityProps = {
 /**
  * Renders the Team name as primary content with its persisted slug and description beneath it.
  */
-function TeamIdentity({
-  team,
-  compact = false,
-}: TeamIdentityProps) {
+function TeamIdentity({ team, compact = false }: TeamIdentityProps) {
   return (
     <div className="flex min-w-0 items-center gap-3">
       <div className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border-default bg-surface-interactive text-brand-accent">
-        <UsersIcon
-          className="size-4"
-          aria-hidden="true"
-        />
+        <UsersIcon className="size-4" aria-hidden="true" />
       </div>
 
       <div className="min-w-0">
@@ -312,24 +235,15 @@ function TeamIdentity({
         <div
           className={cn(
             "mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-text-muted",
-            compact
-              ? "max-w-64"
-              : "max-w-xl",
+            compact ? "max-w-64" : "max-w-xl",
           )}
         >
-          <span className="shrink-0 font-mono text-[11px]">
-            {team.slug}
-          </span>
+          <span className="shrink-0 font-mono text-[11px]">{team.slug}</span>
 
           {team.description ? (
             <>
-              <span aria-hidden="true">
-                •
-              </span>
-              <span
-                className="truncate"
-                title={team.description}
-              >
+              <span aria-hidden="true">•</span>
+              <span className="truncate" title={team.description}>
                 {team.description}
               </span>
             </>
@@ -343,22 +257,10 @@ function TeamIdentity({
 /**
  * Renders the persisted Team enabled state using the existing semantic status system.
  */
-function TeamStatusBadge({
-  team,
-}: {
-  team: Team;
-}) {
+function TeamStatusBadge({ team }: { team: Team }) {
   return (
-    <Badge
-      variant={
-        team.enabled
-          ? "success"
-          : "disabled"
-      }
-    >
-      {team.enabled
-        ? "Enabled"
-        : "Disabled"}
+    <Badge variant={team.enabled ? "success" : "disabled"}>
+      {team.enabled ? "Enabled" : "Disabled"}
     </Badge>
   );
 }
@@ -366,22 +268,10 @@ function TeamStatusBadge({
 /**
  * Renders Team automation state without implying unsupported scheduler state.
  */
-function TeamAutoModeBadge({
-  team,
-}: {
-  team: Team;
-}) {
+function TeamAutoModeBadge({ team }: { team: Team }) {
   return (
-    <Badge
-      variant={
-        team.autoModeEnabled
-          ? "success"
-          : "disabled"
-      }
-    >
-      {team.autoModeEnabled
-        ? "On"
-        : "Off"}
+    <Badge variant={team.autoModeEnabled ? "success" : "disabled"}>
+      {team.autoModeEnabled ? "On" : "Off"}
     </Badge>
   );
 }
@@ -389,41 +279,27 @@ function TeamAutoModeBadge({
 /**
  * Renders a compact relative and absolute update timestamp matching the list hierarchy.
  */
-function TeamUpdatedAt({
-  value,
-}: {
-  value: string;
-}) {
+function TeamUpdatedAt({ value }: { value: string }) {
   return (
     <div className="whitespace-nowrap text-xs">
       <div className="text-text-secondary">
-        {formatRelativeUpdatedAt(
-          value,
-        )}
+        {formatRelativeUpdatedAt(value)}
       </div>
-      <div className="mt-0.5 text-text-muted">
-        {formatUpdatedAt(value)}
-      </div>
+      <div className="mt-0.5 text-text-muted">{formatUpdatedAt(value)}</div>
     </div>
   );
 }
 
 type TeamActionsProps = {
   team: Team;
-  onManageAgents:
-    (teamId: string) => void;
-  onEdit:
-    (teamId: string) => void;
+  onManageAgents: (teamId: string) => void;
+  onEdit: (teamId: string) => void;
 };
 
 /**
  * Keeps Team row actions compact while preserving Agent management and Team editing.
  */
-function TeamActions({
-  team,
-  onManageAgents,
-  onEdit,
-}: TeamActionsProps) {
+function TeamActions({ team, onManageAgents, onEdit }: TeamActionsProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -436,31 +312,16 @@ function TeamActions({
           />
         }
       >
-        <MoreHorizontalIcon
-          aria-hidden="true"
-        />
+        <MoreHorizontalIcon aria-hidden="true" />
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent
-        align="end"
-        className="w-44"
-      >
-        <DropdownMenuItem
-          onClick={() =>
-            onManageAgents(
-              team.id,
-            )
-          }
-        >
+      <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuItem onClick={() => onManageAgents(team.id)}>
           <UsersIcon />
           Manage Agents
         </DropdownMenuItem>
 
-        <DropdownMenuItem
-          onClick={() =>
-            onEdit(team.id)
-          }
-        >
+        <DropdownMenuItem onClick={() => onEdit(team.id)}>
           <PencilIcon />
           Edit Team
         </DropdownMenuItem>
@@ -471,14 +332,9 @@ function TeamActions({
 
 type TeamViewProps = {
   teams: Team[];
-  membersByTeam: Map<
-    string,
-    Agent[]
-  >;
-  onManageAgents:
-    (teamId: string) => void;
-  onEdit:
-    (teamId: string) => void;
+  membersByTeam: Map<string, Agent[]>;
+  onManageAgents: (teamId: string) => void;
+  onEdit: (teamId: string) => void;
 };
 
 /**
@@ -510,19 +366,14 @@ function TeamListView({
             Status
           </TableHead>
           <TableHead className="h-9 w-14 px-3 text-right text-xs text-text-secondary">
-            <span className="sr-only">
-              Actions
-            </span>
+            <span className="sr-only">Actions</span>
           </TableHead>
         </TableRow>
       </TableHeader>
 
       <TableBody>
         {teams.map((team) => {
-          const members =
-            membersByTeam.get(
-              team.id,
-            ) ?? [];
+          const members = membersByTeam.get(team.id) ?? [];
 
           return (
             <TableRow
@@ -530,41 +381,29 @@ function TeamListView({
               className="h-16 border-divider hover:bg-surface-interactive/45"
             >
               <TableCell className="px-4 py-2.5">
-                <TeamIdentity
-                  team={team}
-                />
+                <TeamIdentity team={team} />
               </TableCell>
 
               <TableCell className="px-4 py-2.5">
-                <AgentAvatarStack
-                  agents={members}
-                />
+                <AgentAvatarStack agents={members} />
               </TableCell>
 
               <TableCell className="px-4 py-2.5">
-                <TeamAutoModeBadge
-                  team={team}
-                />
+                <TeamAutoModeBadge team={team} />
               </TableCell>
 
               <TableCell className="px-4 py-2.5">
-                <TeamUpdatedAt
-                  value={team.updatedAt}
-                />
+                <TeamUpdatedAt value={team.updatedAt} />
               </TableCell>
 
               <TableCell className="px-4 py-2.5">
-                <TeamStatusBadge
-                  team={team}
-                />
+                <TeamStatusBadge team={team} />
               </TableCell>
 
               <TableCell className="px-3 py-2.5 text-right">
                 <TeamActions
                   team={team}
-                  onManageAgents={
-                    onManageAgents
-                  }
+                  onManageAgents={onManageAgents}
                   onEdit={onEdit}
                 />
               </TableCell>
@@ -611,24 +450,17 @@ function TeamDetailsView({
             Status
           </TableHead>
           <TableHead className="h-9 w-14 px-3 text-right text-xs text-text-secondary">
-            <span className="sr-only">
-              Actions
-            </span>
+            <span className="sr-only">Actions</span>
           </TableHead>
         </TableRow>
       </TableHeader>
 
       <TableBody>
         {teams.map((team) => {
-          const members =
-            membersByTeam.get(
-              team.id,
-            ) ?? [];
-          const enabledMembers =
-            members.filter(
-              (agent) =>
-                agent.enabled,
-            ).length;
+          const members = membersByTeam.get(team.id) ?? [];
+          const enabledMembers = members.filter(
+            (agent) => agent.enabled,
+          ).length;
 
           return (
             <TableRow
@@ -636,61 +468,41 @@ function TeamDetailsView({
               className="h-16 border-divider hover:bg-surface-interactive/45"
             >
               <TableCell className="px-4 py-2.5">
-                <TeamIdentity
-                  team={team}
-                />
+                <TeamIdentity team={team} />
               </TableCell>
 
               <TableCell className="px-4 py-2.5">
-                <AgentAvatarStack
-                  agents={members}
-                  showCount
-                />
+                <AgentAvatarStack agents={members} showCount />
               </TableCell>
 
               <TableCell className="px-4 py-2.5 font-mono text-xs text-text-secondary">
-                {enabledMembers}/
-                {members.length}
+                {enabledMembers}/{members.length}
               </TableCell>
 
               <TableCell className="px-4 py-2.5">
                 <Badge
-                  variant={
-                    team.notionDataSourceId
-                      ? "success"
-                      : "disabled"
-                  }
+                  variant={team.notionDataSourceId ? "success" : "disabled"}
                 >
-                  {team.notionDataSourceId
-                    ? "Configured"
-                    : "Not configured"}
+                  {team.notionDataSourceId ? "Configured" : "Not configured"}
                 </Badge>
               </TableCell>
 
               <TableCell className="px-4 py-2.5">
-                <TeamAutoModeBadge
-                  team={team}
-                />
+                <TeamAutoModeBadge team={team} />
               </TableCell>
 
               <TableCell className="px-4 py-2.5">
-                <TeamUpdatedAt
-                  value={team.updatedAt}
-                />
+                <TeamUpdatedAt value={team.updatedAt} />
               </TableCell>
 
               <TableCell className="px-4 py-2.5">
-                <TeamStatusBadge
-                  team={team}
-                />
+                <TeamStatusBadge team={team} />
               </TableCell>
 
               <TableCell className="px-3 py-2.5 text-right">
                 <TeamActions
                   team={team}
-                  onManageAgents={
-                    onManageAgents
-                  }
+                  onManageAgents={onManageAgents}
                   onEdit={onEdit}
                 />
               </TableCell>
@@ -714,15 +526,8 @@ function TeamGridView({
   return (
     <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
       {teams.map((team) => {
-        const members =
-          membersByTeam.get(
-            team.id,
-          ) ?? [];
-        const enabledMembers =
-          members.filter(
-            (agent) =>
-              agent.enabled,
-          ).length;
+        const members = membersByTeam.get(team.id) ?? [];
+        const enabledMembers = members.filter((agent) => agent.enabled).length;
 
         return (
           <Card
@@ -732,66 +537,41 @@ function TeamGridView({
           >
             <CardHeader className="gap-3">
               <div className="flex items-start justify-between gap-3">
-                <TeamIdentity
-                  team={team}
-                  compact
-                />
+                <TeamIdentity team={team} compact />
 
                 <TeamActions
                   team={team}
-                  onManageAgents={
-                    onManageAgents
-                  }
+                  onManageAgents={onManageAgents}
                   onEdit={onEdit}
                 />
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <TeamStatusBadge
-                  team={team}
-                />
-                <TeamAutoModeBadge
-                  team={team}
-                />
+                <TeamStatusBadge team={team} />
+                <TeamAutoModeBadge team={team} />
               </div>
             </CardHeader>
 
             <CardContent className="grid gap-3 text-xs">
               <div className="grid gap-1.5">
-                <span className="text-text-muted">
-                  Agents
-                </span>
-                <AgentAvatarStack
-                  agents={members}
-                  showCount
-                />
+                <span className="text-text-muted">Agents</span>
+                <AgentAvatarStack agents={members} showCount />
               </div>
 
               <div className="grid grid-cols-[96px_1fr] gap-2 border-t border-divider pt-3">
-                <span className="text-text-muted">
-                  Enabled
-                </span>
+                <span className="text-text-muted">Enabled</span>
                 <span className="font-mono text-text-secondary">
-                  {enabledMembers}/
-                  {members.length}
+                  {enabledMembers}/{members.length}
                 </span>
 
-                <span className="text-text-muted">
-                  Notion
-                </span>
+                <span className="text-text-muted">Notion</span>
                 <span className="text-text-secondary">
-                  {team.notionDataSourceId
-                    ? "Configured"
-                    : "Not configured"}
+                  {team.notionDataSourceId ? "Configured" : "Not configured"}
                 </span>
 
-                <span className="text-text-muted">
-                  Updated
-                </span>
+                <span className="text-text-muted">Updated</span>
                 <span className="text-text-secondary">
-                  {formatRelativeUpdatedAt(
-                    team.updatedAt,
-                  )}
+                  {formatRelativeUpdatedAt(team.updatedAt)}
                 </span>
               </div>
             </CardContent>
@@ -806,90 +586,31 @@ function TeamGridView({
  * Renders Team CRUD as a focused index and opens the existing Team-owned Agent workspace in an overlay.
  */
 export function TeamsManager() {
-  const [
-    teams,
-    setTeams,
-  ] = useState<Team[]>([]);
-  const [
-    agents,
-    setAgents,
-  ] = useState<Agent[]>([]);
-  const [
-    status,
-    setStatus,
-  ] = useState<
-    "loading" | "loaded" | "error"
-  >("loading");
-  const [
-    error,
-    setError,
-  ] = useState<string | null>(
-    null,
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [status, setStatus] = useState<"loading" | "loaded" | "error">(
+    "loading",
   );
-  const [
-    refreshError,
-    setRefreshError,
-  ] = useState<string | null>(
-    null,
-  );
-  const [
-    refreshing,
-    setRefreshing,
-  ] = useState(false);
-  const [
-    query,
-    setQuery,
-  ] = useState("");
-  const [
-    sortKey,
-    setSortKey,
-  ] = useState<TeamSortKey>(
-    "name",
-  );
-  const [
-    statusFilter,
-    setStatusFilter,
-  ] = useState<TeamStatusFilter>(
-    "all",
-  );
-  const [
-    viewMode,
-    setViewMode,
-  ] = useState<TeamViewMode>(
-    "list",
-  );
-  const [
-    drawerOpen,
-    setDrawerOpen,
-  ] = useState(false);
-  const [
-    drawerMode,
-    setDrawerMode,
-  ] = useState<
-    "create" | "edit"
-  >("create");
-  const [
-    drawerTeamId,
-    setDrawerTeamId,
-  ] = useState<string | null>(
-    null,
-  );
-  const [
-    managedTeamId,
-    setManagedTeamId,
-  ] = useState<string | null>(
-    null,
-  );
+  const [error, setError] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [query, setQuery] = useState("");
+  const [sortKey, setSortKey] = useState<TeamSortKey>("name");
+  const [statusFilter, setStatusFilter] = useState<TeamStatusFilter>("all");
+  const [viewMode, setViewMode] = useState<TeamViewMode>("list");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerMode, setDrawerMode] = useState<"create" | "edit">("create");
+  const [drawerTeamId, setDrawerTeamId] = useState<string | null>(null);
+  const [managedTeamId, setManagedTeamId] = useState<string | null>(null);
 
   /**
    * Reloads persisted Teams and Agent memberships while keeping existing data during explicit refresh failures.
    */
   const loadWorkspace = useCallback(
-    async (
-      _preferredTeamId:
-        string | null = null,
-      preserveOnError = false,
-    ) => {
+    async (_preferredTeamId: string | null = null, preserveOnError = false) => {
+      // Kept for TeamConfigDrawer callback compatibility after Team management moved to a dedicated route.
+      void _preferredTeamId;
+
       if (!preserveOnError) {
         setError(null);
       }
@@ -897,10 +618,7 @@ export function TeamsManager() {
       setRefreshError(null);
 
       try {
-        const [
-          nextTeams,
-          nextAgents,
-        ] = await Promise.all([
+        const [nextTeams, nextAgents] = await Promise.all([
           getTeams(),
           getAgents(),
         ]);
@@ -909,19 +627,13 @@ export function TeamsManager() {
         setAgents(nextAgents);
         setStatus("loaded");
         setError(null);
-        setManagedTeamId(
-          (current) =>
-            current &&
-            nextTeams.some(
-              (team) =>
-                team.id === current,
-            )
-              ? current
-              : null,
+        setManagedTeamId((current) =>
+          current && nextTeams.some((team) => team.id === current)
+            ? current
+            : null,
         );
       } catch (caught) {
-        const message =
-          errorMessage(caught);
+        const message = errorMessage(caught);
 
         if (preserveOnError) {
           setRefreshError(message);
@@ -950,52 +662,20 @@ export function TeamsManager() {
     };
   }, [loadWorkspace]);
 
-  const membersByTeam = useMemo(
-    () =>
-      groupAgentsByTeam(
-        agents,
-      ),
-    [agents],
-  );
+  const membersByTeam = useMemo(() => groupAgentsByTeam(agents), [agents]);
 
   const visibleTeams = useMemo(
-    () =>
-      getVisibleTeams(
-        teams,
-        membersByTeam,
-        query,
-        statusFilter,
-        sortKey,
-      ),
-    [
-      teams,
-      membersByTeam,
-      query,
-      statusFilter,
-      sortKey,
-    ],
+    () => getVisibleTeams(teams, membersByTeam, query, statusFilter, sortKey),
+    [teams, membersByTeam, query, statusFilter, sortKey],
   );
 
-  const drawerTeam =
-    teams.find(
-      (team) =>
-        team.id ===
-        drawerTeamId,
-    ) ?? null;
+  const drawerTeam = teams.find((team) => team.id === drawerTeamId) ?? null;
 
-  const managedTeam =
-    teams.find(
-      (team) =>
-        team.id ===
-        managedTeamId,
-    ) ?? null;
+  const managedTeam = teams.find((team) => team.id === managedTeamId) ?? null;
 
-  const drawerMembers =
-    drawerTeam
-      ? membersByTeam.get(
-          drawerTeam.id,
-        ) ?? []
-      : [];
+  const drawerMembers = drawerTeam
+    ? (membersByTeam.get(drawerTeam.id) ?? [])
+    : [];
 
   /**
    * Opens a fresh Team creation drawer.
@@ -1009,9 +689,7 @@ export function TeamsManager() {
   /**
    * Opens one persisted Team in the existing configuration drawer.
    */
-  function openEdit(
-    teamId: string,
-  ) {
+  function openEdit(teamId: string) {
     setDrawerTeamId(teamId);
     setDrawerMode("edit");
     setDrawerOpen(true);
@@ -1020,9 +698,7 @@ export function TeamsManager() {
   /**
    * Opens the existing Team-owned Agent management workspace without expanding it below the index.
    */
-  function openAgentManagement(
-    teamId: string,
-  ) {
+  function openAgentManagement(teamId: string) {
     setManagedTeamId(teamId);
   }
 
@@ -1032,15 +708,10 @@ export function TeamsManager() {
   async function refresh() {
     setRefreshing(true);
 
-    await loadWorkspace(
-      null,
-      status === "loaded",
-    );
+    await loadWorkspace(null, status === "loaded");
   }
 
-  const controlsDisabled =
-    status !== "loaded" ||
-    teams.length === 0;
+  const controlsDisabled = status !== "loaded" || teams.length === 0;
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5">
@@ -1055,10 +726,7 @@ export function TeamsManager() {
           </p>
         </div>
 
-        <Button
-          type="button"
-          onClick={openCreate}
-        >
+        <Button type="button" onClick={openCreate}>
           <PlusIcon />
           Create Team
         </Button>
@@ -1071,19 +739,13 @@ export function TeamsManager() {
         <div className="grid gap-3 border-b border-divider p-3 xl:grid-cols-[minmax(18rem,1fr)_auto] xl:items-center">
           <InputGroup className="w-full min-w-0 xl:max-w-xl">
             <InputGroupAddon>
-              <SearchIcon
-                aria-hidden="true"
-              />
+              <SearchIcon aria-hidden="true" />
             </InputGroupAddon>
 
             <InputGroupInput
               type="search"
               value={query}
-              onChange={(event) =>
-                setQuery(
-                  event.target.value,
-                )
-              }
+              onChange={(event) => setQuery(event.target.value)}
               placeholder="Search teams or Agents..."
               aria-label="Search Teams"
               disabled={controlsDisabled}
@@ -1096,10 +758,7 @@ export function TeamsManager() {
               className="w-full sm:w-44"
               value={sortKey}
               onChange={(event) =>
-                setSortKey(
-                  event.target
-                    .value as TeamSortKey,
-                )
+                setSortKey(event.target.value as TeamSortKey)
               }
               aria-label="Sort Teams"
               disabled={controlsDisabled}
@@ -1117,38 +776,26 @@ export function TeamsManager() {
               className="w-full sm:w-36"
               value={statusFilter}
               onChange={(event) =>
-                setStatusFilter(
-                  event.target
-                    .value as TeamStatusFilter,
-                )
+                setStatusFilter(event.target.value as TeamStatusFilter)
               }
               aria-label="Filter Teams by status"
               disabled={controlsDisabled}
             >
-              <NativeSelectOption value="all">
-                All Teams
-              </NativeSelectOption>
-              <NativeSelectOption value="enabled">
-                Enabled
-              </NativeSelectOption>
-              <NativeSelectOption value="disabled">
-                Disabled
-              </NativeSelectOption>
+              <NativeSelectOption value="all">All Teams</NativeSelectOption>
+              <NativeSelectOption value="enabled">Enabled</NativeSelectOption>
+              <NativeSelectOption value="disabled">Disabled</NativeSelectOption>
             </NativeSelect>
 
             <Button
               type="button"
               variant="outline"
-              onClick={() =>
-                void refresh()
-              }
+              onClick={() => void refresh()}
               disabled={refreshing}
               aria-label="Refresh Teams"
             >
               <RefreshCwIcon
                 className={cn(
-                  refreshing &&
-                    "animate-spin motion-reduce:animate-none",
+                  refreshing && "animate-spin motion-reduce:animate-none",
                 )}
                 aria-hidden="true"
               />
@@ -1167,17 +814,11 @@ export function TeamsManager() {
                   viewMode === "list" &&
                     "border-brand-accent/50 bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/15",
                 )}
-                aria-pressed={
-                  viewMode === "list"
-                }
-                onClick={() =>
-                  setViewMode("list")
-                }
+                aria-pressed={viewMode === "list"}
+                onClick={() => setViewMode("list")}
                 disabled={controlsDisabled}
               >
-                <ListIcon
-                  aria-hidden="true"
-                />
+                <ListIcon aria-hidden="true" />
                 List
               </Button>
 
@@ -1189,19 +830,11 @@ export function TeamsManager() {
                   viewMode === "details" &&
                     "border-brand-accent/50 bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/15",
                 )}
-                aria-pressed={
-                  viewMode === "details"
-                }
-                onClick={() =>
-                  setViewMode(
-                    "details",
-                  )
-                }
+                aria-pressed={viewMode === "details"}
+                onClick={() => setViewMode("details")}
                 disabled={controlsDisabled}
               >
-                <TableIcon
-                  aria-hidden="true"
-                />
+                <TableIcon aria-hidden="true" />
                 Detailed
               </Button>
 
@@ -1213,41 +846,29 @@ export function TeamsManager() {
                   viewMode === "grid" &&
                     "border-brand-accent/50 bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/15",
                 )}
-                aria-pressed={
-                  viewMode === "grid"
-                }
-                onClick={() =>
-                  setViewMode("grid")
-                }
+                aria-pressed={viewMode === "grid"}
+                onClick={() => setViewMode("grid")}
                 disabled={controlsDisabled}
               >
-                <LayoutGridIcon
-                  aria-hidden="true"
-                />
+                <LayoutGridIcon aria-hidden="true" />
                 Grid
               </Button>
             </ButtonGroup>
           </div>
         </div>
 
-        {refreshError &&
-        status === "loaded" ? (
+        {refreshError && status === "loaded" ? (
           <div
             role="alert"
             className="flex flex-wrap items-center justify-between gap-2 border-b border-divider bg-status-error/5 px-4 py-2 text-xs text-status-error"
           >
-            <span>
-              Failed to refresh Teams.{" "}
-              {refreshError}
-            </span>
+            <span>Failed to refresh Teams. {refreshError}</span>
 
             <Button
               type="button"
               variant="ghost"
               size="xs"
-              onClick={() =>
-                void refresh()
-              }
+              onClick={() => void refresh()}
               disabled={refreshing}
             >
               Retry
@@ -1259,9 +880,7 @@ export function TeamsManager() {
           {status === "loading" ? (
             <Empty className="min-h-80 rounded-none border-0">
               <Spinner className="size-6" />
-              <EmptyTitle>
-                Loading Teams...
-              </EmptyTitle>
+              <EmptyTitle>Loading Teams...</EmptyTitle>
             </Empty>
           ) : null}
 
@@ -1275,13 +894,10 @@ export function TeamsManager() {
                   <AlertTriangleIcon />
                 </EmptyMedia>
 
-                <EmptyTitle>
-                  Failed to load Teams
-                </EmptyTitle>
+                <EmptyTitle>Failed to load Teams</EmptyTitle>
 
                 <EmptyDescription>
-                  {error ??
-                    "Could not reach the backend. Please try again."}
+                  {error ?? "Could not reach the backend. Please try again."}
                 </EmptyDescription>
               </EmptyHeader>
 
@@ -1290,9 +906,7 @@ export function TeamsManager() {
                   type="button"
                   size="sm"
                   variant="destructive"
-                  onClick={() =>
-                    void loadWorkspace()
-                  }
+                  onClick={() => void loadWorkspace()}
                 >
                   Retry
                 </Button>
@@ -1300,17 +914,14 @@ export function TeamsManager() {
             </Empty>
           ) : null}
 
-          {status === "loaded" &&
-          teams.length === 0 ? (
+          {status === "loaded" && teams.length === 0 ? (
             <Empty className="min-h-80 rounded-none border-0">
               <EmptyHeader>
                 <EmptyMedia variant="icon">
                   <UsersIcon />
                 </EmptyMedia>
 
-                <EmptyTitle>
-                  No Teams found
-                </EmptyTitle>
+                <EmptyTitle>No Teams found</EmptyTitle>
 
                 <EmptyDescription>
                   Create the first Team to define an Agent ownership boundary.
@@ -1318,11 +929,7 @@ export function TeamsManager() {
               </EmptyHeader>
 
               <EmptyContent>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={openCreate}
-                >
+                <Button type="button" size="sm" onClick={openCreate}>
                   <PlusIcon />
                   Create Team
                 </Button>
@@ -1335,9 +942,7 @@ export function TeamsManager() {
           visibleTeams.length === 0 ? (
             <Empty className="min-h-64 rounded-none border-0">
               <EmptyHeader>
-                <EmptyTitle>
-                  No matching Teams
-                </EmptyTitle>
+                <EmptyTitle>No matching Teams</EmptyTitle>
 
                 <EmptyDescription>
                   No Team matches the current search and status filter.
@@ -1346,18 +951,13 @@ export function TeamsManager() {
             </Empty>
           ) : null}
 
-          {status === "loaded" &&
-          visibleTeams.length > 0 ? (
+          {status === "loaded" && visibleTeams.length > 0 ? (
             <>
               {viewMode === "list" ? (
                 <TeamListView
                   teams={visibleTeams}
-                  membersByTeam={
-                    membersByTeam
-                  }
-                  onManageAgents={
-                    openAgentManagement
-                  }
+                  membersByTeam={membersByTeam}
+                  onManageAgents={openAgentManagement}
                   onEdit={openEdit}
                 />
               ) : null}
@@ -1365,12 +965,8 @@ export function TeamsManager() {
               {viewMode === "details" ? (
                 <TeamDetailsView
                   teams={visibleTeams}
-                  membersByTeam={
-                    membersByTeam
-                  }
-                  onManageAgents={
-                    openAgentManagement
-                  }
+                  membersByTeam={membersByTeam}
+                  onManageAgents={openAgentManagement}
                   onEdit={openEdit}
                 />
               ) : null}
@@ -1378,12 +974,8 @@ export function TeamsManager() {
               {viewMode === "grid" ? (
                 <TeamGridView
                   teams={visibleTeams}
-                  membersByTeam={
-                    membersByTeam
-                  }
-                  onManageAgents={
-                    openAgentManagement
-                  }
+                  membersByTeam={membersByTeam}
+                  onManageAgents={openAgentManagement}
                   onEdit={openEdit}
                 />
               ) : null}
@@ -1394,16 +986,11 @@ export function TeamsManager() {
         {status === "loaded" ? (
           <footer className="flex flex-col gap-1 border-t border-divider bg-surface-interactive/30 px-4 py-2.5 text-xs text-text-muted sm:flex-row sm:items-center sm:justify-between">
             <span aria-live="polite">
-              Showing {visibleTeams.length} of{" "}
-              {teams.length}{" "}
-              {teams.length === 1
-                ? "Team"
-                : "Teams"}
+              Showing {visibleTeams.length} of {teams.length}{" "}
+              {teams.length === 1 ? "Team" : "Teams"}
             </span>
 
-            <span>
-              Agent avatars show up to {AGENT_AVATAR_LIMIT} members.
-            </span>
+            <span>Agent avatars show up to {AGENT_AVATAR_LIMIT} members.</span>
           </footer>
         ) : null}
       </section>
@@ -1413,18 +1000,11 @@ export function TeamsManager() {
         open={drawerOpen}
         mode={drawerMode}
         team={drawerTeam}
-        memberCount={
-          drawerMembers.length
-        }
+        memberCount={drawerMembers.length}
         enabledMemberCount={
-          drawerMembers.filter(
-            (agent) =>
-              agent.enabled,
-          ).length
+          drawerMembers.filter((agent) => agent.enabled).length
         }
-        onOpenChange={
-          setDrawerOpen
-        }
+        onOpenChange={setDrawerOpen}
         onRefresh={loadWorkspace}
       />
 
@@ -1442,11 +1022,7 @@ export function TeamsManager() {
           className="w-[min(96vw,96rem)] max-w-none gap-0 overflow-hidden p-0 sm:max-w-none"
         >
           <SheetHeader className="sr-only">
-            <SheetTitle>
-              {managedTeam?.name ??
-                "Team"}{" "}
-              Agents
-            </SheetTitle>
+            <SheetTitle>{managedTeam?.name ?? "Team"} Agents</SheetTitle>
             <SheetDescription>
               Configure and observe Agents owned by this Team.
             </SheetDescription>
@@ -1454,10 +1030,7 @@ export function TeamsManager() {
 
           {managedTeam ? (
             <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
-              <AgentsManager
-                key={managedTeam.id}
-                team={managedTeam}
-              />
+              <AgentsManager key={managedTeam.id} team={managedTeam} />
             </div>
           ) : null}
         </SheetContent>

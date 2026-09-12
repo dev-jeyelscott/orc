@@ -1,31 +1,14 @@
 "use client";
 
-import {
-  ArrowLeftIcon,
-  RefreshCwIcon,
-  UsersIcon,
-} from "lucide-react";
+import { ArrowLeftIcon, RefreshCwIcon, UsersIcon } from "lucide-react";
 import Link from "next/link";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import type {
-  Team,
-} from "@orc/shared";
+import type { Team } from "@orc/shared";
 
-import {
-  AgentsManager,
-} from "@/components/agents-manager";
-import {
-  Badge,
-} from "@/components/ui/badge";
-import {
-  Button,
-} from "@/components/ui/button";
+import { AgentsManager } from "@/components/agents-manager";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Empty,
   EmptyContent,
@@ -34,134 +17,88 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import {
-  Spinner,
-} from "@/components/ui/spinner";
-import {
-  getTeam,
-} from "@/lib/teams";
+import { Spinner } from "@/components/ui/spinner";
+import { getTeam } from "@/lib/teams";
 
 /**
  * Converts one unknown Team workspace failure into concise operator-facing text.
  */
-function errorMessage(
-  error: unknown,
-): string {
-  return error instanceof Error
-    ? error.message
-    : "Unable to load Team";
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unable to load Team";
 }
 
 /**
  * Detects fetch cancellation so route changes do not surface false errors.
  */
-function isAbortError(
-  error: unknown,
-): boolean {
-  return (
-    error instanceof DOMException &&
-    error.name === "AbortError"
-  );
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
 }
 
 /**
  * Loads one Team and renders its dedicated Agents and Workflow workspace.
  */
-export function TeamDetailWorkspace({
-  teamId,
-}: {
-  teamId: string;
-}) {
-  const [
-    team,
-    setTeam,
-  ] = useState<Team | null>(
-    null,
+export function TeamDetailWorkspace({ teamId }: { teamId: string }) {
+  const [team, setTeam] = useState<Team | null>(null);
+  const [status, setStatus] = useState<"loading" | "loaded" | "error">(
+    "loading",
   );
-  const [
-    status,
-    setStatus,
-  ] = useState<
-    "loading" | "loaded" | "error"
-  >("loading");
-  const [
-    error,
-    setError,
-  ] = useState<string | null>(
-    null,
-  );
-  const requestRef =
-    useRef<AbortController | null>(
-      null,
-    );
+  const [error, setError] = useState<string | null>(null);
+  const requestRef = useRef<AbortController | null>(null);
 
   /**
    * Loads the current Team while cancelling any stale request for the same route workspace.
    */
-  const loadTeam = useCallback(
-    async () => {
-      requestRef.current?.abort();
+  const loadTeam = useCallback(async () => {
+    requestRef.current?.abort();
 
-      const controller =
-        new AbortController();
+    const controller = new AbortController();
 
-      requestRef.current =
-        controller;
-      setStatus("loading");
-      setError(null);
+    requestRef.current = controller;
+    setStatus("loading");
+    setError(null);
 
-      try {
-        const nextTeam =
-          await getTeam(
-            teamId,
-            controller.signal,
-          );
+    try {
+      const nextTeam = await getTeam(teamId, controller.signal);
 
-        if (
-          controller.signal.aborted
-        ) {
-          return;
-        }
-
-        setTeam(nextTeam);
-        setStatus("loaded");
-      } catch (caught) {
-        if (
-          isAbortError(caught)
-        ) {
-          return;
-        }
-
-        setTeam(null);
-        setError(
-          errorMessage(caught),
-        );
-        setStatus("error");
+      if (controller.signal.aborted) {
+        return;
       }
-    },
-    [teamId],
-  );
+
+      setTeam(nextTeam);
+      setStatus("loaded");
+    } catch (caught) {
+      if (isAbortError(caught)) {
+        return;
+      }
+
+      setTeam(null);
+      setError(errorMessage(caught));
+      setStatus("error");
+    }
+  }, [teamId]);
 
   useEffect(() => {
-    void loadTeam();
+    let disposed = false;
+
+    queueMicrotask(() => {
+      if (!disposed) {
+        void loadTeam();
+      }
+    });
 
     return () => {
+      disposed = true;
       requestRef.current?.abort();
     };
   }, [loadTeam]);
 
-  if (
-    status === "loading" &&
-    !team
-  ) {
+  if (status === "loading" && !team) {
     return (
       <div className="flex min-w-0 flex-1 flex-col gap-5">
         <Button
           variant="ghost"
           size="sm"
-          render={
-            <Link href="/teams" />
-          }
+          render={<Link href="/teams" />}
           className="w-fit"
         >
           <ArrowLeftIcon />
@@ -170,26 +107,19 @@ export function TeamDetailWorkspace({
 
         <Empty className="min-h-[28rem] border border-border-default bg-surface-elevated">
           <Spinner className="size-6" />
-          <EmptyTitle>
-            Loading Team...
-          </EmptyTitle>
+          <EmptyTitle>Loading Team...</EmptyTitle>
         </Empty>
       </div>
     );
   }
 
-  if (
-    status === "error" ||
-    !team
-  ) {
+  if (status === "error" || !team) {
     return (
       <div className="flex min-w-0 flex-1 flex-col gap-5">
         <Button
           variant="ghost"
           size="sm"
-          render={
-            <Link href="/teams" />
-          }
+          render={<Link href="/teams" />}
           className="w-fit"
         >
           <ArrowLeftIcon />
@@ -202,13 +132,10 @@ export function TeamDetailWorkspace({
               <UsersIcon />
             </EmptyMedia>
 
-            <EmptyTitle>
-              Team unavailable
-            </EmptyTitle>
+            <EmptyTitle>Team unavailable</EmptyTitle>
 
             <EmptyDescription>
-              {error ??
-                "The requested Team could not be loaded."}
+              {error ?? "The requested Team could not be loaded."}
             </EmptyDescription>
           </EmptyHeader>
 
@@ -216,9 +143,7 @@ export function TeamDetailWorkspace({
             <Button
               type="button"
               variant="outline"
-              onClick={() =>
-                void loadTeam()
-              }
+              onClick={() => void loadTeam()}
             >
               <RefreshCwIcon />
               Retry
@@ -235,9 +160,7 @@ export function TeamDetailWorkspace({
         <Button
           variant="ghost"
           size="sm"
-          render={
-            <Link href="/teams" />
-          }
+          render={<Link href="/teams" />}
           className="w-fit -ml-2"
         >
           <ArrowLeftIcon />
@@ -251,29 +174,12 @@ export function TeamDetailWorkspace({
                 {team.name}
               </h1>
 
-              <Badge
-                variant={
-                  team.enabled
-                    ? "success"
-                    : "disabled"
-                }
-              >
-                {team.enabled
-                  ? "Enabled"
-                  : "Disabled"}
+              <Badge variant={team.enabled ? "success" : "disabled"}>
+                {team.enabled ? "Enabled" : "Disabled"}
               </Badge>
 
-              <Badge
-                variant={
-                  team.autoModeEnabled
-                    ? "success"
-                    : "disabled"
-                }
-              >
-                Auto Mode{" "}
-                {team.autoModeEnabled
-                  ? "On"
-                  : "Off"}
+              <Badge variant={team.autoModeEnabled ? "success" : "disabled"}>
+                Auto Mode {team.autoModeEnabled ? "On" : "Off"}
               </Badge>
             </div>
 
@@ -289,10 +195,7 @@ export function TeamDetailWorkspace({
         </div>
       </header>
 
-      <AgentsManager
-        key={team.id}
-        team={team}
-      />
+      <AgentsManager key={team.id} team={team} />
     </div>
   );
 }
