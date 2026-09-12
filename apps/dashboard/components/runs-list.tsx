@@ -395,23 +395,15 @@ export function RunsList() {
     [runs],
   );
 
-  useEffect(() => {
-    if (
-      projectFilter === "all" ||
-      projectOptions.some(
-        (option) =>
-          option.value ===
-          projectFilter,
-      )
-    ) {
-      return;
-    }
-
-    setProjectFilter("all");
-  }, [
-    projectFilter,
-    projectOptions,
-  ]);
+  const effectiveProjectFilter =
+    projectFilter === "all" ||
+    projectOptions.some(
+      (option) =>
+        option.value ===
+        projectFilter,
+    )
+      ? projectFilter
+      : "all";
 
   const filters = useMemo<RunCollectionFilters>(
     () => ({
@@ -419,10 +411,10 @@ export function RunsList() {
       status:
         statusFilter,
       projectPath:
-        projectFilter,
+        effectiveProjectFilter,
     }),
     [
-      projectFilter,
+      effectiveProjectFilter,
       search,
       statusFilter,
     ],
@@ -457,27 +449,14 @@ export function RunsList() {
     ),
   );
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [
-    projectFilter,
-    search,
-    sortOrder,
-    statusFilter,
-  ]);
-
-  useEffect(() => {
-    setCurrentPage(
-      (current) =>
-        Math.min(
-          current,
-          totalPages,
-        ),
+  const effectiveCurrentPage =
+    Math.min(
+      currentPage,
+      totalPages,
     );
-  }, [totalPages]);
 
   const pageStart =
-    (currentPage - 1) *
+    (effectiveCurrentPage - 1) *
     PAGE_SIZE;
   const pageRuns =
     visibleRuns.slice(
@@ -495,7 +474,7 @@ export function RunsList() {
   const paginationTokens =
     buildPaginationTokens(
       totalPages,
-      currentPage,
+      effectiveCurrentPage,
     );
 
   /**
@@ -505,6 +484,7 @@ export function RunsList() {
     setSearch("");
     setStatusFilter("all");
     setProjectFilter("all");
+    setCurrentPage(1);
   }
 
   return (
@@ -529,14 +509,16 @@ export function RunsList() {
                 aria-hidden="true"
               />
             </InputGroupAddon>
+
             <InputGroupInput
               type="search"
               value={search}
-              onChange={(event) =>
+              onChange={(event) => {
                 setSearch(
                   event.target.value,
-                )
-              }
+                );
+                setCurrentPage(1);
+              }}
               placeholder="Search runs..."
               aria-label="Search runs"
               disabled={controlsDisabled}
@@ -547,12 +529,13 @@ export function RunsList() {
             size="default"
             className="w-full sm:w-40"
             value={statusFilter}
-            onChange={(event) =>
+            onChange={(event) => {
               setStatusFilter(
                 event.target
                   .value as RunStatusFilter,
-              )
-            }
+              );
+              setCurrentPage(1);
+            }}
             aria-label="Filter runs by status"
             disabled={controlsDisabled}
           >
@@ -573,18 +556,22 @@ export function RunsList() {
           <NativeSelect
             size="default"
             className="w-full sm:w-48"
-            value={projectFilter}
-            onChange={(event) =>
+            value={
+              effectiveProjectFilter
+            }
+            onChange={(event) => {
               setProjectFilter(
                 event.target.value,
-              )
-            }
+              );
+              setCurrentPage(1);
+            }}
             aria-label="Filter runs by project"
             disabled={controlsDisabled}
           >
             <NativeSelectOption value="all">
               All projects
             </NativeSelectOption>
+
             {projectOptions.map(
               (option) => (
                 <NativeSelectOption
@@ -601,18 +588,20 @@ export function RunsList() {
             size="default"
             className="w-full sm:w-40"
             value={sortOrder}
-            onChange={(event) =>
+            onChange={(event) => {
               setSortOrder(
                 event.target
                   .value as RunSortOrder,
-              )
-            }
+              );
+              setCurrentPage(1);
+            }}
             aria-label="Sort runs"
             disabled={controlsDisabled}
           >
             <NativeSelectOption value="newest">
               Newest first
             </NativeSelectOption>
+
             <NativeSelectOption value="oldest">
               Oldest first
             </NativeSelectOption>
@@ -725,6 +714,7 @@ export function RunsList() {
               Failed to refresh runs.{" "}
               {runsError}
             </span>
+
             <Button
               type="button"
               variant="ghost"
@@ -746,6 +736,7 @@ export function RunsList() {
           runs.length === 0 ? (
             <Empty className="min-h-80 rounded-none border-0">
               <Spinner className="size-6" />
+
               <EmptyTitle>
                 Loading runs...
               </EmptyTitle>
@@ -763,13 +754,16 @@ export function RunsList() {
                 >
                   <AlertTriangleIcon />
                 </EmptyMedia>
+
                 <EmptyTitle>
                   Failed to load runs
                 </EmptyTitle>
+
                 <EmptyDescription>
                   {runsError}
                 </EmptyDescription>
               </EmptyHeader>
+
               <EmptyContent>
                 <Button
                   type="button"
@@ -796,9 +790,11 @@ export function RunsList() {
                 <EmptyMedia variant="icon">
                   <InboxIcon />
                 </EmptyMedia>
+
                 <EmptyTitle>
                   No runs yet
                 </EmptyTitle>
+
                 <EmptyDescription>
                   Workflow runs will appear here after they are created by the existing task and orchestration flows.
                 </EmptyDescription>
@@ -814,13 +810,16 @@ export function RunsList() {
                 <EmptyMedia variant="icon">
                   <SearchIcon />
                 </EmptyMedia>
+
                 <EmptyTitle>
                   No runs match these filters
                 </EmptyTitle>
+
                 <EmptyDescription>
                   Adjust the search, status, or project filter to broaden the collection.
                 </EmptyDescription>
               </EmptyHeader>
+
               <EmptyContent>
                 <Button
                   type="button"
@@ -881,15 +880,16 @@ export function RunsList() {
                       size="icon-sm"
                       aria-label="Go to previous page"
                       disabled={
-                        currentPage === 1
+                        effectiveCurrentPage ===
+                        1
                       }
                       onClick={() =>
                         setCurrentPage(
-                          (current) =>
-                            Math.max(
+                          Math.max(
+                            1,
+                            effectiveCurrentPage -
                               1,
-                              current - 1,
-                            ),
+                          ),
                         )
                       }
                     >
@@ -924,7 +924,7 @@ export function RunsList() {
                             type="button"
                             variant={
                               token ===
-                              currentPage
+                              effectiveCurrentPage
                                 ? "outline"
                                 : "ghost"
                             }
@@ -932,7 +932,7 @@ export function RunsList() {
                             aria-label={`Go to page ${token}`}
                             aria-current={
                               token ===
-                              currentPage
+                              effectiveCurrentPage
                                 ? "page"
                                 : undefined
                             }
@@ -956,16 +956,16 @@ export function RunsList() {
                       size="icon-sm"
                       aria-label="Go to next page"
                       disabled={
-                        currentPage ===
+                        effectiveCurrentPage ===
                         totalPages
                       }
                       onClick={() =>
                         setCurrentPage(
-                          (current) =>
-                            Math.min(
-                              totalPages,
-                              current + 1,
-                            ),
+                          Math.min(
+                            totalPages,
+                            effectiveCurrentPage +
+                              1,
+                          ),
                         )
                       }
                     >
