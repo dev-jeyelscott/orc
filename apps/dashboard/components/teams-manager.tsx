@@ -12,11 +12,11 @@ import {
   TableIcon,
   UsersIcon,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { Agent, Team } from "@orc/shared";
 
-import { AgentsManager } from "@/components/agents-manager";
 import { TeamConfigDrawer } from "@/components/team-config-drawer";
 import {
   Avatar,
@@ -51,13 +51,6 @@ import {
   NativeSelect,
   NativeSelectOption,
 } from "@/components/ui/native-select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Table,
@@ -243,6 +236,7 @@ function TeamIdentity({ team, compact = false }: TeamIdentityProps) {
           {team.description ? (
             <>
               <span aria-hidden="true">•</span>
+
               <span className="truncate" title={team.description}>
                 {team.description}
               </span>
@@ -285,6 +279,7 @@ function TeamUpdatedAt({ value }: { value: string }) {
       <div className="text-text-secondary">
         {formatRelativeUpdatedAt(value)}
       </div>
+
       <div className="mt-0.5 text-text-muted">{formatUpdatedAt(value)}</div>
     </div>
   );
@@ -353,18 +348,23 @@ function TeamListView({
           <TableHead className="h-9 px-4 text-xs text-text-secondary">
             Team
           </TableHead>
+
           <TableHead className="h-9 px-4 text-xs text-text-secondary">
             Agents
           </TableHead>
+
           <TableHead className="h-9 px-4 text-xs text-text-secondary">
             Auto Mode
           </TableHead>
+
           <TableHead className="h-9 px-4 text-xs text-text-secondary">
             Updated
           </TableHead>
+
           <TableHead className="h-9 px-4 text-xs text-text-secondary">
             Status
           </TableHead>
+
           <TableHead className="h-9 w-14 px-3 text-right text-xs text-text-secondary">
             <span className="sr-only">Actions</span>
           </TableHead>
@@ -431,24 +431,31 @@ function TeamDetailsView({
           <TableHead className="h-9 px-4 text-xs text-text-secondary">
             Team
           </TableHead>
+
           <TableHead className="h-9 px-4 text-xs text-text-secondary">
             Agents
           </TableHead>
+
           <TableHead className="h-9 px-4 text-xs text-text-secondary">
             Enabled Agents
           </TableHead>
+
           <TableHead className="h-9 px-4 text-xs text-text-secondary">
             Notion
           </TableHead>
+
           <TableHead className="h-9 px-4 text-xs text-text-secondary">
             Auto Mode
           </TableHead>
+
           <TableHead className="h-9 px-4 text-xs text-text-secondary">
             Updated
           </TableHead>
+
           <TableHead className="h-9 px-4 text-xs text-text-secondary">
             Status
           </TableHead>
+
           <TableHead className="h-9 w-14 px-3 text-right text-xs text-text-secondary">
             <span className="sr-only">Actions</span>
           </TableHead>
@@ -555,21 +562,25 @@ function TeamGridView({
             <CardContent className="grid gap-3 text-xs">
               <div className="grid gap-1.5">
                 <span className="text-text-muted">Agents</span>
+
                 <AgentAvatarStack agents={members} showCount />
               </div>
 
               <div className="grid grid-cols-[96px_1fr] gap-2 border-t border-divider pt-3">
                 <span className="text-text-muted">Enabled</span>
+
                 <span className="font-mono text-text-secondary">
                   {enabledMembers}/{members.length}
                 </span>
 
                 <span className="text-text-muted">Notion</span>
+
                 <span className="text-text-secondary">
                   {team.notionDataSourceId ? "Configured" : "Not configured"}
                 </span>
 
                 <span className="text-text-muted">Updated</span>
+
                 <span className="text-text-secondary">
                   {formatRelativeUpdatedAt(team.updatedAt)}
                 </span>
@@ -583,9 +594,11 @@ function TeamGridView({
 }
 
 /**
- * Renders Team CRUD as a focused index and opens the existing Team-owned Agent workspace in an overlay.
+ * Renders Team CRUD as a focused index and routes Team management to its dedicated workspace.
  */
 export function TeamsManager() {
+  const router = useRouter();
+
   const [teams, setTeams] = useState<Team[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [status, setStatus] = useState<"loading" | "loaded" | "error">(
@@ -601,14 +614,12 @@ export function TeamsManager() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"create" | "edit">("create");
   const [drawerTeamId, setDrawerTeamId] = useState<string | null>(null);
-  const [managedTeamId, setManagedTeamId] = useState<string | null>(null);
 
   /**
    * Reloads persisted Teams and Agent memberships while keeping existing data during explicit refresh failures.
    */
   const loadWorkspace = useCallback(
     async (_preferredTeamId: string | null = null, preserveOnError = false) => {
-      // Kept for TeamConfigDrawer callback compatibility after Team management moved to a dedicated route.
       void _preferredTeamId;
 
       if (!preserveOnError) {
@@ -627,11 +638,6 @@ export function TeamsManager() {
         setAgents(nextAgents);
         setStatus("loaded");
         setError(null);
-        setManagedTeamId((current) =>
-          current && nextTeams.some((team) => team.id === current)
-            ? current
-            : null,
-        );
       } catch (caught) {
         const message = errorMessage(caught);
 
@@ -671,8 +677,6 @@ export function TeamsManager() {
 
   const drawerTeam = teams.find((team) => team.id === drawerTeamId) ?? null;
 
-  const managedTeam = teams.find((team) => team.id === managedTeamId) ?? null;
-
   const drawerMembers = drawerTeam
     ? (membersByTeam.get(drawerTeam.id) ?? [])
     : [];
@@ -696,10 +700,10 @@ export function TeamsManager() {
   }
 
   /**
-   * Opens the existing Team-owned Agent management workspace without expanding it below the index.
+   * Navigates to the dedicated Team Agents and Workflow workspace.
    */
   function openAgentManagement(teamId: string) {
-    setManagedTeamId(teamId);
+    router.push(`/teams/${teamId}`);
   }
 
   /**
@@ -766,6 +770,7 @@ export function TeamsManager() {
               <NativeSelectOption value="name">
                 Sorted by Name
               </NativeSelectOption>
+
               <NativeSelectOption value="updatedAt">
                 Recently updated
               </NativeSelectOption>
@@ -1007,34 +1012,6 @@ export function TeamsManager() {
         onOpenChange={setDrawerOpen}
         onRefresh={loadWorkspace}
       />
-
-      <Sheet
-        open={Boolean(managedTeam)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setManagedTeamId(null);
-          }
-        }}
-      >
-        <SheetContent
-          side="right"
-          showCloseButton
-          className="w-[min(96vw,96rem)] max-w-none gap-0 overflow-hidden p-0 sm:max-w-none"
-        >
-          <SheetHeader className="sr-only">
-            <SheetTitle>{managedTeam?.name ?? "Team"} Agents</SheetTitle>
-            <SheetDescription>
-              Configure and observe Agents owned by this Team.
-            </SheetDescription>
-          </SheetHeader>
-
-          {managedTeam ? (
-            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
-              <AgentsManager key={managedTeam.id} team={managedTeam} />
-            </div>
-          ) : null}
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }
