@@ -19,7 +19,6 @@ import type {
   Task,
   TaskWithRun,
   Team,
-  TeamAutomationStatus,
 } from "@orc/shared";
 
 import {
@@ -41,14 +40,10 @@ import {
   Skeleton,
 } from "@/components/ui/skeleton";
 import {
-  Switch,
-} from "@/components/ui/switch";
-import {
   getProjects,
 } from "@/lib/projects";
 import {
   getTeams,
-  updateTeam,
 } from "@/lib/teams";
 import {
   formatStatusLabel,
@@ -60,7 +55,6 @@ import {
   getRun,
   getRuns,
   getTasks,
-  getTeamAutomationStatuses,
   retryRun,
   skipRun,
 } from "@/lib/workflows";
@@ -116,129 +110,6 @@ function compareRunsNewestFirst(
   return right.id.localeCompare(
     left.id,
   );
-}
-
-/**
- * Converts backend automation state into the compact operator-facing label.
- */
-function formatAutomationState(
-  state:
-    TeamAutomationStatus["state"],
-): string {
-  if (
-    state ===
-    "waiting_approval"
-  ) {
-    return "Waiting approval";
-  }
-
-  if (
-    state ===
-    "cooldown"
-  ) {
-    return "Cooldown";
-  }
-
-  if (
-    state ===
-    "running"
-  ) {
-    return "Running";
-  }
-
-  if (
-    state ===
-    "ready"
-  ) {
-    return "Ready";
-  }
-
-  if (
-    state ===
-    "unavailable"
-  ) {
-    return "Unavailable";
-  }
-
-  return "Off";
-}
-
-/**
- * Converts a server-owned Team configuration failure into concise operator
- * text.
- */
-function formatAutomationUnavailableReason(
-  reason:
-    TeamAutomationStatus["unavailableReason"],
-): string | null {
-  if (
-    reason ===
-    "team_disabled"
-  ) {
-    return "Team disabled";
-  }
-
-  if (
-    reason ===
-    "missing_notion_data_source"
-  ) {
-    return "Missing Notion database";
-  }
-
-  if (
-    reason ===
-    "missing_notion_api_key"
-  ) {
-    return "Notion integration unavailable";
-  }
-
-  if (
-    reason ===
-    "no_enabled_agents"
-  ) {
-    return "No enabled Agents";
-  }
-
-  return null;
-}
-
-/**
- * Maps backend automation state onto existing semantic Badge variants.
- */
-function getAutomationBadgeVariant(
-  state:
-    TeamAutomationStatus["state"],
-):
-  | "running"
-  | "success"
-  | "warning"
-  | "neutral" {
-  if (
-    state ===
-    "running"
-  ) {
-    return "running";
-  }
-
-  if (
-    state ===
-    "ready"
-  ) {
-    return "success";
-  }
-
-  if (
-    state ===
-      "waiting_approval" ||
-    state ===
-      "cooldown" ||
-    state ===
-      "unavailable"
-  ) {
-    return "warning";
-  }
-
-  return "neutral";
 }
 
 /**
@@ -356,36 +227,6 @@ export function TasksManager() {
       [],
     );
 
-  const [
-    automationStatuses,
-    setAutomationStatuses,
-  ] =
-    useState<
-      TeamAutomationStatus[]
-    >([]);
-
-  const [
-    automationLoading,
-    setAutomationLoading,
-  ] =
-    useState(true);
-
-  const [
-    automationUpdatingTeamId,
-    setAutomationUpdatingTeamId,
-  ] =
-    useState<
-      string | null
-    >(null);
-
-  const [
-    automationError,
-    setAutomationError,
-  ] =
-    useState<
-      string | null
-    >(null);
-
   /**
    * Loads filesystem-backed Project metadata without allowing discovery failure
    * to hide persisted Task history.
@@ -483,49 +324,19 @@ export function TasksManager() {
       [],
     );
 
-  /**
-   * Loads Team configuration and server-derived automation state without
-   * duplicating scheduler eligibility rules in the browser.
-   */
+  /** Loads Teams for Task ownership presentation and manual selection. */
   const loadAutomation =
     useCallback(
       async () => {
         try {
-          const [
-            teams,
-            statuses,
-          ] =
-            await Promise.all(
-              [
-                getTeams(),
-                getTeamAutomationStatuses(),
-              ],
-            );
+          const teams = await getTeams();
 
           setAutomationTeams(
             teams,
           );
 
-          setAutomationStatuses(
-            statuses,
-          );
-
-          setAutomationError(
-            null,
-          );
-        } catch (
-          error
-        ) {
-          setAutomationError(
-            getErrorMessage(
-              error,
-              "Unable to load Auto Mode status",
-            ),
-          );
-        } finally {
-          setAutomationLoading(
-            false,
-          );
+        } catch {
+          setAutomationTeams([]);
         }
       },
       [],
@@ -572,27 +383,6 @@ export function TasksManager() {
     ],
   );
 
-  useEffect(
-    () => {
-      const timer =
-        window.setInterval(
-          () => {
-            void loadAutomation();
-          },
-          5_000,
-        );
-
-      return () => {
-        window.clearInterval(
-          timer,
-        );
-      };
-    },
-    [
-      loadAutomation,
-    ],
-  );
-
   const activeRun =
     useMemo(
       () =>
@@ -607,24 +397,6 @@ export function TasksManager() {
         null,
       [
         runs,
-      ],
-    );
-
-  const automationStatusByTeamId =
-    useMemo(
-      () =>
-        new Map(
-          automationStatuses.map(
-            (
-              status,
-            ) => [
-              status.teamId,
-              status,
-            ],
-          ),
-        ),
-      [
-        automationStatuses,
       ],
     );
 
@@ -951,69 +723,6 @@ export function TasksManager() {
   }
 
   /**
-   * Persists one Team's Auto Mode intent and reloads server-owned automation
-   * gates and workflow state.
-   */
-  async function handleAutoModeChange(
-    team: Team,
-    checked: boolean,
-  ): Promise<void> {
-    setAutomationUpdatingTeamId(
-      team.id,
-    );
-
-    setAutomationError(
-      null,
-    );
-
-    try {
-      const updatedTeam =
-        await updateTeam(
-          team.id,
-          {
-            autoModeEnabled:
-              checked,
-          },
-        );
-
-      setAutomationTeams(
-        (
-          current,
-        ) =>
-          current.map(
-            (
-              currentTeam,
-            ) =>
-              currentTeam.id ===
-              updatedTeam.id
-                ? updatedTeam
-                : currentTeam,
-          ),
-      );
-
-      await Promise.all(
-        [
-          loadAutomation(),
-          loadWork(),
-        ],
-      );
-    } catch (
-      error
-    ) {
-      setAutomationError(
-        getErrorMessage(
-          error,
-          "Unable to update Auto Mode",
-        ),
-      );
-    } finally {
-      setAutomationUpdatingTeamId(
-        null,
-      );
-    }
-  }
-
-  /**
    * Cancels an active related Run after explicit operator confirmation and
    * reloads authoritative workflow state.
    */
@@ -1217,107 +926,6 @@ export function TasksManager() {
         </div>
       </header>
 
-      <section
-        className="neon-surface flex flex-wrap items-center gap-2 rounded-lg border border-border-default bg-surface-elevated px-3 py-2 shadow-xs"
-        aria-label="Team Auto Mode"
-      >
-        <span className="me-1 text-sm font-medium text-text-primary">
-          Auto Mode
-        </span>
-
-        {automationTeams.map(
-          (
-            team,
-          ) => {
-            const status =
-              automationStatusByTeamId.get(
-                team.id,
-              );
-
-            const detail =
-              status
-                ?.blockedByActiveRun
-                ? "Waiting for active run"
-                : formatAutomationUnavailableReason(
-                    status
-                      ?.unavailableReason ??
-                      null,
-                  );
-
-            return (
-              <div
-                key={
-                  team.id
-                }
-                className="flex min-w-0 items-center gap-1.5 border-l border-divider pl-2 first:border-l-0 first:pl-0"
-              >
-                <span className="max-w-32 truncate text-xs font-medium text-text-secondary">
-                  {
-                    team.name
-                  }
-                </span>
-
-                <Badge
-                  variant={getAutomationBadgeVariant(
-                    status
-                      ?.state ??
-                      "off",
-                  )}
-                >
-                  {formatAutomationState(
-                    status
-                      ?.state ??
-                      "off",
-                  )}
-                </Badge>
-
-                {detail ? (
-                  <span
-                    className="hidden max-w-44 truncate text-xs text-text-muted xl:inline"
-                    title={
-                      detail
-                    }
-                  >
-                    {
-                      detail
-                    }
-                  </span>
-                ) : null}
-
-                <Switch
-                  size="sm"
-                  checked={
-                    team.autoModeEnabled
-                  }
-                  onCheckedChange={(
-                    checked,
-                  ) => {
-                    void handleAutoModeChange(
-                      team,
-                      checked,
-                    );
-                  }}
-                  disabled={
-                    automationLoading ||
-                    automationUpdatingTeamId ===
-                      team.id
-                  }
-                  aria-label={`Toggle ${team.name} Auto Mode`}
-                />
-              </div>
-            );
-          },
-        )}
-
-        {automationLoading &&
-        automationTeams.length ===
-          0 ? (
-          <span className="text-xs text-text-muted">
-            Loading Team automation...
-          </span>
-        ) : null}
-      </section>
-
       {workError ? (
         <div
           role="alert"
@@ -1325,17 +933,6 @@ export function TasksManager() {
         >
           {
             workError
-          }
-        </div>
-      ) : null}
-
-      {automationError ? (
-        <div
-          role="alert"
-          className="rounded-lg border border-status-error/30 bg-status-error/10 px-3 py-2 text-sm text-status-error"
-        >
-          {
-            automationError
           }
         </div>
       ) : null}

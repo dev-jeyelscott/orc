@@ -11,7 +11,7 @@ export const createTaskSchema = z.object({
   projectId:
     z.string().trim().min(1),
   teamId:
-    z.string().uuid(),
+    z.string().uuid().optional(),
   title:
     z.string()
       .trim()

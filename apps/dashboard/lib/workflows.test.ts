@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   cancelRun,
-  getTeamAutomationStatuses,
+  getProjectAutomationStatuses,
   skipRun,
 } from "./workflows";
 
@@ -11,12 +11,13 @@ const originalFetch = globalThis.fetch;
 /**
  * Verifies the Tasks client validates the Team-scoped server response instead of accepting an obsolete singleton.
  */
-async function testTeamAutomationStatusClient(): Promise<void> {
+async function testProjectAutomationStatusClient(): Promise<void> {
   globalThis.fetch = async () =>
     new Response(
       JSON.stringify({
-        teams: [
+        projects: [
           {
+            projectPath: "/workspace/project-a",
             teamId:
               "00000000-0000-4000-9000-000000000001",
             autoModeEnabled:
@@ -43,9 +44,10 @@ async function testTeamAutomationStatusClient(): Promise<void> {
 
   try {
     assert.deepEqual(
-      await getTeamAutomationStatuses(),
+      await getProjectAutomationStatuses(),
       [
         {
+          projectPath: "/workspace/project-a",
           teamId:
             "00000000-0000-4000-9000-000000000001",
           autoModeEnabled:
@@ -138,7 +140,7 @@ async function testBodylessRunControlsDoNotSendEmptyJsonBody(): Promise<void> {
   }
 }
 
-void testTeamAutomationStatusClient()
+void testProjectAutomationStatusClient()
   .then(
     testBodylessRunControlsDoNotSendEmptyJsonBody,
   )

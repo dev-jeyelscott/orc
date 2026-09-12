@@ -260,11 +260,16 @@ export function TaskCreateDrawer({
         selectedProjectId,
     );
 
+  const effectiveTeamId =
+    teamId ||
+    selectedProject?.assignment?.teamId ||
+    "";
+
   const selectedTeam =
     teams.find(
       (team) =>
         team.id ===
-        teamId,
+        effectiveTeamId,
     ) ?? null;
 
   const formComplete =
@@ -492,10 +497,12 @@ export function TaskCreateDrawer({
                   }
                   onValueChange={(
                     value,
-                  ) =>
-                    setProjectId(
-                      value ?? "",
-                    )
+                  ) => {
+                    const nextProjectId = value ?? "";
+                    setProjectId(nextProjectId);
+                    const assignmentTeamId = projects.find((project) => project.id === nextProjectId)?.assignment?.teamId;
+                    if (assignmentTeamId) setTeamId(assignmentTeamId);
+                  }
                   }
                 >
                   <SelectTrigger
@@ -558,9 +565,15 @@ export function TaskCreateDrawer({
                   Team
                 </span>
 
+                {selectedProject?.assignment ? (
+                  <span className="text-xs text-text-muted">Default for this Project: {selectedProject.assignment.teamName}. You may select another Team for this manual Task.</span>
+                ) : (
+                  <span className="text-xs text-text-muted">This Project is unassigned; select a Team for this manual Task.</span>
+                )}
+
                 <Select
                   value={
-                    teamId ||
+                    effectiveTeamId ||
                     null
                   }
                   onValueChange={(

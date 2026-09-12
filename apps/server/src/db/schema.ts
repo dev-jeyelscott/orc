@@ -245,6 +245,30 @@ export const teams =
     ],
   );
 
+/**
+ * Project existence remains filesystem-backed. This table stores only optional
+ * configuration for a currently discoverable canonical project path.
+ */
+export const projectTeamAssignments =
+  pgTable(
+    "project_team_assignments",
+    {
+      projectPath: text("project_path").primaryKey(),
+      teamId: uuid("team_id")
+        .notNull()
+        .references(() => teams.id, { onDelete: "restrict" }),
+      notionDataSourceId: text("notion_data_source_id"),
+      autoModeEnabled: boolean("auto_mode_enabled").notNull().default(false),
+      ...timestamps,
+    },
+    (table) => [
+      unique("project_team_assignments_notion_data_source_id_unique").on(
+        table.notionDataSourceId,
+      ),
+      index("project_team_assignments_team_id_idx").on(table.teamId),
+    ],
+  );
+
 export const agents =
   pgTable(
     "agents",

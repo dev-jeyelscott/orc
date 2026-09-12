@@ -178,9 +178,6 @@ export function TeamDetailWorkspace({ teamId }: { teamId: string }) {
                 {team.enabled ? "Enabled" : "Disabled"}
               </Badge>
 
-              <Badge variant={team.autoModeEnabled ? "success" : "disabled"}>
-                Auto Mode {team.autoModeEnabled ? "On" : "Off"}
-              </Badge>
             </div>
 
             <p className="mt-1 max-w-3xl text-sm text-text-muted">

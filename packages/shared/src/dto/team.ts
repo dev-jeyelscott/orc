@@ -26,16 +26,6 @@ const teamFieldsSchema =
     enabled:
       z.boolean()
         .default(true),
-    notionDataSourceId:
-      z.string()
-        .trim()
-        .min(1)
-        .max(255)
-        .nullable()
-        .default(null),
-    autoModeEnabled:
-      z.boolean()
-        .default(false),
   });
 
 export const createTeamSchema =

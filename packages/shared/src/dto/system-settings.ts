@@ -47,6 +47,22 @@ export const teamAutomationStatusResponseSchema =
       ),
   });
 
+export const projectAutomationStatusSchema =
+  z.object({
+    projectPath: z.string(),
+    teamId: z.string().uuid(),
+    autoModeEnabled: z.boolean(),
+    state: teamAutomationStatusStateSchema,
+    nextEligibleAt: z.string().datetime().nullable(),
+    blockedByActiveRun: z.boolean(),
+    unavailableReason: teamAutomationUnavailableReasonSchema,
+  });
+
+export const projectAutomationStatusResponseSchema =
+  z.object({
+    projects: z.array(projectAutomationStatusSchema),
+  });
+
 export type TeamAutomationStatusState =
   z.infer<
     typeof teamAutomationStatusStateSchema
@@ -66,3 +82,9 @@ export type TeamAutomationStatusResponse =
   z.infer<
     typeof teamAutomationStatusResponseSchema
   >;
+
+export type ProjectAutomationStatus =
+  z.infer<typeof projectAutomationStatusSchema>;
+
+export type ProjectAutomationStatusResponse =
+  z.infer<typeof projectAutomationStatusResponseSchema>;

@@ -27,8 +27,8 @@ import {
   type NotionTaskStatus,
 } from "./notion-task-source.js";
 import {
-  getTeam,
-} from "./team-service.js";
+  getProjectTeamAssignmentByPath,
+} from "./project-team-assignment-service.js";
 import {
   runAutoModeCycle,
   type AutoModeCycleDependencies,
@@ -48,6 +48,8 @@ export type NotionLifecycleTarget = {
     string;
   teamId:
     string;
+  projectPath?:
+    string;
   status:
     NotionTaskStatus | null;
 };
@@ -64,6 +66,7 @@ export type NotionAutoModeCycleDependencies = {
     (
       teamId:
         string,
+      projectPath?: string,
     ) => AutoModeNotionAdapter | Promise<AutoModeNotionAdapter>;
   runIntakeCycle?:
     RunIntakeCycle;
@@ -282,6 +285,8 @@ Promise<NotionLifecycleTarget | null> {
       task.externalId,
     teamId:
       task.teamId,
+    projectPath:
+      task.projectPath,
     status:
       resolveNotionLifecycleStatus(
         run.status,
@@ -293,27 +298,29 @@ Promise<NotionLifecycleTarget | null> {
 }
 
 /**
- * Builds the production Notion adapter for one Team using its own configured data source.
+ * Builds a lifecycle adapter from the current Project assignment, never from a Team-global source.
  */
 async function createProductionNotionAdapterForTeam(
   teamId:
     string,
+  projectPath?: string,
 ): Promise<AutoModeNotionAdapter> {
-  const team =
-    await getTeam(
-      teamId,
-    );
+  const assignment = projectPath
+    ? await getProjectTeamAssignmentByPath(projectPath)
+    : null;
 
   if (
-    !team?.notionDataSourceId
+    !assignment ||
+    assignment.teamId !== teamId ||
+    !assignment.notionDataSourceId
   ) {
     throw new NotionTaskSourceError(
-      "Notion lifecycle reconciliation requires a Team Notion data source.",
+      "Notion lifecycle reconciliation requires the current Project Notion assignment.",
     );
   }
 
   return createNotionTaskSourceAdapter(
-    team.notionDataSourceId,
+    assignment.notionDataSourceId,
   );
 }
 
@@ -349,6 +356,7 @@ export async function runNotionAutoModeCycle(
       const adapter =
         await createAdapterForIntake(
           lifecycleTarget.teamId,
+          lifecycleTarget.projectPath,
         );
 
       await adapter.updateStatus(
@@ -381,8 +389,5 @@ export async function runNotionAutoModeCycle(
     }
   }
 
-  await intake({
-    createNotionAdapter:
-      createAdapterForIntake,
-  });
+  await intake();
 }

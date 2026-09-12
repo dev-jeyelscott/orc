@@ -18,9 +18,6 @@ import {
   listTeams,
   updateTeam,
 } from "../services/team-service.js";
-import {
-  requestAutoModeCycle,
-} from "../services/auto-mode-signal.js";
 
 const idParams =
   z.object({
@@ -199,14 +196,6 @@ export async function teamRoutes(
             teamId,
             input,
           );
-
-        if (
-          team &&
-          input.autoModeEnabled ===
-            true
-        ) {
-          requestAutoModeCycle();
-        }
 
         return (
           team ??

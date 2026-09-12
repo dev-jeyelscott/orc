@@ -5,6 +5,7 @@ import { FolderIcon, GitBranchIcon } from "lucide-react"
 import type { Project } from "@orc/shared"
 
 import { Badge } from "@/components/ui/badge"
+import { ProjectAssignmentEditor } from "@/components/project-assignment-editor"
 import {
   Card,
   CardContent,
@@ -33,6 +34,12 @@ const gitStateVariant = {
 interface ProjectViewProps {
   projects: Project[]
   workspaceRoot: string
+  onAssignmentChanged?: () => Promise<void> | void
+}
+
+function ProjectAssignmentSummary({ project }: { project: Project }) {
+  if (!project.assignment) return <Badge variant="neutral">Unassigned</Badge>
+  return <div className="flex flex-wrap items-center gap-1"><Badge variant="success">{project.assignment.teamName}</Badge><Badge variant={project.assignment.autoModeEnabled ? "success" : "disabled"}>Auto {project.assignment.autoModeEnabled ? "On" : "Off"}</Badge>{project.assignment.notionDataSourceId ? <span className="font-mono text-[11px] text-text-muted" title={project.assignment.notionDataSourceId}>Notion configured</span> : null}</div>
 }
 
 interface ProjectPrimaryFilesProps {
@@ -169,6 +176,7 @@ function ProjectPrimaryFiles({
 function ProjectTable({
   projects,
   workspaceRoot,
+  onAssignmentChanged,
 }: ProjectViewProps) {
   return (
     <Table className="min-w-[1180px]">
@@ -195,6 +203,7 @@ function ProjectTable({
           <TableHead className="h-9 px-4 text-xs text-text-secondary">
             Primary files
           </TableHead>
+          <TableHead className="h-9 px-4 text-xs text-text-secondary">Team & automation</TableHead>
         </TableRow>
       </TableHeader>
 
@@ -215,6 +224,7 @@ function ProjectTable({
                 </span>
               </div>
             </TableCell>
+            <TableCell className="px-4 py-2"><div className="flex min-w-56 items-center gap-2"><ProjectAssignmentSummary project={project} /><ProjectAssignmentEditor project={project} onChanged={onAssignmentChanged ?? (() => undefined)} /></div></TableCell>
 
             <TableCell
               className="max-w-[360px] px-4 py-2 font-mono text-xs text-text-muted"
@@ -262,6 +272,7 @@ function ProjectTable({
 function ProjectCompactList({
   projects,
   workspaceRoot,
+  onAssignmentChanged,
 }: ProjectViewProps) {
   return (
     <div
@@ -314,6 +325,8 @@ function ProjectCompactList({
                 project.packageManager,
               )}
             </span>
+            <ProjectAssignmentSummary project={project} />
+            <ProjectAssignmentEditor project={project} onChanged={onAssignmentChanged ?? (() => undefined)} />
           </div>
         </article>
       ))}
@@ -327,6 +340,7 @@ function ProjectCompactList({
 function ProjectGrid({
   projects,
   workspaceRoot,
+  onAssignmentChanged,
 }: ProjectViewProps) {
   return (
     <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
@@ -363,6 +377,7 @@ function ProjectGrid({
           </CardHeader>
 
           <CardContent className="grid gap-2 text-xs">
+            <div className="flex items-center justify-between gap-2"><ProjectAssignmentSummary project={project} /><ProjectAssignmentEditor project={project} onChanged={onAssignmentChanged ?? (() => undefined)} /></div>
             <div className="grid grid-cols-[88px_1fr] gap-2">
               <span className="text-text-muted">
                 Branch

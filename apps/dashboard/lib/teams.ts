@@ -10,43 +10,6 @@ const SERVER_URL =
   process.env.NEXT_PUBLIC_SERVER_URL ??
   "http://localhost:4000";
 
-export const missingNotionDataSourceMessage =
-  "A Notion data source ID is required when Auto Mode is enabled";
-
-/**
- * Normalizes the optional Notion source field before it crosses the Team API boundary.
- */
-export function normalizeTeamAutomationInput(
-  input: CreateTeam,
-): CreateTeam {
-  const notionDataSourceId =
-    input.notionDataSourceId
-      ?.trim() ||
-    null;
-
-  return {
-    ...input,
-    notionDataSourceId,
-  };
-}
-
-/**
- * Returns the same local validation message used by the Team API for invalid automation intent.
- */
-export function getTeamAutomationValidationError(
-  input: Pick<
-    CreateTeam,
-    | "autoModeEnabled"
-    | "notionDataSourceId"
-  >,
-): string | null {
-  return input.autoModeEnabled &&
-    !input.notionDataSourceId
-      ?.trim()
-    ? missingNotionDataSourceMessage
-    : null;
-}
-
 /**
  * Reads a backend Team error response into stable operator-facing text.
  */

@@ -4,7 +4,7 @@ import {
   runMonitoringDetailSchema,
   runMonitoringListResponseSchema,
   taskListResponseSchema,
-  teamAutomationStatusResponseSchema,
+  projectAutomationStatusResponseSchema,
   taskWithRunSchema,
   type CreateTask,
   type RetryRun,
@@ -14,7 +14,7 @@ import {
   type RunMonitoringSummary,
   type Task,
   type TaskWithRun,
-  type TeamAutomationStatus,
+  type ProjectAutomationStatus,
 } from "@orc/shared";
 
 const SERVER_URL =
@@ -139,10 +139,10 @@ export function getRuns(): Promise<
 }
 
 /**
- * Loads derived per-Team automation state without exposing Notion configuration or process-local scheduler data.
+ * Loads derived per-Project automation state without exposing Notion configuration or process-local scheduler data.
  */
-export function getTeamAutomationStatuses(): Promise<
-  TeamAutomationStatus[]
+export function getProjectAutomationStatuses(): Promise<
+  ProjectAutomationStatus[]
 > {
   return request(
     "/api/auto-mode/status",
@@ -151,9 +151,9 @@ export function getTeamAutomationStatuses(): Promise<
         "no-store",
     },
     (value) =>
-      teamAutomationStatusResponseSchema.parse(
+      projectAutomationStatusResponseSchema.parse(
         value,
-      ).teams,
+      ).projects,
   );
 }
 

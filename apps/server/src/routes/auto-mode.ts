@@ -3,11 +3,11 @@ import type {
 } from "fastify";
 
 import {
-  getTeamAutomationStatuses,
+  getProjectAutomationStatuses,
 } from "../services/auto-mode-service.js";
 
 /**
- * Registers derived Team Auto Mode operator-status endpoints.
+ * Registers Project-assignment Auto Mode operator-status endpoints.
  */
 export async function autoModeRoutes(
   app:
@@ -16,8 +16,8 @@ export async function autoModeRoutes(
   app.get(
     "/api/auto-mode/status",
     async () => ({
-      teams:
-        await getTeamAutomationStatuses(),
+      projects:
+        await getProjectAutomationStatuses(),
     }),
   );
 }

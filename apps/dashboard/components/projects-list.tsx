@@ -704,6 +704,7 @@ function ProjectsList() {
                 workspaceRoot={
                   data.workspaceRoot
                 }
+                onAssignmentChanged={refresh}
               />
             ) : null}
 
@@ -715,6 +716,7 @@ function ProjectsList() {
                 workspaceRoot={
                   data.workspaceRoot
                 }
+                onAssignmentChanged={refresh}
               />
             ) : null}
 
@@ -726,6 +728,7 @@ function ProjectsList() {
                 workspaceRoot={
                   data.workspaceRoot
                 }
+                onAssignmentChanged={refresh}
               />
             ) : null}
           </>

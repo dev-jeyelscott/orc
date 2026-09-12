@@ -1,90 +1,23 @@
 import assert from "node:assert/strict";
 
-import {
-  getTeamAutomationValidationError,
-  missingNotionDataSourceMessage,
-  normalizeTeamAutomationInput,
-} from "./teams";
-
-const baseTeam = {
-  slug:
-    "platform",
-  name:
-    "Platform Team",
-  description:
-    "",
-  enabled:
-    true,
-  notionDataSourceId:
-    "  notion-platform-source  ",
-  autoModeEnabled:
-    true,
-};
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * Verifies blank dashboard input becomes the nullable Team API contract.
  */
-function testTeamAutomationNormalization(): void {
-  assert.deepEqual(
-    normalizeTeamAutomationInput(
-      baseTeam,
-    ),
-    {
-      ...baseTeam,
-      notionDataSourceId:
-        "notion-platform-source",
-    },
-  );
+function testTeamAutomationIsProjectScoped(): void {
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  const teamsSource = readFileSync(resolve(root, "components/teams-manager.tsx"), "utf8");
+  const editorSource = readFileSync(resolve(root, "components/project-assignment-editor.tsx"), "utf8");
 
-  assert.equal(
-    normalizeTeamAutomationInput({
-      ...baseTeam,
-      notionDataSourceId:
-        "   ",
-      autoModeEnabled:
-        false,
-    }).notionDataSourceId,
-    null,
-  );
+  assert.doesNotMatch(teamsSource, /TeamAutoModeBadge|notionDataSourceId|autoModeEnabled/);
+  assert.match(editorSource, /Notion Data Source ID/);
+  assert.match(editorSource, /Auto Mode/);
 }
 
-/**
- * Verifies client feedback matches the server-side Auto Mode requirement.
- */
-function testTeamAutomationValidation(): void {
-  assert.equal(
-    getTeamAutomationValidationError({
-      autoModeEnabled:
-        true,
-      notionDataSourceId:
-        null,
-    }),
-    missingNotionDataSourceMessage,
-  );
-
-  assert.equal(
-    getTeamAutomationValidationError({
-      autoModeEnabled:
-        true,
-      notionDataSourceId:
-        "notion-platform-source",
-    }),
-    null,
-  );
-
-  assert.equal(
-    getTeamAutomationValidationError({
-      autoModeEnabled:
-        false,
-      notionDataSourceId:
-        null,
-    }),
-    null,
-  );
-}
-
-testTeamAutomationNormalization();
-testTeamAutomationValidation();
+testTeamAutomationIsProjectScoped();
 
 console.log(
   "team client helper tests passed",

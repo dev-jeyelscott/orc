@@ -70,6 +70,10 @@ import {
 } from "./project-discovery.js";
 
 import {
+  getProjectTeamAssignmentByPath,
+} from "./project-team-assignment-service.js";
+
+import {
   requestAutoModeCycle,
 } from "./auto-mode-signal.js";
 
@@ -2057,8 +2061,26 @@ export async function createTask(
     );
   }
 
+  const assignment =
+    await getProjectTeamAssignmentByPath(
+      project.path,
+    );
+
+  const teamId =
+    input.teamId ??
+    assignment?.teamId;
+
+  if (
+    !teamId
+  ) {
+    throw new WorkflowServiceError(
+      "The selected project has no assigned Team. Select a Team to create manual work.",
+      400,
+    );
+  }
+
   await requireRunnableTeam(
-    input.teamId,
+    teamId,
   );
 
   const task = await db.transaction(async (tx) => {
@@ -2068,7 +2090,7 @@ export async function createTask(
         .from(projectDocuments)
         .where(
           and(
-            eq(projectDocuments.teamId, input.teamId),
+            eq(projectDocuments.teamId, teamId),
             eq(projectDocuments.projectPath, project.path),
             inArray(projectDocuments.id, [...trustedDocumentIds]),
           ),
@@ -2085,7 +2107,7 @@ export async function createTask(
     const [created] = await tx
       .insert(tasks)
       .values({
-        teamId: input.teamId,
+        teamId,
         projectPath: project.path,
         title: input.title,
         instruction: input.instruction,
@@ -2462,6 +2484,20 @@ export async function createAndStartTask(
     );
   }
 
+  const assignment =
+    await getProjectTeamAssignmentByPath(
+      project.path,
+    );
+  const teamId =
+    input.teamId ??
+    assignment?.teamId;
+  if (!teamId) {
+    throw new WorkflowServiceError(
+      "The selected project has no assigned Team. Select a Team to create manual work.",
+      400,
+    );
+  }
+
   const result =
     await db.transaction(
       async (tx) => {
@@ -2504,7 +2540,7 @@ export async function createAndStartTask(
             .where(
               eq(
                 teams.id,
-                input.teamId,
+                teamId,
               ),
             );
 
@@ -2532,7 +2568,7 @@ export async function createAndStartTask(
         } =
           await loadTeamWorkflowTopology(
             tx,
-            input.teamId,
+            teamId,
           );
 
         if (
@@ -2557,8 +2593,7 @@ export async function createAndStartTask(
           await tx
             .insert(tasks)
             .values({
-              teamId:
-                input.teamId,
+              teamId,
               projectPath:
                 project.path,
               title:

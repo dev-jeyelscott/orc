@@ -260,17 +260,6 @@ function TeamStatusBadge({ team }: { team: Team }) {
 }
 
 /**
- * Renders Team automation state without implying unsupported scheduler state.
- */
-function TeamAutoModeBadge({ team }: { team: Team }) {
-  return (
-    <Badge variant={team.autoModeEnabled ? "success" : "disabled"}>
-      {team.autoModeEnabled ? "On" : "Off"}
-    </Badge>
-  );
-}
-
-/**
  * Renders a compact relative and absolute update timestamp matching the list hierarchy.
  */
 function TeamUpdatedAt({ value }: { value: string }) {
@@ -354,10 +343,6 @@ function TeamListView({
           </TableHead>
 
           <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Auto Mode
-          </TableHead>
-
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
             Updated
           </TableHead>
 
@@ -386,10 +371,6 @@ function TeamListView({
 
               <TableCell className="px-4 py-2.5">
                 <AgentAvatarStack agents={members} />
-              </TableCell>
-
-              <TableCell className="px-4 py-2.5">
-                <TeamAutoModeBadge team={team} />
               </TableCell>
 
               <TableCell className="px-4 py-2.5">
@@ -441,14 +422,6 @@ function TeamDetailsView({
           </TableHead>
 
           <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Notion
-          </TableHead>
-
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Auto Mode
-          </TableHead>
-
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
             Updated
           </TableHead>
 
@@ -484,18 +457,6 @@ function TeamDetailsView({
 
               <TableCell className="px-4 py-2.5 font-mono text-xs text-text-secondary">
                 {enabledMembers}/{members.length}
-              </TableCell>
-
-              <TableCell className="px-4 py-2.5">
-                <Badge
-                  variant={team.notionDataSourceId ? "success" : "disabled"}
-                >
-                  {team.notionDataSourceId ? "Configured" : "Not configured"}
-                </Badge>
-              </TableCell>
-
-              <TableCell className="px-4 py-2.5">
-                <TeamAutoModeBadge team={team} />
               </TableCell>
 
               <TableCell className="px-4 py-2.5">
@@ -555,7 +516,6 @@ function TeamGridView({
 
               <div className="flex flex-wrap items-center gap-2">
                 <TeamStatusBadge team={team} />
-                <TeamAutoModeBadge team={team} />
               </div>
             </CardHeader>
 
@@ -571,12 +531,6 @@ function TeamGridView({
 
                 <span className="font-mono text-text-secondary">
                   {enabledMembers}/{members.length}
-                </span>
-
-                <span className="text-text-muted">Notion</span>
-
-                <span className="text-text-secondary">
-                  {team.notionDataSourceId ? "Configured" : "Not configured"}
                 </span>
 
                 <span className="text-text-muted">Updated</span>
@@ -1006,9 +960,6 @@ export function TeamsManager() {
         mode={drawerMode}
         team={drawerTeam}
         memberCount={drawerMembers.length}
-        enabledMemberCount={
-          drawerMembers.filter((agent) => agent.enabled).length
-        }
         onOpenChange={setDrawerOpen}
         onRefresh={loadWorkspace}
       />

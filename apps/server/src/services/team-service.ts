@@ -41,7 +41,11 @@ function serializeTeam(
     typeof teams.$inferSelect,
 ): Team {
   return {
-    ...row,
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    description: row.description,
+    enabled: row.enabled,
     createdAt:
       row.createdAt.toISOString(),
     updatedAt:
@@ -112,63 +116,6 @@ function translateDatabaseError(
 }
 
 /**
- * Rejects enabled Auto Mode when its Team has no persisted Notion source.
- */
-function validateAutomationConfiguration(
-  autoModeEnabled: boolean,
-  notionDataSourceId: string | null,
-): void {
-  if (
-    autoModeEnabled &&
-    !notionDataSourceId
-  ) {
-    throw new TeamServiceError(
-      "A Notion data source ID is required when Auto Mode is enabled",
-      400,
-    );
-  }
-}
-
-/**
- * Provides a stable conflict before PostgreSQL enforces the same unique invariant.
- */
-async function ensureNotionDataSourceAvailable(
-  notionDataSourceId: string | null,
-  teamId?: string,
-): Promise<void> {
-  if (
-    !notionDataSourceId
-  ) {
-    return;
-  }
-
-  const [existing] =
-    await db
-      .select({
-        id:
-          teams.id,
-      })
-      .from(teams)
-      .where(
-        eq(
-          teams.notionDataSourceId,
-          notionDataSourceId,
-        ),
-      )
-      .limit(1);
-
-  if (
-    existing &&
-    existing.id !== teamId
-  ) {
-    throw new TeamServiceError(
-      "That Notion data source is already assigned to another Team",
-      409,
-    );
-  }
-}
-
-/**
  * Lists all Teams using deterministic operator-facing ordering.
  */
 export async function listTeams(): Promise<
@@ -225,18 +172,6 @@ export async function createTeam(
     CreateTeam,
 ): Promise<Team> {
   try {
-    validateAutomationConfiguration(
-      input.autoModeEnabled ??
-        false,
-      input.notionDataSourceId ??
-        null,
-    );
-
-    await ensureNotionDataSourceAvailable(
-      input.notionDataSourceId ??
-        null,
-    );
-
     const [team] =
       await db
         .insert(teams)
@@ -280,24 +215,6 @@ export async function updateTeam(
     ) {
       return null;
     }
-
-    const effectiveNotionDataSourceId =
-      "notionDataSourceId" in
-      input
-        ? input.notionDataSourceId ??
-          null
-        : existing.notionDataSourceId;
-
-    validateAutomationConfiguration(
-      input.autoModeEnabled ??
-        existing.autoModeEnabled,
-      effectiveNotionDataSourceId,
-    );
-
-    await ensureNotionDataSourceAvailable(
-      effectiveNotionDataSourceId,
-      id,
-    );
 
     const [team] =
       await db

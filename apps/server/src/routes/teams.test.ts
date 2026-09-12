@@ -24,14 +24,6 @@ const mocks =
     }),
   );
 
-const signalMocks =
-  vi.hoisted(
-    () => ({
-      requestAutoModeCycle:
-        vi.fn(),
-    }),
-  );
-
 vi.mock(
   "../services/team-service.js",
   () => ({
@@ -47,11 +39,6 @@ vi.mock(
       },
     ...mocks,
   }),
-);
-
-vi.mock(
-  "../services/auto-mode-signal.js",
-  () => signalMocks,
 );
 
 const {
@@ -108,8 +95,6 @@ beforeEach(
       mock.mockReset();
     }
 
-    signalMocks.requestAutoModeCycle.mockReset();
-
     app =
       Fastify();
 
@@ -129,48 +114,7 @@ describe(
   "Team routes",
   () => {
     it(
-      "requests an immediate cycle only when Team Auto Mode is enabled",
-      async () => {
-        mocks.updateTeam.mockResolvedValue(
-          team,
-        );
-
-        const enabledResponse =
-          await app.inject({
-            method:
-              "PATCH",
-            url:
-              `/api/teams/${TEAM_ID}`,
-            payload: {
-              autoModeEnabled:
-                true,
-            },
-          });
-
-        expect(enabledResponse.statusCode).toBe(200);
-        expect(
-          signalMocks.requestAutoModeCycle,
-        ).toHaveBeenCalledTimes(1);
-
-        await app.inject({
-          method:
-            "PATCH",
-            url:
-              `/api/teams/${TEAM_ID}`,
-            payload: {
-              autoModeEnabled:
-                false,
-            },
-          });
-
-        expect(
-          signalMocks.requestAutoModeCycle,
-        ).toHaveBeenCalledTimes(1);
-      },
-    );
-
-    it(
-      "persists Team-owned Notion automation fields through Team creation",
+      "ignores legacy automation fields through Team creation",
       async () => {
         mocks.createTeam.mockResolvedValue(
           team,
@@ -213,10 +157,6 @@ describe(
             team.description,
           enabled:
             team.enabled,
-          notionDataSourceId:
-            team.notionDataSourceId,
-          autoModeEnabled:
-            team.autoModeEnabled,
         });
 
         expect(

@@ -11,7 +11,7 @@ import {
 const mocks =
   vi.hoisted(
     () => ({
-      getTeamAutomationStatuses:
+      getProjectAutomationStatuses:
         vi.fn(),
     }),
   );
@@ -30,7 +30,7 @@ let app:
 
 beforeEach(
   async () => {
-    mocks.getTeamAutomationStatuses.mockReset();
+    mocks.getProjectAutomationStatuses.mockReset();
     app = Fastify();
     await app.register(autoModeRoutes);
   },
@@ -46,10 +46,12 @@ describe(
   "GET /api/auto-mode/status",
   () => {
     it(
-      "returns one server-derived entry per Team without configuration secrets",
+      "returns one server-derived entry per Project without configuration secrets",
       async () => {
         const statuses = [
           {
+            projectPath:
+              "/workspace/project-a",
             teamId:
               "00000000-0000-4000-9000-000000000001",
             autoModeEnabled:
@@ -64,6 +66,8 @@ describe(
               null,
           },
           {
+            projectPath:
+              "/workspace/project-b",
             teamId:
               "00000000-0000-4000-9000-000000000002",
             autoModeEnabled:
@@ -79,7 +83,7 @@ describe(
           },
         ];
 
-        mocks.getTeamAutomationStatuses.mockResolvedValue(
+        mocks.getProjectAutomationStatuses.mockResolvedValue(
           statuses,
         );
 
@@ -93,7 +97,7 @@ describe(
 
         expect(response.statusCode).toBe(200);
         expect(response.json()).toEqual({
-          teams: statuses,
+          projects: statuses,
         });
         expect(response.body).not.toContain("NOTION_API_KEY");
         expect(response.body).not.toContain("notionDataSourceId");
