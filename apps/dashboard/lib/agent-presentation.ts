@@ -218,7 +218,7 @@ export function filterAgents(
 
       return [
         agent.name,
-        agent.role,
+        agent.effective.role,
         agent.slug,
       ].some((value) =>
         value

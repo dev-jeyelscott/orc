@@ -429,17 +429,15 @@ export function AgentInspector({
 
             <p className="mt-1 truncate text-xs text-text-muted">
               {
-                agent.role
+                agent.effective.role
               }
             </p>
 
-            {agent.description ? (
-              <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
-                {
-                  agent.description
-                }
-              </p>
-            ) : null}
+            <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
+              {
+                agent.department.name
+              }
+            </p>
           </div>
 
           <Button
@@ -509,7 +507,7 @@ export function AgentInspector({
           </dt>
           <dd className="font-mono text-text-secondary">
             {
-              agent.harness
+              agent.effective.harness
             }
           </dd>
 
@@ -518,13 +516,16 @@ export function AgentInspector({
           </dt>
           <dd
             title={
-              agent.model
+              agent.effective.model
             }
             className="truncate font-mono text-text-secondary"
           >
             {
-              agent.model
+              agent.effective.model
             }
+            {agent.hasModelOverride
+              ? " (override)"
+              : ""}
           </dd>
 
           <dt className="text-text-muted">
@@ -532,8 +533,11 @@ export function AgentInspector({
           </dt>
           <dd className="text-text-secondary">
             {
-              agent.reasoning
+              agent.effective.reasoning
             }
+            {agent.hasReasoningOverride
+              ? " (override)"
+              : ""}
           </dd>
         </dl>
 
@@ -541,21 +545,21 @@ export function AgentInspector({
           <Capability
             label="Can Write"
             enabled={
-              agent.canWrite
+              agent.effective.canWrite
             }
           />
 
           <Capability
             label="Can Run Commands"
             enabled={
-              agent.canRunCommands
+              agent.effective.canRunCommands
             }
           />
 
           <Capability
             label="Can Commit"
             enabled={
-              agent.canCommit
+              agent.effective.canCommit
             }
           />
         </div>
@@ -568,7 +572,7 @@ export function AgentInspector({
 
           <pre className="line-clamp-5 whitespace-pre-wrap rounded-md border border-divider bg-bg-app/60 p-2.5 font-mono text-[10px] leading-relaxed text-text-muted">
             {
-              agent.systemPrompt
+              agent.effective.systemPrompt
             }
           </pre>
         </section>

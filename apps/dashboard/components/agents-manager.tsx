@@ -124,8 +124,8 @@ function AgentAvatar({ agent }: { agent: AgentWithRoutes }) {
   return (
     <Avatar
       size="sm"
-      title={`${agent.name}, ${agent.role}`}
-      aria-label={`${agent.name}, ${agent.role}`}
+      title={`${agent.name}, ${agent.effective.role}`}
+      aria-label={`${agent.name}, ${agent.effective.role}`}
       className={cn(!agent.enabled && "opacity-55 grayscale")}
     >
       <AvatarFallback className={cn("text-[10px] font-semibold", toneClass)}>
@@ -160,7 +160,8 @@ function AgentIdentity({
         </span>
 
         <span className="mt-0.5 block truncate text-xs text-text-muted">
-          {agent.role} · L{agent.layer} · {agent.model}
+          {agent.department.name} · {agent.effective.role} · L{agent.layer} ·{" "}
+          {agent.effective.model}
         </span>
       </span>
     </button>
@@ -370,15 +371,17 @@ function AgentDetailedView({ agents, onEdit }: AgentCollectionViewProps) {
 
               <TableCell className="px-4 py-2.5 text-xs">
                 <div className="font-mono text-text-secondary">
-                  {agent.harness}
+                  {agent.effective.harness}
                 </div>
                 <div className="mt-0.5 font-mono text-text-muted">
-                  {agent.model}
+                  {agent.effective.model}
+                  {agent.hasModelOverride ? " (override)" : ""}
                 </div>
               </TableCell>
 
               <TableCell className="px-4 py-2.5 text-xs text-text-secondary">
-                {agent.reasoning}
+                {agent.effective.reasoning}
+                {agent.hasReasoningOverride ? " (override)" : ""}
               </TableCell>
 
               <TableCell className="px-4 py-2.5">
@@ -451,11 +454,13 @@ function AgentGridView({ agents, onEdit }: AgentCollectionViewProps) {
             <div className="grid grid-cols-[88px_1fr] gap-2 border-t border-divider pt-3">
               <span className="text-text-muted">Harness</span>
               <span className="font-mono text-text-secondary">
-                {agent.harness}
+                {agent.effective.harness}
               </span>
 
               <span className="text-text-muted">Reasoning</span>
-              <span className="text-text-secondary">{agent.reasoning}</span>
+              <span className="text-text-secondary">
+                {agent.effective.reasoning}
+              </span>
 
               <span className="text-text-muted">Updated</span>
               <span className="text-text-secondary">

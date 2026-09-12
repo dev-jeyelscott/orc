@@ -120,6 +120,13 @@
       "when": 1789192461739,
       "tag": "0016_shocking_rictor",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789195297497,
+      "tag": "0017_regular_spot",
+      "breakpoints": true
     }
   ]
 }

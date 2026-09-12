@@ -60,6 +60,7 @@ import {
 import {
   agentExecutions,
   agents,
+  departments,
   domainEvents,
   runs,
   tasks,
@@ -91,6 +92,9 @@ type SnapshotRoute = {
 };
 
 const createdAgentIds =
+  new Set<string>();
+
+const createdDepartmentIds =
   new Set<string>();
 
 const createdTaskIds =
@@ -211,12 +215,56 @@ async function createTestAgent(
     executionOrder?: number;
   },
 ) {
+  const [department] =
+    await db
+      .insert(
+        departments,
+      )
+      .values({
+        slug:
+          `document-context-department-${input.label
+            .toLowerCase()
+            .replaceAll(
+              /[^a-z0-9]+/g,
+              "-",
+            )
+            .replace(
+              /^-|-$/g,
+              "",
+            )}-${crypto.randomUUID()}`,
+        name:
+          `${input.label} Department`,
+        role:
+          `${input.label} Generic Role`,
+        harness:
+          "codex",
+        defaultModel:
+          "default",
+        defaultReasoning:
+          "medium",
+        systemPrompt:
+          `Act as ${input.label}.`,
+        canWrite:
+          false,
+        canRunCommands:
+          true,
+        canCommit:
+          false,
+      })
+      .returning();
+
+  createdDepartmentIds.add(
+    department.id,
+  );
+
   const [agent] =
     await db
       .insert(
         agents,
       )
       .values({
+        departmentId:
+          department.id,
         slug:
           `document-context-${input.label
             .toLowerCase()
@@ -230,8 +278,6 @@ async function createTestAgent(
             )}-${crypto.randomUUID()}`,
         name:
           input.label,
-        role:
-          `${input.label} Generic Role`,
         description:
           "Project Document worker-context regression agent",
         layer:
@@ -240,22 +286,8 @@ async function createTestAgent(
         executionOrder:
           input.executionOrder ??
           1,
-        harness:
-          "codex",
-        model:
-          "default",
-        reasoning:
-          "medium",
-        systemPrompt:
-          `Act as ${input.label}.`,
         enabled:
           true,
-        canWrite:
-          false,
-        canRunCommands:
-          true,
-        canCommit:
-          false,
       })
       .returning();
 
@@ -279,19 +311,19 @@ function toSnapshotAgent(
     name:
       agent.name,
     role:
-      agent.role,
+      "Generic Role",
     layer:
       agent.layer,
     executionOrder:
       agent.executionOrder,
     harness:
-      agent.harness,
+      "codex",
     model:
-      agent.model,
+      "default",
     reasoning:
-      agent.reasoning,
+      "medium",
     systemPrompt:
-      agent.systemPrompt,
+      `Act as ${agent.name}.`,
     canWrite:
       agent.canWrite,
     canRunCommands:
@@ -677,9 +709,26 @@ afterEach(
         );
     }
 
+    for (
+      const departmentId of
+      createdDepartmentIds
+    ) {
+      await db
+        .delete(
+          departments,
+        )
+        .where(
+          eq(
+            departments.id,
+            departmentId,
+          ),
+        );
+    }
+
     createdRunIds.clear();
     createdTaskIds.clear();
     createdAgentIds.clear();
+    createdDepartmentIds.clear();
   },
 );
 

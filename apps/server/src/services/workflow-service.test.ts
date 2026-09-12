@@ -44,6 +44,7 @@ import { db } from "../db/client.js";
 import {
   agentExecutions,
   agents,
+  departments,
   domainEvents,
   runs,
   tasks,
@@ -70,6 +71,9 @@ type SnapshotRoute = {
 };
 
 const createdAgentIds =
+  new Set<string>();
+
+const createdDepartmentIds =
   new Set<string>();
 const createdTaskIds =
   new Set<string>();
@@ -128,9 +132,41 @@ async function createTestAgent(
     executionOrder: number;
   },
 ) {
+  const [department] = await db
+    .insert(departments)
+    .values({
+      slug:
+        `workflow-department-${input.label
+          .toLowerCase()
+          .replaceAll(
+            /[^a-z0-9]+/g,
+            "-",
+          )
+          .replace(
+            /^-|-$/g,
+            "",
+          )}-${crypto.randomUUID()}`,
+      name:
+        `${input.label} Department`,
+      role:
+        `${input.label} Role`,
+      harness: "codex",
+      defaultModel: "default",
+      defaultReasoning: "high",
+      systemPrompt:
+        `Act as ${input.label}.`,
+      canWrite: false,
+      canRunCommands: true,
+      canCommit: false,
+    })
+    .returning();
+
+  createdDepartmentIds.add(department.id);
+
   const [agent] = await db
     .insert(agents)
     .values({
+      departmentId: department.id,
       slug:
         `workflow-${input.label
           .toLowerCase()
@@ -143,8 +179,6 @@ async function createTestAgent(
             "",
           )}-${crypto.randomUUID()}`,
       name: input.label,
-      role:
-        `${input.label} Role`,
       description:
         `${input.label} workflow test agent`,
       layer:
@@ -152,15 +186,7 @@ async function createTestAgent(
         input.relativeLayer,
       executionOrder:
         input.executionOrder,
-      harness: "codex",
-      model: "default",
-      reasoning: "high",
-      systemPrompt:
-        `Act as ${input.label}.`,
       enabled: true,
-      canWrite: false,
-      canRunCommands: true,
-      canCommit: false,
     })
     .returning();
 
@@ -178,15 +204,15 @@ function toSnapshotAgent(
   return {
     id: agent.id,
     name: agent.name,
-    role: agent.role,
+    role: `${agent.name} Role`,
     layer: agent.layer,
     executionOrder:
       agent.executionOrder,
-    harness: agent.harness,
-    model: agent.model,
-    reasoning: agent.reasoning,
+    harness: "codex",
+    model: "default",
+    reasoning: "high",
     systemPrompt:
-      agent.systemPrompt,
+      `Act as ${agent.name}.`,
     canWrite: agent.canWrite,
     canRunCommands:
       agent.canRunCommands,
@@ -512,9 +538,20 @@ describe(
           );
       }
 
+      for (
+        const departmentId of createdDepartmentIds
+      ) {
+        await db
+          .delete(departments)
+          .where(
+            eq(departments.id, departmentId),
+          );
+      }
+
       createdRunIds.clear();
       createdTaskIds.clear();
       createdAgentIds.clear();
+      createdDepartmentIds.clear();
     });
 
     it(

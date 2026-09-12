@@ -203,7 +203,7 @@ function AgentNode({
         aria-pressed={
           selected
         }
-        aria-label={`${agent.name}. ${agent.role}. Layer ${agent.layer}, order ${agent.executionOrder}. ${agent.enabled ? "Enabled" : "Disabled"}.`}
+        aria-label={`${agent.name}. ${agent.effective.role}. Layer ${agent.layer}, order ${agent.executionOrder}. ${agent.enabled ? "Enabled" : "Disabled"}.`}
         className={cn(
           "nodrag nopan flex text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
           "rounded-lg border bg-surface-elevated shadow-xs",
@@ -244,7 +244,7 @@ function AgentNode({
 
                 <span className="mt-0.5 block truncate text-[10px] text-text-muted">
                   {
-                    agent.role
+                    agent.effective.role
                   }
                 </span>
               </span>
@@ -281,18 +281,18 @@ function AgentNode({
 
               <span className="shrink-0 rounded-sm bg-surface-interactive px-1.5 py-0.5 font-mono">
                 {
-                  agent.harness
+                  agent.effective.harness
                 }
               </span>
 
               <span
                 title={
-                  agent.model
+                  agent.effective.model
                 }
                 className="min-w-0 truncate rounded-sm bg-surface-interactive px-1.5 py-0.5 font-mono"
               >
                 {
-                  agent.model
+                  agent.effective.model
                 }
               </span>
             </span>

@@ -175,7 +175,7 @@ export function matchesTeamQuery(
       (agent) => [
         agent.name,
         agent.slug,
-        agent.role,
+        agent.effective.role,
       ],
     ),
   ]

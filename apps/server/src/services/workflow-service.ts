@@ -32,6 +32,7 @@ import {
   agentExecutions,
   agentRoutes,
   agents,
+  departments,
   domainEvents,
   projectDocuments,
   runs,
@@ -39,6 +40,10 @@ import {
   tasks,
   teams,
 } from "../db/schema.js";
+
+import {
+  resolveEffectiveAgentConfig,
+} from "./agent-config-resolver.js";
 
 import {
   composeHandoffNote,
@@ -357,15 +362,23 @@ function serializeRun(
   };
 }
 
+type AgentWithDepartmentRow = {
+  agent:
+    typeof agents.$inferSelect;
+  department:
+    typeof departments.$inferSelect;
+};
+
 /**
- * Creates an immutable run-owned workflow snapshot from current agent configuration
- * and optional orchestrator-selected bounded durable knowledge.
+ * Creates an immutable run-owned workflow snapshot from the current effective
+ * Department + Agent configuration and optional orchestrator-selected bounded
+ * durable knowledge. Workflow topology (layer/order) still comes from the
+ * legacy Agent Team/layer/order fields until Team Composition (Spec 3)
+ * replaces them; only the resolved worker configuration changes here.
  */
 function snapshotFromRows(
   agentRows:
-    Array<
-      typeof agents.$inferSelect
-    >,
+    AgentWithDepartmentRow[],
   routeRows:
     Array<
       typeof agentRoutes.$inferSelect
@@ -377,48 +390,64 @@ function snapshotFromRows(
 ): WorkflowSnapshot {
   const orderedAgents =
     orderWorkflowAgents(
-      agentRows,
+      agentRows.map(
+        (row) => ({
+          ...row,
+          layer:
+            row.agent.layer,
+          executionOrder:
+            row.agent.executionOrder,
+        }),
+      ),
     );
 
   const enabledIds =
     new Set(
       orderedAgents.map(
-        (agent) =>
-          agent.id,
+        (row) =>
+          row.agent.id,
       ),
     );
 
   return {
     agents:
       orderedAgents.map(
-        (agent) => ({
-          id:
-            agent.id,
-          name:
-            agent.name,
-          role:
-            agent.role,
-          layer:
-            agent.layer,
-          executionOrder:
-            agent.executionOrder,
-          harness:
-            agent.harness,
-          model:
-            agent.model,
-          reasoning:
-            agent.reasoning,
-          systemPrompt:
-            agent.systemPrompt,
-          canWrite:
-            agent.canWrite,
-          canRunCommands:
-            agent.canRunCommands,
-          sandboxMode:
-            agent.sandboxMode,
-          canCommit:
-            agent.canCommit,
-        }),
+        ({ agent, department }) => {
+          const effective =
+            resolveEffectiveAgentConfig(
+              agent,
+              department,
+            );
+
+          return {
+            id:
+              agent.id,
+            name:
+              agent.name,
+            role:
+              effective.role,
+            layer:
+              agent.layer,
+            executionOrder:
+              agent.executionOrder,
+            harness:
+              effective.harness,
+            model:
+              effective.model,
+            reasoning:
+              effective.reasoning,
+            systemPrompt:
+              effective.systemPrompt,
+            canWrite:
+              effective.canWrite,
+            canRunCommands:
+              effective.canRunCommands,
+            sandboxMode:
+              effective.sandboxMode,
+            canCommit:
+              effective.canCommit,
+          };
+        },
       ),
     routes:
       routeRows
@@ -1830,6 +1859,13 @@ async function requireRunnableTeam(
           agents.id,
       })
       .from(agents)
+      .innerJoin(
+        departments,
+        eq(
+          agents.departmentId,
+          departments.id,
+        ),
+      )
       .where(
         and(
           eq(
@@ -1838,6 +1874,10 @@ async function requireRunnableTeam(
           ),
           eq(
             agents.enabled,
+            true,
+          ),
+          eq(
+            departments.enabled,
             true,
           ),
         ),
@@ -2110,10 +2150,17 @@ export async function startTask(
           );
         }
 
-        const enabledAgents =
+        const enabledAgentRows =
           await tx
             .select()
             .from(agents)
+            .innerJoin(
+              departments,
+              eq(
+                agents.departmentId,
+                departments.id,
+              ),
+            )
             .where(
               and(
                 eq(
@@ -2122,6 +2169,10 @@ export async function startTask(
                 ),
                 eq(
                   agents.enabled,
+                  true,
+                ),
+                eq(
+                  departments.enabled,
                   true,
                 ),
               ),
@@ -2134,6 +2185,16 @@ export async function startTask(
                 agents.executionOrder,
               ),
             );
+
+        const enabledAgents =
+          enabledAgentRows.map(
+            (row) => ({
+              agent:
+                row.agents,
+              department:
+                row.departments,
+            }),
+          );
 
         if (
           !enabledAgents.length
@@ -2376,10 +2437,17 @@ export async function createAndStartTask(
           );
         }
 
-        const enabledAgents =
+        const enabledAgentRows =
           await tx
             .select()
             .from(agents)
+            .innerJoin(
+              departments,
+              eq(
+                agents.departmentId,
+                departments.id,
+              ),
+            )
             .where(
               and(
                 eq(
@@ -2388,6 +2456,10 @@ export async function createAndStartTask(
                 ),
                 eq(
                   agents.enabled,
+                  true,
+                ),
+                eq(
+                  departments.enabled,
                   true,
                 ),
               ),
@@ -2400,6 +2472,16 @@ export async function createAndStartTask(
                 agents.executionOrder,
               ),
             );
+
+        const enabledAgents =
+          enabledAgentRows.map(
+            (row) => ({
+              agent:
+                row.agents,
+              department:
+                row.departments,
+            }),
+          );
 
         if (
           !enabledAgents.length

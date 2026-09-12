@@ -2,10 +2,11 @@ import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { db } from "../db/client.js";
-import { departments } from "../db/schema.js";
+import { agents, departments } from "../db/schema.js";
 import { createDepartment, deleteDepartment, getDepartment, listDepartments, updateDepartment } from "./department-service.js";
 
 const createdIds = new Set<string>();
+const createdAgentIds = new Set<string>();
 const input = (label: string) => ({
   slug: `department-${label}-${crypto.randomUUID()}`, name: `Department ${label}`,
   role: "Engineer", harness: "codex" as const, defaultModel: "default",
@@ -14,6 +15,8 @@ const input = (label: string) => ({
 });
 
 afterEach(async () => {
+  for (const id of createdAgentIds) await db.delete(agents).where(eq(agents.id, id));
+  createdAgentIds.clear();
   for (const id of createdIds) await db.delete(departments).where(eq(departments.id, id));
   createdIds.clear();
 });
@@ -33,5 +36,29 @@ describe("department-service", () => {
     const values = input("unique");
     const created = await createDepartment(values); createdIds.add(created.id);
     await expect(createDepartment({ ...values, name: "Another Department" })).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it("reports a real Agent count and rejects deletion while referenced", async () => {
+    const department = await createDepartment(input("referenced")); createdIds.add(department.id);
+
+    const [agent] = await db.insert(agents).values({
+      departmentId: department.id,
+      slug: `department-referenced-agent-${crypto.randomUUID()}`,
+      name: "Referenced Agent",
+      layer: 800_000 + Math.floor(Math.random() * 100_000),
+      executionOrder: 1,
+    }).returning();
+    createdAgentIds.add(agent.id);
+
+    expect((await getDepartment(department.id))?.agentCount).toBe(1);
+    expect((await listDepartments()).find((item) => item.id === department.id)?.agentCount).toBe(1);
+
+    await expect(deleteDepartment(department.id)).rejects.toMatchObject({ statusCode: 409 });
+
+    await db.delete(agents).where(eq(agents.id, agent.id));
+    createdAgentIds.delete(agent.id);
+
+    expect(await deleteDepartment(department.id)).toBe(true);
+    createdIds.delete(department.id);
   });
 });

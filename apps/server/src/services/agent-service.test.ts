@@ -19,15 +19,22 @@ import {
   agentExecutions,
   agentRoutes,
   agents,
+  departments,
   runs,
   teams,
 } from "../db/schema.js";
 import {
+  createAgent,
   createAgentRoute,
   deleteAgent,
+  getAgent,
   updateAgent,
   updateAgentRoute,
 } from "./agent-service.js";
+import {
+  createDepartment,
+  updateDepartment,
+} from "./department-service.js";
 
 const createdAgentIds =
   new Set<string>();
@@ -36,6 +43,9 @@ const createdRunIds =
   new Set<string>();
 
 const createdTeamIds =
+  new Set<string>();
+
+const createdDepartmentIds =
   new Set<string>();
 
 let nextLayer =
@@ -81,10 +91,43 @@ async function createTestAgent(
     executionOrder?: number;
   } = {},
 ) {
+  const [department] =
+    await db
+      .insert(departments)
+      .values({
+        slug:
+          `test-department-${label.toLowerCase()}-${crypto.randomUUID()}`,
+        name:
+          `Test ${label} Department`,
+        role:
+          label,
+        harness:
+          "codex",
+        defaultModel:
+          "default",
+        defaultReasoning:
+          "high",
+        systemPrompt:
+          `Act as the ${label} test agent.`,
+        canWrite:
+          false,
+        canRunCommands:
+          true,
+        canCommit:
+          false,
+      })
+      .returning();
+
+  createdDepartmentIds.add(
+    department.id,
+  );
+
   const [agent] =
     await db
       .insert(agents)
       .values({
+        departmentId:
+          department.id,
         teamId:
           options.teamId ??
           RESOLUTION_TEAM_ID,
@@ -92,33 +135,15 @@ async function createTestAgent(
           `test-${label.toLowerCase()}-${crypto.randomUUID()}`,
         name:
           `Test ${label}`,
-        role:
-          label,
-        description:
-          `${label} test agent`,
         layer:
           options.layer ??
           nextLayer++,
         executionOrder:
           options.executionOrder ??
           1,
-        harness:
-          "codex",
-        model:
-          "default",
-        reasoning:
-          "high",
-        systemPrompt:
-          `Act as the ${label} test agent.`,
         enabled:
           options.enabled ??
           true,
-        canWrite:
-          false,
-        canRunCommands:
-          true,
-        canCommit:
-          false,
       })
       .returning();
 
@@ -239,9 +264,24 @@ describe(
             );
         }
 
+        for (
+          const departmentId of
+          createdDepartmentIds
+        ) {
+          await db
+            .delete(departments)
+            .where(
+              eq(
+                departments.id,
+                departmentId,
+              ),
+            );
+        }
+
         createdRunIds.clear();
         createdAgentIds.clear();
         createdTeamIds.clear();
+        createdDepartmentIds.clear();
       },
     );
 
@@ -797,7 +837,7 @@ describe(
               name:
                 source.name,
               role:
-                source.role,
+                "Historical",
             },
           ],
           routes: [],
@@ -822,17 +862,17 @@ describe(
               agentName:
                 source.name,
               agentRole:
-                source.role,
+                "Historical",
               layer:
                 source.layer,
               executionOrder:
                 source.executionOrder,
               harness:
-                source.harness,
+                "codex",
               model:
-                source.model,
+                "default",
               reasoning:
-                source.reasoning,
+                "high",
               status:
                 "completed",
               completedAt:
@@ -869,7 +909,7 @@ describe(
           agentName:
             source.name,
           agentRole:
-            source.role,
+            "Historical",
         });
 
         const [historicalRun] =
@@ -929,6 +969,171 @@ describe(
               run.id,
             ),
         });
+      },
+    );
+
+    it(
+      "requires a valid Department and resolves inherited effective configuration",
+      async () => {
+        const department =
+          await createDepartment(
+            {
+              slug:
+                `agent-service-department-${crypto.randomUUID()}`,
+              name:
+                "Inheritance Department",
+              role:
+                "Reviewer",
+              harness:
+                "codex",
+              defaultModel:
+                "default-model",
+              defaultReasoning:
+                "medium",
+              systemPrompt:
+                "Review carefully.",
+              canWrite:
+                false,
+              canRunCommands:
+                true,
+              canCommit:
+                false,
+            },
+          );
+
+        createdDepartmentIds.add(
+          department.id,
+        );
+
+        await expect(
+          createAgent(
+            {
+              departmentId:
+                "00000000-0000-4000-9000-00000000dead",
+              teamId:
+                RESOLUTION_TEAM_ID,
+              slug:
+                `agent-service-invalid-department-${crypto.randomUUID()}`,
+              name:
+                "Invalid Department Agent",
+              layer:
+                nextLayer++,
+              executionOrder:
+                1,
+              enabled:
+                true,
+              additionalPrompt:
+                "",
+            },
+          ),
+        ).rejects.toMatchObject({
+          statusCode:
+            400,
+        });
+
+        const agent =
+          await createAgent(
+            {
+              departmentId:
+                department.id,
+              teamId:
+                RESOLUTION_TEAM_ID,
+              slug:
+                `agent-service-inherit-${crypto.randomUUID()}`,
+              name:
+                "Inheriting Agent",
+              layer:
+                nextLayer++,
+              executionOrder:
+                1,
+              enabled:
+                true,
+              additionalPrompt:
+                "",
+            },
+          );
+
+        createdAgentIds.add(
+          agent.id,
+        );
+
+        expect(
+          agent.effective.model,
+        ).toBe(
+          "default-model",
+        );
+
+        expect(
+          agent.effective.reasoning,
+        ).toBe(
+          "medium",
+        );
+
+        expect(
+          agent.effective.systemPrompt,
+        ).toBe(
+          "Review carefully.",
+        );
+
+        expect(
+          agent.hasModelOverride,
+        ).toBe(false);
+
+        const overridden =
+          await updateAgent(
+            agent.id,
+            {
+              modelOverride:
+                "claude-sonnet-5",
+              reasoningOverride:
+                "high",
+              additionalPrompt:
+                "Focus on billing.",
+            },
+          );
+
+        expect(
+          overridden?.effective.model,
+        ).toBe(
+          "claude-sonnet-5",
+        );
+
+        expect(
+          overridden?.effective.reasoning,
+        ).toBe(
+          "high",
+        );
+
+        expect(
+          overridden?.effective.systemPrompt,
+        ).toBe(
+          "Review carefully.\n\nFocus on billing.",
+        );
+
+        expect(
+          overridden?.hasModelOverride,
+        ).toBe(true);
+
+        await updateDepartment(
+          department.id,
+          {
+            enabled:
+              false,
+          },
+        );
+
+        const withDisabledDepartment =
+          await getAgent(
+            agent.id,
+          );
+
+        expect(
+          withDisabledDepartment?.effective.enabled,
+        ).toBe(false);
+
+        expect(
+          withDisabledDepartment?.enabled,
+        ).toBe(true);
       },
     );
   },

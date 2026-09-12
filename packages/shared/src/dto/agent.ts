@@ -12,9 +12,27 @@ import {
   agentRouteOutcomeSchema,
   terminalActionSchema,
 } from "../enums/agent-route.js";
+import {
+  departmentSchema,
+} from "./department.js";
+
+const overridableTextSchema =
+  z.string()
+    .trim()
+    .min(1)
+    .max(160)
+    .nullable()
+    .optional();
 
 const agentFieldsSchema =
   z.object({
+    departmentId:
+      z.string().uuid(),
+    /**
+     * Team/layer/order remain the authoritative workflow-topology fields
+     * until the Team Composition and Layered Workflow slice replaces them
+     * with `team_members`. Department inheritance does not change topology.
+     */
     teamId:
       z.string().uuid(),
     slug:
@@ -31,16 +49,6 @@ const agentFieldsSchema =
         .trim()
         .min(1)
         .max(160),
-    role:
-      z.string()
-        .trim()
-        .min(1)
-        .max(160),
-    description:
-      z.string()
-        .trim()
-        .max(2000)
-        .default(""),
     layer:
       z.number()
         .int()
@@ -49,38 +57,18 @@ const agentFieldsSchema =
       z.number()
         .int()
         .min(1),
-    harness:
-      harnessSchema,
-    model:
-      z.string()
-        .trim()
-        .min(1)
-        .max(160),
-    reasoning:
-      z.string()
-        .trim()
-        .min(1)
-        .max(160),
-    systemPrompt:
-      z.string()
-        .trim()
-        .min(1),
     enabled:
       z.boolean()
         .default(true),
-    canWrite:
-      z.boolean()
-        .default(false),
-    canRunCommands:
-      z.boolean()
-        .default(false),
-    sandboxMode:
-      sandboxModeSchema
-        .nullable()
-        .optional(),
-    canCommit:
-      z.boolean()
-        .default(false),
+    modelOverride:
+      overridableTextSchema,
+    reasoningOverride:
+      overridableTextSchema,
+    additionalPrompt:
+      z.string()
+        .trim()
+        .max(4000)
+        .default(""),
   });
 
 export const createAgentSchema =
@@ -89,10 +77,44 @@ export const createAgentSchema =
 export const updateAgentSchema =
   agentFieldsSchema.partial();
 
+const effectiveAgentConfigSchema =
+  z.object({
+    role:
+      z.string(),
+    harness:
+      harnessSchema,
+    model:
+      z.string(),
+    reasoning:
+      z.string(),
+    systemPrompt:
+      z.string(),
+    canWrite:
+      z.boolean(),
+    canRunCommands:
+      z.boolean(),
+    sandboxMode:
+      sandboxModeSchema
+        .nullable()
+        .optional(),
+    canCommit:
+      z.boolean(),
+    enabled:
+      z.boolean(),
+  });
+
 export const agentSchema =
   agentFieldsSchema.extend({
     id:
       z.string().uuid(),
+    department:
+      departmentSchema,
+    effective:
+      effectiveAgentConfigSchema,
+    hasModelOverride:
+      z.boolean(),
+    hasReasoningOverride:
+      z.boolean(),
     createdAt:
       z.string().datetime(),
     updatedAt:
@@ -186,6 +208,11 @@ export const agentListResponseSchema =
 export type Agent =
   z.infer<
     typeof agentSchema
+  >;
+
+export type EffectiveAgentConfig =
+  z.infer<
+    typeof effectiveAgentConfigSchema
   >;
 
 export type AgentRoute =

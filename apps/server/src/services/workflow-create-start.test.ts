@@ -59,6 +59,7 @@ import {
 } from "../db/seed-ids.js";
 import {
   agents,
+  departments,
   domainEvents,
   runs,
   tasks,
@@ -94,6 +95,9 @@ const project = {
 };
 
 const createdAgentIds =
+  new Set<string>();
+
+const createdDepartmentIds =
   new Set<string>();
 
 let originalAgentStates:
@@ -144,17 +148,48 @@ async function createTestAgent(
   label:
     string,
 ) {
+  const [department] =
+    await db
+      .insert(departments)
+      .values({
+        slug:
+          `workflow-start-department-${label}-${crypto.randomUUID()}`,
+        name:
+          `${label} Department`,
+        role:
+          "Generic Engineering Role",
+        harness:
+          "codex",
+        defaultModel:
+          "default",
+        defaultReasoning:
+          "medium",
+        systemPrompt:
+          "Complete the supplied task.",
+        canWrite:
+          false,
+        canRunCommands:
+          true,
+        canCommit:
+          false,
+      })
+      .returning();
+
+  createdDepartmentIds.add(
+    department.id,
+  );
+
   const [agent] =
     await db
       .insert(agents)
       .values({
+        departmentId:
+          department.id,
         teamId,
         slug:
           `workflow-start-${label}-${crypto.randomUUID()}`,
         name:
           `${label} Worker`,
-        role:
-          "Generic Engineering Role",
         description:
           "Workflow Team scope regression agent",
         layer:
@@ -165,22 +200,8 @@ async function createTestAgent(
           ),
         executionOrder:
           1,
-        harness:
-          "codex",
-        model:
-          "default",
-        reasoning:
-          "medium",
-        systemPrompt:
-          "Complete the supplied task.",
         enabled:
           true,
-        canWrite:
-          false,
-        canRunCommands:
-          true,
-        canCommit:
-          false,
       })
       .returning();
 
@@ -449,7 +470,22 @@ afterEach(
         );
     }
 
+    for (
+      const departmentId of
+      createdDepartmentIds
+    ) {
+      await db
+        .delete(departments)
+        .where(
+          eq(
+            departments.id,
+            departmentId,
+          ),
+        );
+    }
+
     createdAgentIds.clear();
+    createdDepartmentIds.clear();
 
     resolutionAgentId =
       null;

@@ -14,6 +14,7 @@ import type {
   AgentWithRoutes,
   CreateAgent,
   CreateAgentRoute,
+  Department,
   UpdateAgent,
   UpdateAgentRoute,
 } from "@orc/shared";
@@ -24,9 +25,13 @@ import {
 import {
   agents,
   agentRoutes,
+  departments,
   runs,
   teams,
 } from "../db/schema.js";
+import {
+  resolveEffectiveAgentConfig,
+} from "./agent-config-resolver.js";
 
 export class AgentServiceError extends Error {
   /**
@@ -40,15 +45,80 @@ export class AgentServiceError extends Error {
   }
 }
 
-/**
- * Converts an agent database row into the shared API representation.
- */
-function serializeAgent(
+/** Converts a Department database row into the shared API representation. */
+function serializeDepartment(
   row:
-    typeof agents.$inferSelect,
-): Agent {
+    typeof departments.$inferSelect,
+): Department {
   return {
     ...row,
+    agentCount:
+      0,
+    createdAt:
+      row.createdAt.toISOString(),
+    updatedAt:
+      row.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * Converts an agent database row and its owning Department into the shared
+ * API representation, including the resolved effective runtime configuration.
+ */
+export function serializeAgent(
+  row:
+    typeof agents.$inferSelect,
+  departmentRow:
+    typeof departments.$inferSelect,
+): Agent {
+  const department =
+    serializeDepartment(
+      departmentRow,
+    );
+
+  const effective =
+    resolveEffectiveAgentConfig(
+      row,
+      department,
+    );
+
+  return {
+    id:
+      row.id,
+    departmentId:
+      row.departmentId,
+    teamId:
+      row.teamId,
+    slug:
+      row.slug,
+    name:
+      row.name,
+    layer:
+      row.layer,
+    executionOrder:
+      row.executionOrder,
+    enabled:
+      row.enabled,
+    modelOverride:
+      row.modelOverride ??
+      null,
+    reasoningOverride:
+      row.reasoningOverride ??
+      null,
+    additionalPrompt:
+      row.additionalPrompt,
+    department,
+    effective,
+    hasModelOverride:
+      row.modelOverride !==
+        null &&
+      row.modelOverride !==
+        undefined,
+    hasReasoningOverride:
+      row.reasoningOverride !==
+        null &&
+      row.reasoningOverride !==
+        undefined,
     createdAt:
       row.createdAt.toISOString(),
     updatedAt:
@@ -119,7 +189,7 @@ function translateDatabaseError(
       "23503"
     ) {
       throw new AgentServiceError(
-        "The referenced Team or agent does not exist",
+        "The referenced Team, Department, or agent does not exist",
         400,
       );
     }
@@ -222,15 +292,54 @@ async function assertTeamExists(
 }
 
 /**
+ * Loads the Department a new or updated Agent must belong to.
+ */
+async function loadDepartmentOrThrow(
+  departmentId:
+    string,
+): Promise<
+  typeof departments.$inferSelect
+> {
+  const [department] =
+    await db
+      .select()
+      .from(departments)
+      .where(
+        eq(
+          departments.id,
+          departmentId,
+        ),
+      );
+
+  if (
+    !department
+  ) {
+    throw new AgentServiceError(
+      "The selected Department does not exist",
+      400,
+    );
+  }
+
+  return department;
+}
+
+/**
  * Lists every configured agent using deterministic Team and workflow ordering.
  */
 export async function listAgents(): Promise<
   Agent[]
 > {
-  return (
+  const rows =
     await db
       .select()
       .from(agents)
+      .innerJoin(
+        departments,
+        eq(
+          agents.departmentId,
+          departments.id,
+        ),
+      )
       .orderBy(
         asc(
           agents.teamId,
@@ -244,9 +353,14 @@ export async function listAgents(): Promise<
         asc(
           agents.name,
         ),
-      )
-  ).map(
-    serializeAgent,
+      );
+
+  return rows.map(
+    (row) =>
+      serializeAgent(
+        row.agents,
+        row.departments,
+      ),
   );
 }
 
@@ -259,10 +373,17 @@ export async function getAgent(
 ): Promise<
   AgentWithRoutes | null
 > {
-  const [agent] =
+  const [row] =
     await db
       .select()
       .from(agents)
+      .innerJoin(
+        departments,
+        eq(
+          agents.departmentId,
+          departments.id,
+        ),
+      )
       .where(
         eq(
           agents.id,
@@ -271,7 +392,7 @@ export async function getAgent(
       );
 
   if (
-    !agent
+    !row
   ) {
     return null;
   }
@@ -291,7 +412,8 @@ export async function getAgent(
 
   return {
     ...serializeAgent(
-      agent,
+      row.agents,
+      row.departments,
     ),
     routes:
       routes.map(
@@ -301,7 +423,8 @@ export async function getAgent(
 }
 
 /**
- * Creates a new dynamic worker-agent configuration inside an existing Team.
+ * Creates a new dynamic worker-agent configuration inside an existing Team,
+ * inheriting its reusable runtime defaults from the selected Department.
  */
 export async function createAgent(
   input:
@@ -312,14 +435,43 @@ export async function createAgent(
       input.teamId,
     );
 
+    const department =
+      await loadDepartmentOrThrow(
+        input.departmentId,
+      );
+
     const [agent] =
       await db
         .insert(agents)
-        .values(input)
+        .values({
+          departmentId:
+            input.departmentId,
+          teamId:
+            input.teamId,
+          slug:
+            input.slug,
+          name:
+            input.name,
+          layer:
+            input.layer,
+          executionOrder:
+            input.executionOrder,
+          enabled:
+            input.enabled,
+          modelOverride:
+            input.modelOverride ??
+            null,
+          reasoningOverride:
+            input.reasoningOverride ??
+            null,
+          additionalPrompt:
+            input.additionalPrompt,
+        })
         .returning();
 
     return serializeAgent(
       agent,
+      department,
     );
   } catch (error) {
     return translateDatabaseError(
@@ -340,6 +492,108 @@ export async function updateAgent(
   Agent | null
 > {
   try {
+    if (
+      input.departmentId !==
+      undefined
+    ) {
+      await loadDepartmentOrThrow(
+        input.departmentId,
+      );
+    }
+
+    const patch = {
+      ...(
+        input.departmentId !==
+        undefined
+          ? {
+              departmentId:
+                input.departmentId,
+            }
+          : {}
+      ),
+      ...(
+        input.teamId !==
+        undefined
+          ? {
+              teamId:
+                input.teamId,
+            }
+          : {}
+      ),
+      ...(
+        input.slug !==
+        undefined
+          ? {
+              slug:
+                input.slug,
+            }
+          : {}
+      ),
+      ...(
+        input.name !==
+        undefined
+          ? {
+              name:
+                input.name,
+            }
+          : {}
+      ),
+      ...(
+        input.layer !==
+        undefined
+          ? {
+              layer:
+                input.layer,
+            }
+          : {}
+      ),
+      ...(
+        input.executionOrder !==
+        undefined
+          ? {
+              executionOrder:
+                input.executionOrder,
+            }
+          : {}
+      ),
+      ...(
+        input.enabled !==
+        undefined
+          ? {
+              enabled:
+                input.enabled,
+            }
+          : {}
+      ),
+      ...(
+        input.modelOverride !==
+        undefined
+          ? {
+              modelOverride:
+                input.modelOverride,
+            }
+          : {}
+      ),
+      ...(
+        input.reasoningOverride !==
+        undefined
+          ? {
+              reasoningOverride:
+                input.reasoningOverride,
+            }
+          : {}
+      ),
+      ...(
+        input.additionalPrompt !==
+        undefined
+          ? {
+              additionalPrompt:
+                input.additionalPrompt,
+            }
+          : {}
+      ),
+    };
+
     const requiresRouteValidation =
       input.teamId !==
         undefined ||
@@ -353,7 +607,7 @@ export async function updateAgent(
         await db
           .update(agents)
           .set({
-            ...input,
+            ...patch,
             updatedAt:
               new Date(),
           })
@@ -365,11 +619,21 @@ export async function updateAgent(
           )
           .returning();
 
-      return agent
-        ? serializeAgent(
-            agent,
-          )
-        : null;
+      if (
+        !agent
+      ) {
+        return null;
+      }
+
+      const department =
+        await loadDepartmentOrThrow(
+          agent.departmentId,
+        );
+
+      return serializeAgent(
+        agent,
+        department,
+      );
     }
 
     return await db.transaction(
@@ -645,7 +909,7 @@ export async function updateAgent(
           await tx
             .update(agents)
             .set({
-              ...input,
+              ...patch,
               updatedAt:
                 new Date(),
             })
@@ -657,11 +921,36 @@ export async function updateAgent(
             )
             .returning();
 
-        return agent
-          ? serializeAgent(
-              agent,
-            )
-          : null;
+        if (
+          !agent
+        ) {
+          return null;
+        }
+
+        const [departmentRow] =
+          await tx
+            .select()
+            .from(departments)
+            .where(
+              eq(
+                departments.id,
+                agent.departmentId,
+              ),
+            );
+
+        if (
+          !departmentRow
+        ) {
+          throw new AgentServiceError(
+            "The selected Department does not exist",
+            400,
+          );
+        }
+
+        return serializeAgent(
+          agent,
+          departmentRow,
+        );
       },
     );
   } catch (error) {
@@ -1129,19 +1418,33 @@ export async function deleteAgentRoute(
 }
 
 /**
- * Returns only agents currently enabled for future run configuration.
+ * Returns only agents currently enabled for future run configuration, using
+ * both Department and Agent enabled state.
  */
 export async function listEnabledAgentsForFutureRuns(): Promise<
   Agent[]
 > {
-  return (
+  const rows =
     await db
       .select()
       .from(agents)
-      .where(
+      .innerJoin(
+        departments,
         eq(
-          agents.enabled,
-          true,
+          agents.departmentId,
+          departments.id,
+        ),
+      )
+      .where(
+        and(
+          eq(
+            agents.enabled,
+            true,
+          ),
+          eq(
+            departments.enabled,
+            true,
+          ),
         ),
       )
       .orderBy(
@@ -1154,8 +1457,13 @@ export async function listEnabledAgentsForFutureRuns(): Promise<
         asc(
           agents.executionOrder,
         ),
-      )
-  ).map(
-    serializeAgent,
+      );
+
+  return rows.map(
+    (row) =>
+      serializeAgent(
+        row.agents,
+        row.departments,
+      ),
   );
 }

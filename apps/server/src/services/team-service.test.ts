@@ -14,6 +14,7 @@ import {
 import {
   agents,
   conversations,
+  departments,
   runs,
   tasks,
   teams,
@@ -26,6 +27,9 @@ import {
   listTeams,
   updateTeam,
 } from "./team-service.js";
+
+const createdDepartmentIds =
+  new Set<string>();
 
 const createdTeamIds =
   new Set<string>();
@@ -111,7 +115,19 @@ async function cleanupTrackedTeams() {
       );
   }
 
+  for (const departmentId of createdDepartmentIds) {
+    await db
+      .delete(departments)
+      .where(
+        eq(
+          departments.id,
+          departmentId,
+        ),
+      );
+  }
+
   createdTeamIds.clear();
+  createdDepartmentIds.clear();
 }
 
 afterEach(
@@ -421,29 +437,46 @@ describe(
             "agent-reference",
           );
 
+        const [department] =
+          await db
+            .insert(departments)
+            .values({
+              slug:
+                `team-agent-department-${crypto.randomUUID()}`,
+              name:
+                "Team Deletion Test Department",
+              role:
+                "Test",
+              harness:
+                "codex",
+              defaultModel:
+                "default",
+              defaultReasoning:
+                "high",
+              systemPrompt:
+                "Team deletion test.",
+            })
+            .returning();
+
+        createdDepartmentIds.add(
+          department.id,
+        );
+
         await db
           .insert(agents)
           .values({
+            departmentId:
+              department.id,
             teamId:
               team.id,
             slug:
               `team-agent-${crypto.randomUUID()}`,
             name:
               "Referenced Agent",
-            role:
-              "Test",
             layer:
               700_001,
             executionOrder:
               1,
-            harness:
-              "codex",
-            model:
-              "default",
-            reasoning:
-              "high",
-            systemPrompt:
-              "Team deletion test.",
           });
 
         await expect(

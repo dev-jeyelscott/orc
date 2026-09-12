@@ -28,6 +28,9 @@ const AGENT_IDS = {
     "00000000-0000-4000-8000-000000000004",
 } as const;
 
+const TEST_DEPARTMENT_ID =
+  "00000000-0000-4000-7000-000000000001";
+
 /**
  * Builds one deterministic generic Agent fixture for workflow-layout tests.
  */
@@ -39,6 +42,8 @@ function createAgent(
 ): AgentWithRoutes {
   return {
     id,
+    departmentId:
+      TEST_DEPARTMENT_ID,
     teamId:
       TEST_TEAM_ID,
     slug:
@@ -47,26 +52,78 @@ function createAgent(
       )}`,
     name:
       "Generic Worker",
-    role:
-      "Generic Role",
-    description: "",
     layer: 1,
     executionOrder: 1,
-    harness: "codex",
-    model: "default",
-    reasoning: "high",
-    systemPrompt:
-      "Perform generic work.",
     enabled: true,
-    canWrite: false,
-    canRunCommands: true,
-    canCommit: false,
+    modelOverride: null,
+    reasoningOverride: null,
+    additionalPrompt: "",
+    department: {
+      id:
+        TEST_DEPARTMENT_ID,
+      slug:
+        "generic-department",
+      name:
+        "Generic Department",
+      role:
+        "Generic Role",
+      description: "",
+      enabled: true,
+      harness: "codex",
+      defaultModel: "default",
+      defaultReasoning: "high",
+      systemPrompt:
+        "Perform generic work.",
+      canWrite: false,
+      canRunCommands: true,
+      canCommit: false,
+      agentCount: 0,
+      createdAt:
+        "2026-09-04T00:00:00.000Z",
+      updatedAt:
+        "2026-09-04T00:00:00.000Z",
+    },
+    effective: {
+      role:
+        "Generic Role",
+      harness: "codex",
+      model: "default",
+      reasoning: "high",
+      systemPrompt:
+        "Perform generic work.",
+      canWrite: false,
+      canRunCommands: true,
+      canCommit: false,
+      enabled: true,
+    },
+    hasModelOverride: false,
+    hasReasoningOverride: false,
     createdAt:
       "2026-09-04T00:00:00.000Z",
     updatedAt:
       "2026-09-04T00:00:00.000Z",
     routes: [],
     ...input,
+  };
+}
+
+/**
+ * Builds an effective-config override isolating only the role field.
+ */
+function withRole(
+  role: string,
+) {
+  return {
+    role,
+    harness: "codex" as const,
+    model: "default",
+    reasoning: "high",
+    systemPrompt:
+      "Perform generic work.",
+    canWrite: false,
+    canRunCommands: true,
+    canCommit: false,
+    enabled: true,
   };
 }
 
@@ -692,8 +749,10 @@ function testRoleIndependence(): void {
     createAgent(
       AGENT_IDS.first,
       {
-        role:
-          "Arbitrary Role A",
+        effective:
+          withRole(
+            "Arbitrary Role A",
+          ),
         layer:
           1,
       },
@@ -703,8 +762,10 @@ function testRoleIndependence(): void {
     createAgent(
       AGENT_IDS.second,
       {
-        role:
-          "Arbitrary Role B",
+        effective:
+          withRole(
+            "Arbitrary Role B",
+          ),
         layer:
           2,
       },
@@ -724,8 +785,10 @@ function testRoleIndependence(): void {
         ...agent,
         name:
           `Renamed ${index}`,
-        role:
-          `Different Role ${index}`,
+        effective:
+          withRole(
+            `Different Role ${index}`,
+          ),
       }),
     );
 

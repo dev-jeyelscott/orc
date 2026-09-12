@@ -116,10 +116,10 @@ export function getVisibleTeamAgents(
       return [
         agent.name,
         agent.slug,
-        agent.role,
-        agent.model,
-        agent.harness,
-        agent.reasoning,
+        agent.effective.role,
+        agent.effective.model,
+        agent.effective.harness,
+        agent.effective.reasoning,
       ]
         .join(" ")
         .toLowerCase()
@@ -170,15 +170,15 @@ export function getAgentCapabilityLabels(
 ): string[] {
   const capabilities: string[] = [];
 
-  if (agent.canWrite) {
+  if (agent.effective.canWrite) {
     capabilities.push("Write");
   }
 
-  if (agent.canRunCommands) {
+  if (agent.effective.canRunCommands) {
     capabilities.push("Commands");
   }
 
-  if (agent.canCommit) {
+  if (agent.effective.canCommit) {
     capabilities.push("Commit");
   }
 

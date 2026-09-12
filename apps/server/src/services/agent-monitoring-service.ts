@@ -10,7 +10,6 @@ import {
 } from "drizzle-orm";
 
 import type {
-  Agent,
   AgentMonitoringOverview,
   AgentMonitoringRange,
   AgentObservability,
@@ -28,12 +27,16 @@ import {
   agentExecutions,
   agentRoutes,
   agents,
+  departments,
   domainEvents,
   runs,
 } from "../db/schema.js";
 import {
   listRecentEvents,
 } from "./event-service.js";
+import {
+  serializeAgent,
+} from "./agent-service.js";
 
 const ACTIVE_EXECUTION_STATUSES = [
   "starting",
@@ -54,22 +57,6 @@ const RANGE_MILLISECONDS: Record<
 
 const CHART_BUCKET_COUNT =
   14;
-
-/**
- * Converts one persisted Agent row into the shared API contract.
- */
-function serializeAgent(
-  row:
-    typeof agents.$inferSelect,
-): Agent {
-  return {
-    ...row,
-    createdAt:
-      row.createdAt.toISOString(),
-    updatedAt:
-      row.updatedAt.toISOString(),
-  };
-}
 
 /**
  * Converts one persisted route row into the shared API contract.
@@ -133,6 +120,13 @@ async function listAgentConfigurations(
       ? await db
           .select()
           .from(agents)
+          .innerJoin(
+            departments,
+            eq(
+              agents.departmentId,
+              departments.id,
+            ),
+          )
           .where(
             eq(
               agents.teamId,
@@ -150,6 +144,13 @@ async function listAgentConfigurations(
       : await db
           .select()
           .from(agents)
+          .innerJoin(
+            departments,
+            eq(
+              agents.departmentId,
+              departments.id,
+            ),
+          )
           .orderBy(
             asc(
               agents.teamId,
@@ -172,8 +173,8 @@ async function listAgentConfigurations(
   const agentIds =
     new Set(
       agentRows.map(
-        (agent) =>
-          agent.id,
+        (row) =>
+          row.agents.id,
       ),
     );
 
@@ -261,11 +262,12 @@ async function listAgentConfigurations(
   return agentRows.map(
     (row) => ({
       ...serializeAgent(
-        row,
+        row.agents,
+        row.departments,
       ),
       routes:
         routesBySource.get(
-          row.id,
+          row.agents.id,
         ) ?? [],
     }),
   );

@@ -24,6 +24,7 @@ import { db } from "../db/client.js";
 import {
   agentExecutions,
   agents,
+  departments,
   runs,
   terminalChunks,
 } from "../db/schema.js";
@@ -37,6 +38,9 @@ import {
   type RuntimeSession,
   type WorkerConfiguration,
 } from "../runtime/index.js";
+import {
+  resolveEffectiveAgentConfig,
+} from "./agent-config-resolver.js";
 
 const COMMIT_VERIFY_TIMEOUT_MS =
   5_000;
@@ -858,10 +862,17 @@ export async function startAgentExecution(
     );
   }
 
-  const [agent] =
+  const [row] =
     await db
       .select()
       .from(agents)
+      .innerJoin(
+        departments,
+        eq(
+          agents.departmentId,
+          departments.id,
+        ),
+      )
       .where(
         eq(
           agents.id,
@@ -869,9 +880,16 @@ export async function startAgentExecution(
         ),
       );
 
+  const effective =
+    row &&
+    resolveEffectiveAgentConfig(
+      row.agents,
+      row.departments,
+    );
+
   if (
-    !agent ||
-    !agent.enabled
+    !row ||
+    !effective?.enabled
   ) {
     throw new AgentExecutionServiceError(
       "The agent does not exist or is disabled",
@@ -882,31 +900,31 @@ export async function startAgentExecution(
   return startSnapshotAgentExecution(
     run,
     {
-      id: agent.id,
+      id: row.agents.id,
       name:
-        agent.name,
+        row.agents.name,
       role:
-        agent.role,
+        effective.role,
       layer:
-        agent.layer,
+        row.agents.layer,
       executionOrder:
-        agent.executionOrder,
+        row.agents.executionOrder,
       harness:
-        agent.harness,
+        effective.harness,
       model:
-        agent.model,
+        effective.model,
       reasoning:
-        agent.reasoning,
+        effective.reasoning,
       systemPrompt:
-        agent.systemPrompt,
+        effective.systemPrompt,
       canWrite:
-        agent.canWrite,
+        effective.canWrite,
       canRunCommands:
-        agent.canRunCommands,
+        effective.canRunCommands,
       sandboxMode:
-        agent.sandboxMode,
+        effective.sandboxMode,
       canCommit:
-        agent.canCommit,
+        effective.canCommit,
     },
     instruction,
   );

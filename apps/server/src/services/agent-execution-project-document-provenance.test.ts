@@ -389,6 +389,7 @@ const {
 const {
   agents,
   agentExecutions,
+  departments,
   runs,
   terminalChunks,
 } = await import(
@@ -464,6 +465,9 @@ describe(
     let agentId:
       string;
 
+    let departmentId:
+      string;
+
     let runId:
       string;
 
@@ -481,32 +485,24 @@ describe(
           );
 
         const [
-          agent,
+          department,
         ] =
           await db
             .insert(
-              agents,
+              departments,
             )
             .values({
               slug:
-                `project-document-provenance-${crypto.randomUUID()}`,
+                `project-document-provenance-department-${crypto.randomUUID()}`,
               name:
-                "Project Document Provenance Worker",
+                "Project Document Provenance Department",
               role:
                 "Generic Worker",
-              layer:
-                900 +
-                Math.floor(
-                  Math.random() *
-                    100_000,
-                ),
-              executionOrder:
-                1,
               harness:
                 "codex",
-              model:
+              defaultModel:
                 "default",
-              reasoning:
+              defaultReasoning:
                 "high",
               systemPrompt:
                 "Use supplied context carefully.",
@@ -516,6 +512,34 @@ describe(
                 true,
               canCommit:
                 false,
+            })
+            .returning();
+
+        departmentId =
+          department.id;
+
+        const [
+          agent,
+        ] =
+          await db
+            .insert(
+              agents,
+            )
+            .values({
+              departmentId:
+                department.id,
+              slug:
+                `project-document-provenance-${crypto.randomUUID()}`,
+              name:
+                "Project Document Provenance Worker",
+              layer:
+                900 +
+                Math.floor(
+                  Math.random() *
+                    100_000,
+                ),
+              executionOrder:
+                1,
             })
             .returning();
 
@@ -596,6 +620,17 @@ describe(
             eq(
               agents.id,
               agentId,
+            ),
+          );
+
+        await db
+          .delete(
+            departments,
+          )
+          .where(
+            eq(
+              departments.id,
+              departmentId,
             ),
           );
 

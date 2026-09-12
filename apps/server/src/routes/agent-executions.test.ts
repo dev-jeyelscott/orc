@@ -197,6 +197,7 @@ const { db } = await import("../db/client.js");
 const {
   agents,
   agentExecutions,
+  departments,
   runs,
   terminalChunks,
 } = await import("../db/schema.js");
@@ -280,6 +281,7 @@ describe("agent-execution routes", () => {
   let baseUrl: string;
   let projectPath: string;
   let agentId: string;
+  let departmentId: string;
   let runId: string;
 
   /** Starts one fake worker execution through the real HTTP API. */
@@ -360,6 +362,7 @@ describe("agent-execution routes", () => {
   beforeEach(async () => {
     runId = "";
     agentId = "";
+    departmentId = "";
     projectPath = "";
 
     app = await buildApp();
@@ -379,22 +382,33 @@ describe("agent-execution routes", () => {
       path.join(os.tmpdir(), "orc-execution-routes-"),
     );
 
-    const [agent] = await db
-      .insert(agents)
+    const [department] = await db
+      .insert(departments)
       .values({
-        teamId: RESOLUTION_TEAM_ID,
-        slug: `test-route-agent-${crypto.randomUUID()}`,
-        name: "Route Test Agent",
+        slug: `test-route-department-${crypto.randomUUID()}`,
+        name: "Route Test Department",
         role: "Tester",
-        layer: 900 + Math.floor(Math.random() * 100_000),
-        executionOrder: 1,
         harness: "codex",
-        model: "gpt-5",
-        reasoning: "high",
+        defaultModel: "gpt-5",
+        defaultReasoning: "high",
         systemPrompt: "Test carefully.",
         canWrite: false,
         canRunCommands: true,
         canCommit: false,
+      })
+      .returning();
+
+    departmentId = department.id;
+
+    const [agent] = await db
+      .insert(agents)
+      .values({
+        departmentId: department.id,
+        teamId: RESOLUTION_TEAM_ID,
+        slug: `test-route-agent-${crypto.randomUUID()}`,
+        name: "Route Test Agent",
+        layer: 900 + Math.floor(Math.random() * 100_000),
+        executionOrder: 1,
       })
       .returning();
 
@@ -456,6 +470,12 @@ describe("agent-execution routes", () => {
       await db
         .delete(agents)
         .where(eq(agents.id, agentId));
+    }
+
+    if (departmentId) {
+      await db
+        .delete(departments)
+        .where(eq(departments.id, departmentId));
     }
 
     if (projectPath) {

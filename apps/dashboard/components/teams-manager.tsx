@@ -164,7 +164,7 @@ function AgentAvatarStack({
             agentToneClasses[
               getAgentToneIndex(agent.id, agentToneClasses.length)
             ];
-          const accessibleLabel = `${agent.name}, ${agent.role}${
+          const accessibleLabel = `${agent.name}, ${agent.effective.role}${
             agent.enabled ? "" : ", disabled"
           }`;
 

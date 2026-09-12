@@ -20,29 +20,18 @@ const TARGET_TEAM_ID =
 function testCreateAgentTeamScope(): void {
   const input:
     CreateAgent = {
+      departmentId:
+        "00000000-0000-4000-7000-000000000001",
       teamId:
         SOURCE_TEAM_ID,
       slug:
         "test-worker",
       name:
         "Test Worker",
-      role:
-        "Generic Role",
-      description: "",
       layer: 1,
       executionOrder: 1,
-      harness:
-        "codex",
-      model:
-        "default",
-      reasoning:
-        "medium",
-      systemPrompt:
-        "Perform the requested work.",
       enabled: true,
-      canWrite: false,
-      canRunCommands: true,
-      canCommit: false,
+      additionalPrompt: "",
     };
 
   const scoped =

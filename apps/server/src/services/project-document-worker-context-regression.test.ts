@@ -168,6 +168,7 @@ const {
   conversationMessageDocuments,
   conversationMessages,
   conversations,
+  departments,
   domainEvents,
   projectDocumentChunks,
   projectDocuments,
@@ -185,6 +186,7 @@ const { createProjectDocument } = await import("./project-document-service.js");
 const { getRunMonitoringDetail } = await import("./run-monitoring-service.js");
 
 const createdAgentIds = new Set<string>();
+const createdDepartmentIds = new Set<string>();
 
 let originalAgentStates: Array<{
   id: string;
@@ -251,28 +253,42 @@ async function createTestAgent(input: {
   label: string;
   relativeLayer: number;
 }) {
+  const [department] = await db
+    .insert(departments)
+    .values({
+      slug: `project-document-worker-context-department-${input.label
+        .toLowerCase()
+        .replaceAll(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")}-${crypto.randomUUID()}`,
+      name: `${input.label} Department`,
+      role: `${input.label} Generic Role`,
+      harness: "codex",
+      defaultModel: "default",
+      defaultReasoning: "medium",
+      systemPrompt: `Act as ${input.label}.`,
+      canWrite: false,
+      canRunCommands: true,
+      canCommit: false,
+    })
+    .returning();
+
+  createdDepartmentIds.add(department.id);
+
   const [agent] = await db
     .insert(agents)
     .values({
+      departmentId: department.id,
       teamId: RESOLUTION_TEAM_ID,
       slug: `project-document-worker-context-${input.label
         .toLowerCase()
         .replaceAll(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "")}-${crypto.randomUUID()}`,
       name: input.label,
-      role: `${input.label} Generic Role`,
       description:
         "End-to-end Project Document worker-context regression agent",
       layer: layerBase + input.relativeLayer,
       executionOrder: 1,
-      harness: "codex",
-      model: "default",
-      reasoning: "medium",
-      systemPrompt: `Act as ${input.label}.`,
       enabled: true,
-      canWrite: false,
-      canRunCommands: true,
-      canCommit: false,
     })
     .returning();
 
@@ -626,6 +642,10 @@ afterEach(async () => {
     await db.delete(agents).where(eq(agents.id, agentId));
   }
 
+  for (const departmentId of createdDepartmentIds) {
+    await db.delete(departments).where(eq(departments.id, departmentId));
+  }
+
   for (const state of originalAgentStates) {
     await db
       .update(agents)
@@ -643,6 +663,7 @@ afterEach(async () => {
     .where(eq(teams.id, RESOLUTION_TEAM_ID));
 
   createdAgentIds.clear();
+  createdDepartmentIds.clear();
 
   originalAgentStates = [];
 

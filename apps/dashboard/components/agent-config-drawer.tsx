@@ -19,7 +19,7 @@ import type {
   AgentRouteOutcome,
   AgentWithRoutes,
   CreateAgent,
-  SandboxMode,
+  Department,
   Team,
   TerminalAction,
 } from "@orc/shared";
@@ -37,8 +37,8 @@ import {
   getAvailableAgentRouteTargets,
 } from "@/lib/agent-presentation";
 import {
-  harnessOptions,
-} from "@/lib/harness-options";
+  getDepartments,
+} from "@/lib/departments";
 import {
   getTeams,
 } from "@/lib/teams";
@@ -89,47 +89,18 @@ const terminalActions:
     "block_run",
   ];
 
-const sandboxOptions: Array<{
-  value: SandboxMode;
-  label: string;
-}> = [
-  {
-    value: "read-only",
-    label: "Read only",
-  },
-  {
-    value: "workspace-write",
-    label: "Workspace write",
-  },
-  {
-    value: "danger-full-access",
-    label: "Full host access",
-  },
-];
-
-type Harness =
-  NonNullable<
-    CreateAgent["harness"]
-  >;
-
 const blankAgent:
   CreateAgent = {
+    departmentId: "",
     teamId: "",
     slug: "",
     name: "",
-    role: "",
-    description: "",
     layer: 1,
     executionOrder: 1,
-    harness: "codex",
-    model: "default",
-    reasoning: "high",
-    systemPrompt: "",
     enabled: true,
-    canWrite: false,
-    canRunCommands: true,
-    sandboxMode: "workspace-write",
-    canCommit: false,
+    modelOverride: null,
+    reasoningOverride: null,
+    additionalPrompt: "",
   };
 
 const drawerStyle = {
@@ -188,38 +159,26 @@ function createDraft(
   }
 
   return {
+    departmentId:
+      agent.departmentId,
     teamId:
       agent.teamId,
     slug:
       agent.slug,
     name:
       agent.name,
-    role:
-      agent.role,
-    description:
-      agent.description,
     layer:
       agent.layer,
     executionOrder:
       agent.executionOrder,
-    harness:
-      agent.harness,
-    model:
-      agent.model,
-    reasoning:
-      agent.reasoning,
-    systemPrompt:
-      agent.systemPrompt,
     enabled:
       agent.enabled,
-    canWrite:
-      agent.canWrite,
-    canRunCommands:
-      agent.canRunCommands,
-    sandboxMode:
-      agent.sandboxMode,
-    canCommit:
-      agent.canCommit,
+    modelOverride:
+      agent.modelOverride,
+    reasoningOverride:
+      agent.reasoningOverride,
+    additionalPrompt:
+      agent.additionalPrompt,
   };
 }
 
@@ -261,6 +220,20 @@ export function AgentConfigDrawer({
   const [
     teamsLoading,
     setTeamsLoading,
+  ] =
+    useState(false);
+
+  const [
+    departments,
+    setDepartments,
+  ] =
+    useState<Department[]>(
+      [],
+    );
+
+  const [
+    departmentsLoading,
+    setDepartmentsLoading,
   ] =
     useState(false);
 
@@ -350,6 +323,50 @@ export function AgentConfigDrawer({
 
       void loadTeamOptions();
 
+      /**
+       * Loads Department labels the operator can select as the Agent's owner.
+       */
+      async function loadDepartmentOptions() {
+        setDepartmentsLoading(
+          true,
+        );
+
+        try {
+          const nextDepartments =
+            await getDepartments();
+
+          if (
+            !cancelled
+          ) {
+            setDepartments(
+              nextDepartments,
+            );
+          }
+        } catch (
+          caught
+        ) {
+          if (
+            !cancelled
+          ) {
+            setError(
+              errorMessage(
+                caught,
+              ),
+            );
+          }
+        } finally {
+          if (
+            !cancelled
+          ) {
+            setDepartmentsLoading(
+              false,
+            );
+          }
+        }
+      }
+
+      void loadDepartmentOptions();
+
       return () => {
         cancelled =
           true;
@@ -362,16 +379,20 @@ export function AgentConfigDrawer({
     ],
   );
 
-  const selectedHarness =
+  const selectedDepartment =
+    departments.find(
+      (
+        department,
+      ) =>
+        department.id ===
+        draft.departmentId,
+    ) ??
     (
-      draft.harness ??
-      "codex"
-    ) as Harness;
-
-  const options =
-    harnessOptions[
-      selectedHarness
-    ];
+      mode ===
+      "edit"
+        ? agent?.department
+        : undefined
+    );
 
   /**
    * Updates one field in the local Agent draft.
@@ -395,32 +416,6 @@ export function AgentConfigDrawer({
   }
 
   /**
-   * Changes harness and resets provider-specific model and reasoning selections.
-   */
-  function changeHarness(
-    harness:
-      Harness,
-  ) {
-    const next =
-      harnessOptions[
-        harness
-      ];
-
-    setDraft(
-      (
-        current,
-      ) => ({
-        ...current,
-        harness,
-        model:
-          next.models[0],
-        reasoning:
-          next.reasoning[0],
-      }),
-    );
-  }
-
-  /**
    * Creates or updates the current Agent while forcing create operations into the selected Team.
    */
   async function submit(
@@ -434,6 +429,16 @@ export function AgentConfigDrawer({
     ) {
       setError(
         "Select a Team before saving the agent.",
+      );
+
+      return;
+    }
+
+    if (
+      !draft.departmentId
+    ) {
+      setError(
+        "Select a Department before saving the agent.",
       );
 
       return;
@@ -677,57 +682,76 @@ export function AgentConfigDrawer({
                   />
                 </label>
 
-                <label className="grid gap-1.5 text-sm">
+                <label className="grid gap-1.5 text-sm md:col-span-2">
                   <span className="font-medium text-text-secondary">
-                    Role
+                    Department
                   </span>
 
-                  <Input
+                  <Select
                     value={
-                      draft.role
+                      draft.departmentId
                     }
-                    onChange={(
-                      event,
-                    ) =>
-                      update(
-                        "role",
-                        event.target.value,
-                      )
-                    }
-                    required
-                    maxLength={
-                      160
-                    }
-                    disabled={
-                      saving
-                    }
-                  />
-                </label>
+                    onValueChange={(
+                      value,
+                    ) => {
+                      if (
+                        value
+                      ) {
+                        update(
+                          "departmentId",
+                          value,
+                        );
+                      }
+                    }}
+                  >
+                    <SelectTrigger
+                      className="w-full"
+                      disabled={
+                        saving ||
+                        departmentsLoading
+                      }
+                      aria-label="Select Department"
+                    >
+                      <SelectValue placeholder="Select a Department" />
+                    </SelectTrigger>
 
-                <label className="grid gap-1.5 text-sm">
-                  <span className="font-medium text-text-secondary">
-                    Description
+                    <SelectContent align="start">
+                      {departments.map(
+                        (
+                          department,
+                        ) => (
+                          <SelectItem
+                            key={
+                              department.id
+                            }
+                            value={
+                              department.id
+                            }
+                          >
+                            {department.name}
+                            {!department.enabled
+                              ? " (disabled)"
+                              : ""}
+                          </SelectItem>
+                        ),
+                      )}
+                    </SelectContent>
+                  </Select>
+
+                  <span className="text-xs text-text-muted">
+                    Department owns role, harness, default model/reasoning,
+                    system prompt, and permissions. This Agent inherits them
+                    and may only override model, reasoning, and add an
+                    additional prompt.
                   </span>
 
-                  <Input
-                    value={
-                      draft.description
-                    }
-                    onChange={(
-                      event,
-                    ) =>
-                      update(
-                        "description",
-                        event.target.value,
-                      )
-                    }
-                    maxLength={
-                      2000
-                    }
-                    disabled={
-                      saving
-                    }
-                  />
+                  {!departmentsLoading &&
+                  departments.length ===
+                    0 ? (
+                    <span className="text-xs text-status-error">
+                      No Departments are available. Create one first.
+                    </span>
+                  ) : null}
                 </label>
 
                 <label className="grid gap-1.5 text-sm md:col-span-2">
@@ -863,159 +887,103 @@ export function AgentConfigDrawer({
                 </label>
 
                 <label className="grid gap-1.5 text-sm">
-                  <span className="font-medium text-text-secondary">
-                    Harness
+                  <span className="flex items-center justify-between font-medium text-text-secondary">
+                    Model override
+                    {draft.modelOverride ? (
+                      <button
+                        type="button"
+                        className="text-xs font-normal text-accent hover:underline"
+                        disabled={saving}
+                        onClick={() =>
+                          update(
+                            "modelOverride",
+                            null,
+                          )
+                        }
+                      >
+                        Use Department default
+                      </button>
+                    ) : null}
                   </span>
 
-                  <Select
+                  <Input
                     value={
-                      selectedHarness
+                      draft.modelOverride ?? ""
                     }
-                    onValueChange={(
-                      value,
-                    ) => {
-                      if (
-                        value
-                      ) {
-                        changeHarness(
-                          value as Harness,
-                        );
-                      }
-                    }}
-                  >
-                    <SelectTrigger
-                      className="w-full"
-                      disabled={
-                        saving
-                      }
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-
-                    <SelectContent align="start">
-                      <SelectItem value="codex">
-                        Codex
-                      </SelectItem>
-
-                      <SelectItem value="claude">
-                        Claude
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+                    placeholder={
+                      selectedDepartment?.defaultModel ??
+                      "Department default"
+                    }
+                    onChange={(
+                      event,
+                    ) =>
+                      update(
+                        "modelOverride",
+                        event.target.value
+                          ? event.target.value
+                          : null,
+                      )
+                    }
+                    maxLength={160}
+                    disabled={
+                      saving
+                    }
+                  />
                 </label>
 
                 <label className="grid gap-1.5 text-sm">
-                  <span className="font-medium text-text-secondary">
-                    Model
+                  <span className="flex items-center justify-between font-medium text-text-secondary">
+                    Reasoning override
+                    {draft.reasoningOverride ? (
+                      <button
+                        type="button"
+                        className="text-xs font-normal text-accent hover:underline"
+                        disabled={saving}
+                        onClick={() =>
+                          update(
+                            "reasoningOverride",
+                            null,
+                          )
+                        }
+                      >
+                        Use Department default
+                      </button>
+                    ) : null}
                   </span>
 
-                  <Select
+                  <Input
                     value={
-                      draft.model
+                      draft.reasoningOverride ?? ""
                     }
-                    onValueChange={(
-                      value,
-                    ) => {
-                      if (
-                        value
-                      ) {
-                        update(
-                          "model",
-                          value,
-                        );
-                      }
-                    }}
-                  >
-                    <SelectTrigger
-                      className="w-full"
-                      disabled={
-                        saving
-                      }
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-
-                    <SelectContent align="start">
-                      {options.models.map(
-                        (
-                          model,
-                        ) => (
-                          <SelectItem
-                            key={
-                              model
-                            }
-                            value={
-                              model
-                            }
-                          >
-                            {model}
-                          </SelectItem>
-                        ),
-                      )}
-                    </SelectContent>
-                  </Select>
-                </label>
-
-                <label className="grid gap-1.5 text-sm">
-                  <span className="font-medium text-text-secondary">
-                    Reasoning
-                  </span>
-
-                  <Select
-                    value={
-                      draft.reasoning
+                    placeholder={
+                      selectedDepartment?.defaultReasoning ??
+                      "Department default"
                     }
-                    onValueChange={(
-                      value,
-                    ) => {
-                      if (
-                        value
-                      ) {
-                        update(
-                          "reasoning",
-                          value,
-                        );
-                      }
-                    }}
-                  >
-                    <SelectTrigger
-                      className="w-full"
-                      disabled={
-                        saving
-                      }
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-
-                    <SelectContent align="start">
-                      {options.reasoning.map(
-                        (
-                          value,
-                        ) => (
-                          <SelectItem
-                            key={
-                              value
-                            }
-                            value={
-                              value
-                            }
-                          >
-                            {value}
-                          </SelectItem>
-                        ),
-                      )}
-                    </SelectContent>
-                  </Select>
+                    onChange={(
+                      event,
+                    ) =>
+                      update(
+                        "reasoningOverride",
+                        event.target.value
+                          ? event.target.value
+                          : null,
+                      )
+                    }
+                    maxLength={160}
+                    disabled={
+                      saving
+                    }
+                  />
                 </label>
 
                 <div className="grid gap-3 rounded-lg border border-divider p-3 md:col-span-2">
                   <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
-                    Capabilities
+                    Instance state
                   </p>
 
                   <CapabilityToggle
                     label="Enabled"
-                    description="Include this agent in future workflow snapshots."
+                    description="Include this agent in future workflow snapshots. Effective state also requires the Department to be enabled."
                     checked={
                       draft.enabled
                     }
@@ -1031,137 +999,87 @@ export function AgentConfigDrawer({
                       saving
                     }
                   />
-
-                  <CapabilityToggle
-                    label="Can Write"
-                    description="Allow the agent prompt to authorize repository modifications."
-                    checked={
-                      draft.canWrite
-                    }
-                    onCheckedChange={(
-                      checked,
-                    ) =>
-                      update(
-                        "canWrite",
-                        checked,
-                      )
-                    }
-                    disabled={
-                      saving
-                    }
-                  />
-
-                  <CapabilityToggle
-                    label="Can Run Commands"
-                    description="Allow project development commands when permitted by the runtime policy."
-                    checked={
-                      draft.canRunCommands
-                    }
-                    onCheckedChange={(
-                      checked,
-                    ) =>
-                      update(
-                        "canRunCommands",
-                        checked,
-                      )
-                    }
-                    disabled={
-                      saving
-                    }
-                  />
-
-                  {draft.harness === "codex" ? (
-                    <label className="grid gap-1.5 text-sm">
-                      <span className="font-medium text-text-secondary">
-                        Codex Sandbox
-                      </span>
-
-                      <Select
-                        value={
-                          draft.sandboxMode ?? "workspace-write"
-                        }
-                        onValueChange={(value) => {
-                          if (value) {
-                            update(
-                              "sandboxMode",
-                              value as SandboxMode,
-                            );
-                          }
-                        }}
-                      >
-                        <SelectTrigger
-                          className="w-full"
-                          disabled={saving}
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-
-                        <SelectContent align="start">
-                          {sandboxOptions.map((option) => (
-                            <SelectItem
-                              key={option.value}
-                              value={option.value}
-                            >
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-
-                      <span className="text-xs text-text-muted">
-                        Full host access can reach Docker and other host resources when OS permissions permit.
-                      </span>
-                    </label>
-                  ) : (
-                    <p className="text-xs text-text-muted">
-                      Claude does not provide an equivalent CLI sandbox; its Bash permission controls command availability.
-                    </p>
-                  )}
-
-                  <CapabilityToggle
-                    label="Can Commit"
-                    description="Allow this worker to create Git commits when its task requires it."
-                    checked={
-                      draft.canCommit
-                    }
-                    onCheckedChange={(
-                      checked,
-                    ) =>
-                      update(
-                        "canCommit",
-                        checked,
-                      )
-                    }
-                    disabled={
-                      saving
-                    }
-                  />
                 </div>
 
                 <label className="grid gap-1.5 text-sm md:col-span-2">
                   <span className="font-medium text-text-secondary">
-                    System Prompt
+                    Additional prompt
                   </span>
 
                   <Textarea
                     value={
-                      draft.systemPrompt
+                      draft.additionalPrompt
                     }
                     onChange={(
                       event,
                     ) =>
                       update(
-                        "systemPrompt",
+                        "additionalPrompt",
                         event.target.value,
                       )
                     }
-                    required
                     disabled={
                       saving
                     }
-                    className="min-h-56 resize-y font-mono text-xs leading-relaxed"
+                    className="min-h-24 resize-y font-mono text-xs leading-relaxed"
+                    placeholder="Appended after the Department system prompt when non-empty."
                   />
                 </label>
+
+                {selectedDepartment ? (
+                  <div className="grid gap-2 rounded-lg border border-divider bg-surface-secondary/40 p-3 text-sm md:col-span-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
+                      Inherited from {selectedDepartment.name}
+                    </p>
+
+                    <dl className="grid gap-1 text-xs text-text-secondary">
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-text-muted">Role</dt>
+                        <dd>{selectedDepartment.role}</dd>
+                      </div>
+
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-text-muted">Harness</dt>
+                        <dd>{selectedDepartment.harness}</dd>
+                      </div>
+
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-text-muted">Default model</dt>
+                        <dd>{selectedDepartment.defaultModel}</dd>
+                      </div>
+
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-text-muted">Default reasoning</dt>
+                        <dd>{selectedDepartment.defaultReasoning}</dd>
+                      </div>
+
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-text-muted">Permissions</dt>
+                        <dd>
+                          {[
+                            selectedDepartment.canWrite ? "write" : null,
+                            selectedDepartment.canRunCommands
+                              ? "run commands"
+                              : null,
+                            selectedDepartment.canCommit ? "commit" : null,
+                          ]
+                            .filter(Boolean)
+                            .join(", ") || "none"}
+                        </dd>
+                      </div>
+                    </dl>
+
+                    <details className="text-xs text-text-muted">
+                      <summary className="cursor-pointer font-medium text-text-secondary">
+                        Department system prompt
+                      </summary>
+
+                      <p className="mt-1 whitespace-pre-wrap font-mono">
+                        {selectedDepartment.systemPrompt}
+                      </p>
+                    </details>
+                  </div>
+                ) : null}
               </section>
 
               {mode ===
@@ -1239,7 +1157,9 @@ export function AgentConfigDrawer({
                 disabled={
                   saving ||
                   teamsLoading ||
-                  !draft.teamId
+                  departmentsLoading ||
+                  !draft.teamId ||
+                  !draft.departmentId
                 }
               >
                 {mode ===

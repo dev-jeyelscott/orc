@@ -1,6 +1,7 @@
 import {
   asc,
   eq,
+  sql,
 } from "drizzle-orm";
 
 import type {
@@ -13,6 +14,7 @@ import {
   db,
 } from "../db/client.js";
 import {
+  agents,
   departments,
 } from "../db/schema.js";
 
@@ -28,13 +30,27 @@ export class DepartmentServiceError extends Error {
 /** Converts persisted Department data into the shared API representation. */
 function serializeDepartment(
   row: typeof departments.$inferSelect,
+  agentCount = 0,
 ): Department {
   return {
     ...row,
-    agentCount: 0,
+    agentCount,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+/** Counts Agents currently assigned to each Department. */
+async function loadAgentCounts(): Promise<Map<string, number>> {
+  const rows = await db
+    .select({
+      departmentId: agents.departmentId,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(agents)
+    .groupBy(agents.departmentId);
+
+  return new Map(rows.map((row) => [row.departmentId, row.count]));
 }
 
 /** Maps additive Department table constraints into stable API errors. */
@@ -53,7 +69,7 @@ function translateDatabaseError(error: unknown): never {
       );
     }
 
-    if (code === "23503") {
+    if (code === "23503" || code === "23001") {
       throw new DepartmentServiceError(
         "Department cannot be deleted because agents still reference it",
         409,
@@ -66,11 +82,17 @@ function translateDatabaseError(error: unknown): never {
 
 /** Lists Departments in deterministic operator-facing order. */
 export async function listDepartments(): Promise<Department[]> {
-  return (await db
-    .select()
-    .from(departments)
-    .orderBy(asc(departments.name), asc(departments.id)))
-    .map(serializeDepartment);
+  const [rows, agentCounts] = await Promise.all([
+    db
+      .select()
+      .from(departments)
+      .orderBy(asc(departments.name), asc(departments.id)),
+    loadAgentCounts(),
+  ]);
+
+  return rows.map((row) =>
+    serializeDepartment(row, agentCounts.get(row.id) ?? 0),
+  );
 }
 
 /** Gets one Department by identifier. */
@@ -80,7 +102,13 @@ export async function getDepartment(id: string): Promise<Department | null> {
     .from(departments)
     .where(eq(departments.id, id));
 
-  return department ? serializeDepartment(department) : null;
+  if (!department) {
+    return null;
+  }
+
+  const agentCounts = await loadAgentCounts();
+
+  return serializeDepartment(department, agentCounts.get(id) ?? 0);
 }
 
 /** Creates one generic reusable Department configuration. */
@@ -93,7 +121,7 @@ export async function createDepartment(
       .values(input)
       .returning();
 
-    return serializeDepartment(department);
+    return serializeDepartment(department, 0);
   } catch (error) {
     return translateDatabaseError(error);
   }
@@ -114,16 +142,22 @@ export async function updateDepartment(
       .where(eq(departments.id, id))
       .returning();
 
-    return department ? serializeDepartment(department) : null;
+    if (!department) {
+      return null;
+    }
+
+    const agentCounts = await loadAgentCounts();
+
+    return serializeDepartment(department, agentCounts.get(id) ?? 0);
   } catch (error) {
     return translateDatabaseError(error);
   }
 }
 
 /**
- * Deletes a Department when no Agent reference exists. The current schema has
- * no Agent relation yet; the foreign-key error mapping keeps this stable once
- * inheritance introduces that relation.
+ * Deletes a Department when no Agent references it. The `agents.department_id`
+ * foreign key uses ON DELETE RESTRICT, so a referencing Agent surfaces as a
+ * 23503 error translated into a stable 409 conflict.
  */
 export async function deleteDepartment(id: string): Promise<boolean> {
   try {

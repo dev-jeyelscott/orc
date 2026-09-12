@@ -19,6 +19,7 @@ import {
   agentExecutions,
   agentRoutes,
   agents,
+  departments,
   domainEvents,
   runs,
   teams,
@@ -44,6 +45,9 @@ const createdEventIds =
   new Set<string>();
 
 const createdTeamIds =
+  new Set<string>();
+
+const createdDepartmentIds =
   new Set<string>();
 
 let nextLayer =
@@ -86,31 +90,48 @@ async function createTestAgent(
   teamId =
     RESOLUTION_TEAM_ID,
 ) {
+  const [department] =
+    await db
+      .insert(departments)
+      .values({
+        slug:
+          `monitor-department-${label.toLowerCase()}-${crypto.randomUUID()}`,
+        name:
+          `Monitor ${label} Department`,
+        role:
+          `${label} Role`,
+        harness: "codex",
+        defaultModel: "default",
+        defaultReasoning: "high",
+        systemPrompt:
+          `Act as ${label}.`,
+        canWrite: false,
+        canRunCommands: true,
+        canCommit: false,
+      })
+      .returning();
+
+  createdDepartmentIds.add(
+    department.id,
+  );
+
   const [agent] =
     await db
       .insert(agents)
       .values({
+        departmentId:
+          department.id,
         teamId,
         slug:
           `monitor-${label.toLowerCase()}-${crypto.randomUUID()}`,
         name:
           `Monitor ${label}`,
-        role:
-          `${label} Role`,
         description:
           `${label} monitoring agent`,
         layer:
           nextLayer++,
         executionOrder: 1,
-        harness: "codex",
-        model: "default",
-        reasoning: "high",
-        systemPrompt:
-          `Act as ${label}.`,
         enabled,
-        canWrite: false,
-        canRunCommands: true,
-        canCommit: false,
       })
       .returning();
 
@@ -248,17 +269,17 @@ async function createTestExecution(
         agentName:
           agent.name,
         agentRole:
-          agent.role,
+          "Test Role",
         layer:
           agent.layer,
         executionOrder:
           agent.executionOrder,
         harness:
-          agent.harness,
+          "codex",
         model:
-          agent.model,
+          "default",
         reasoning:
-          agent.reasoning,
+          "high",
         status:
           input.status,
         startedAt:
@@ -449,12 +470,31 @@ async function cleanupCreatedRows() {
       );
   }
 
+  if (
+    createdDepartmentIds.size >
+    0
+  ) {
+    await db
+      .delete(
+        departments,
+      )
+      .where(
+        inArray(
+          departments.id,
+          [
+            ...createdDepartmentIds,
+          ],
+        ),
+      );
+  }
+
   createdEventIds.clear();
   createdExecutionIds.clear();
   createdRunIds.clear();
   createdRouteIds.clear();
   createdAgentIds.clear();
   createdTeamIds.clear();
+  createdDepartmentIds.clear();
 }
 
 afterEach(

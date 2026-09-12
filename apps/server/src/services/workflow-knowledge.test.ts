@@ -68,6 +68,7 @@ const {
 
 const {
   agents,
+  departments,
   domainEvents,
   runs,
   tasks,
@@ -105,6 +106,10 @@ const project = {
 };
 
 let agentId:
+  string | null =
+    null;
+
+let departmentId:
   string | null =
     null;
 
@@ -242,18 +247,48 @@ beforeEach(
           false,
       });
 
+    const [department] =
+      await db
+        .insert(departments)
+        .values({
+          slug:
+            `phase8-context-synthesizer-department-${crypto.randomUUID()}`,
+          name:
+            "Context Synthesizer Department",
+          role:
+            "Custom Engineering Role",
+          harness:
+            "codex",
+          defaultModel:
+            "default",
+          defaultReasoning:
+            "medium",
+          systemPrompt:
+            "Complete the supplied task generically.",
+          canWrite:
+            false,
+          canRunCommands:
+            true,
+          canCommit:
+            false,
+        })
+        .returning();
+
+    departmentId =
+      department.id;
+
     const [agent] =
       await db
         .insert(agents)
         .values({
+          departmentId:
+            department.id,
           teamId:
             RESOLUTION_TEAM_ID,
           slug:
             `phase8-context-synthesizer-${crypto.randomUUID()}`,
           name:
             "Context Synthesizer",
-          role:
-            "Custom Engineering Role",
           description:
             "Generic Phase 8 worker",
           layer:
@@ -264,22 +299,8 @@ beforeEach(
             ),
           executionOrder:
             1,
-          harness:
-            "codex",
-          model:
-            "default",
-          reasoning:
-            "medium",
-          systemPrompt:
-            "Complete the supplied task generically.",
           enabled:
             true,
-          canWrite:
-            false,
-          canRunCommands:
-            true,
-          canCommit:
-            false,
         })
         .returning();
 
@@ -392,6 +413,19 @@ afterEach(
           eq(
             agents.id,
             agentId,
+          ),
+        );
+    }
+
+    if (
+      departmentId
+    ) {
+      await db
+        .delete(departments)
+        .where(
+          eq(
+            departments.id,
+            departmentId,
           ),
         );
     }

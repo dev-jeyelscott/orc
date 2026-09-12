@@ -25,6 +25,7 @@ import {
 import {
   agents,
   conversations,
+  departments,
   orchestratorSettings,
   runs,
   systemSettings,
@@ -46,6 +47,41 @@ const createdAgentIds =
 
 const createdTeamIds =
   new Set<string>();
+
+const createdDepartmentIds =
+  new Set<string>();
+
+/**
+ * Creates one disposable Department for schema-level persistence assertions.
+ */
+async function createTestDepartment() {
+  const [department] =
+    await db
+      .insert(departments)
+      .values({
+        slug:
+          `schema-department-${crypto.randomUUID()}`,
+        name:
+          "Schema Department",
+        role:
+          "Schema Test",
+        harness:
+          "codex",
+        defaultModel:
+          "default",
+        defaultReasoning:
+          "high",
+        systemPrompt:
+          "Validate the agent schema.",
+      })
+      .returning();
+
+  createdDepartmentIds.add(
+    department.id,
+  );
+
+  return department;
+}
 
 /**
  * Creates one disposable task row for schema-level persistence assertions.
@@ -108,27 +144,22 @@ async function createTestAgent(
   layer: number,
   executionOrder = 1,
 ) {
+  const department =
+    await createTestDepartment();
+
   const [agent] =
     await db
       .insert(agents)
       .values({
+        departmentId:
+          department.id,
         teamId,
         slug:
           `schema-agent-${crypto.randomUUID()}`,
         name:
           "Schema Agent",
-        role:
-          "Schema Test",
         layer,
         executionOrder,
-        harness:
-          "codex",
-        model:
-          "default",
-        reasoning:
-          "high",
-        systemPrompt:
-          "Validate the agent schema.",
       })
       .returning();
 
@@ -211,11 +242,26 @@ afterEach(
         );
     }
 
+    for (
+      const departmentId of
+      createdDepartmentIds
+    ) {
+      await db
+        .delete(departments)
+        .where(
+          eq(
+            departments.id,
+            departmentId,
+          ),
+        );
+    }
+
     createdConversationIds.clear();
     createdRunIds.clear();
     createdTaskIds.clear();
     createdAgentIds.clear();
     createdTeamIds.clear();
+    createdDepartmentIds.clear();
 
     await db
       .update(
@@ -441,16 +487,19 @@ describe(
           conversation.id,
         );
 
+        const department =
+          await createTestDepartment();
+
         const [agent] =
           await db
             .insert(agents)
             .values({
+              departmentId:
+                department.id,
               slug:
                 `schema-default-${crypto.randomUUID()}`,
               name:
                 "Default Team Agent",
-              role:
-                "Schema Test",
               layer:
                 900_000 +
                 Math.floor(
@@ -459,14 +508,6 @@ describe(
                 ),
               executionOrder:
                 1,
-              harness:
-                "codex",
-              model:
-                "default",
-              reasoning:
-                "high",
-              systemPrompt:
-                "Validate Team defaults.",
             })
             .returning();
 
@@ -566,29 +607,24 @@ describe(
           layer,
         );
 
+        const department =
+          await createTestDepartment();
+
         await expect(
           db
             .insert(agents)
             .values({
+              departmentId:
+                department.id,
               teamId:
                 team.id,
               slug:
                 `schema-duplicate-${crypto.randomUUID()}`,
               name:
                 "Duplicate Slot Agent",
-              role:
-                "Schema Test",
               layer,
               executionOrder:
                 1,
-              harness:
-                "codex",
-              model:
-                "default",
-              reasoning:
-                "high",
-              systemPrompt:
-                "This insert should fail.",
             }),
         ).rejects.toThrow();
       },

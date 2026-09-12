@@ -10,28 +10,76 @@ import {
   getWorkflowOrderedAgents,
 } from "./team-workspace-presentation.ts";
 
-function agent(overrides = {}) {
+function defaultEffective() {
   return {
-    id: "10000000-0000-4000-8000-000000000001",
-    teamId: "00000000-0000-4000-8000-000000000001",
-    slug: "backend-engineer",
-    name: "Jordan Diaz",
     role: "Backend Engineer",
-    description: "",
-    layer: 2,
-    executionOrder: 1,
     harness: "claude",
     model: "sonnet",
     reasoning: "high",
     systemPrompt: "Build the requested change.",
-    enabled: true,
     canWrite: true,
     canRunCommands: true,
     canCommit: false,
+    enabled: true,
+  };
+}
+
+function agent(overrides = {}) {
+  const {
+    role,
+    canWrite,
+    canRunCommands,
+    canCommit,
+    effective,
+    ...rest
+  } = overrides;
+
+  const mergedEffective = {
+    ...defaultEffective(),
+    ...(role !== undefined ? { role } : {}),
+    ...(canWrite !== undefined ? { canWrite } : {}),
+    ...(canRunCommands !== undefined ? { canRunCommands } : {}),
+    ...(canCommit !== undefined ? { canCommit } : {}),
+    ...effective,
+  };
+
+  return {
+    id: "10000000-0000-4000-8000-000000000001",
+    departmentId: "20000000-0000-4000-7000-000000000001",
+    teamId: "00000000-0000-4000-8000-000000000001",
+    slug: "backend-engineer",
+    name: "Jordan Diaz",
+    layer: 2,
+    executionOrder: 1,
+    enabled: true,
+    modelOverride: null,
+    reasoningOverride: null,
+    additionalPrompt: "",
+    department: {
+      id: "20000000-0000-4000-7000-000000000001",
+      slug: "backend-engineering",
+      name: "Backend Engineering",
+      role: mergedEffective.role,
+      description: "",
+      enabled: true,
+      harness: mergedEffective.harness,
+      defaultModel: mergedEffective.model,
+      defaultReasoning: mergedEffective.reasoning,
+      systemPrompt: mergedEffective.systemPrompt,
+      canWrite: mergedEffective.canWrite,
+      canRunCommands: mergedEffective.canRunCommands,
+      canCommit: mergedEffective.canCommit,
+      agentCount: 0,
+      createdAt: "2026-09-01T00:00:00.000Z",
+      updatedAt: "2026-09-10T00:00:00.000Z",
+    },
+    effective: mergedEffective,
+    hasModelOverride: false,
+    hasReasoningOverride: false,
     routes: [],
     createdAt: "2026-09-01T00:00:00.000Z",
     updatedAt: "2026-09-10T00:00:00.000Z",
-    ...overrides,
+    ...rest,
   };
 }
 

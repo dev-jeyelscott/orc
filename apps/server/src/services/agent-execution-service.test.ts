@@ -198,6 +198,7 @@ const { db } = await import("../db/client.js");
 const {
   agents,
   agentExecutions,
+  departments,
   runs,
   terminalChunks,
 } = await import("../db/schema.js");
@@ -231,6 +232,7 @@ async function waitFor<T>(
 describe("agent-execution-service", () => {
   let projectPath: string;
   let agentId: string;
+  let departmentId: string;
   let runId: string;
   let agentLayer: number;
 
@@ -242,22 +244,33 @@ describe("agent-execution-service", () => {
       path.join(os.tmpdir(), "orc-execution-service-"),
     );
 
-    const [agent] = await db
-      .insert(agents)
+    const [department] = await db
+      .insert(departments)
       .values({
-        slug: `test-agent-${crypto.randomUUID()}`,
-        name: "Test Agent",
+        slug: `test-department-${crypto.randomUUID()}`,
+        name: "Test Department",
         role: "Tester",
-        layer: (agentLayer =
-          900 + Math.floor(Math.random() * 100_000)),
-        executionOrder: 1,
         harness: "codex",
-        model: "gpt-5",
-        reasoning: "high",
+        defaultModel: "gpt-5",
+        defaultReasoning: "high",
         systemPrompt: "Test carefully.",
         canWrite: false,
         canRunCommands: true,
         canCommit: false,
+      })
+      .returning();
+
+    departmentId = department.id;
+
+    const [agent] = await db
+      .insert(agents)
+      .values({
+        departmentId: department.id,
+        slug: `test-agent-${crypto.randomUUID()}`,
+        name: "Test Agent",
+        layer: (agentLayer =
+          900 + Math.floor(Math.random() * 100_000)),
+        executionOrder: 1,
       })
       .returning();
 
@@ -291,13 +304,21 @@ describe("agent-execution-service", () => {
       .delete(agents)
       .where(eq(agents.id, agentId));
 
+    await db
+      .delete(departments)
+      .where(eq(departments.id, departmentId));
+
     fs.rmSync(projectPath, {
       recursive: true,
       force: true,
     });
   });
 
-  /** Updates the test agent capabilities before the execution snapshot is created. */
+  /**
+   * Updates the test Department's capabilities before the execution snapshot
+   * is created. Capabilities are Department-owned effective configuration, so
+   * this updates the Department the test Agent inherits from.
+   */
   async function setAgentCapabilities(
     capabilities: Partial<{
       canWrite: boolean;
@@ -306,9 +327,9 @@ describe("agent-execution-service", () => {
     }>,
   ): Promise<void> {
     await db
-      .update(agents)
+      .update(departments)
       .set(capabilities)
-      .where(eq(agents.id, agentId));
+      .where(eq(departments.id, departmentId));
   }
 
   /** Creates one real local Git commit and returns its short and canonical hashes. */

@@ -21,6 +21,9 @@ const TEST_TEAM_ID =
 const OTHER_TEAM_ID =
   "00000000-0000-4000-9000-000000000002";
 
+const TEST_DEPARTMENT_ID =
+  "00000000-0000-4000-7000-000000000001";
+
 /**
  * Creates a generic Agent with deterministic test defaults.
  */
@@ -33,8 +36,14 @@ function createAgent(
     input.id ??
     crypto.randomUUID();
 
+  const role =
+    input.effective?.role ??
+    "Generic Role";
+
   return {
     id,
+    departmentId:
+      TEST_DEPARTMENT_ID,
     teamId:
       TEST_TEAM_ID,
     slug:
@@ -44,20 +53,50 @@ function createAgent(
       )}`,
     name:
       "Generic Worker",
-    role:
-      "Generic Role",
-    description: "",
     layer: 1,
     executionOrder: 1,
-    harness: "codex",
-    model: "default",
-    reasoning: "high",
-    systemPrompt:
-      "Perform generic work.",
     enabled: true,
-    canWrite: false,
-    canRunCommands: true,
-    canCommit: false,
+    modelOverride: null,
+    reasoningOverride: null,
+    additionalPrompt: "",
+    department: {
+      id:
+        TEST_DEPARTMENT_ID,
+      slug:
+        "generic-department",
+      name:
+        "Generic Department",
+      role,
+      description: "",
+      enabled: true,
+      harness: "codex",
+      defaultModel: "default",
+      defaultReasoning: "high",
+      systemPrompt:
+        "Perform generic work.",
+      canWrite: false,
+      canRunCommands: true,
+      canCommit: false,
+      agentCount: 0,
+      createdAt:
+        "2026-09-04T00:00:00.000Z",
+      updatedAt:
+        "2026-09-04T00:00:00.000Z",
+    },
+    effective: {
+      role,
+      harness: "codex",
+      model: "default",
+      reasoning: "high",
+      systemPrompt:
+        "Perform generic work.",
+      canWrite: false,
+      canRunCommands: true,
+      canCommit: false,
+      enabled: true,
+    },
+    hasModelOverride: false,
+    hasReasoningOverride: false,
     createdAt:
       "2026-09-04T00:00:00.000Z",
     updatedAt:
@@ -142,8 +181,19 @@ function testFiltering(): void {
     createAgent({
       name:
         "Search Worker",
-      role:
-        "Implementation",
+      effective: {
+        role:
+          "Implementation",
+        harness: "codex",
+        model: "default",
+        reasoning: "high",
+        systemPrompt:
+          "Perform generic work.",
+        canWrite: false,
+        canRunCommands: true,
+        canCommit: false,
+        enabled: true,
+      },
       slug:
         "search-worker",
       layer: 3,
@@ -154,8 +204,19 @@ function testFiltering(): void {
     createAgent({
       name:
         "Other Worker",
-      role:
-        "Review",
+      effective: {
+        role:
+          "Review",
+        harness: "codex",
+        model: "default",
+        reasoning: "high",
+        systemPrompt:
+          "Perform generic work.",
+        canWrite: false,
+        canRunCommands: true,
+        canCommit: false,
+        enabled: false,
+      },
       slug:
         "other-worker",
       layer: 4,

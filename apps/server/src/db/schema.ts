@@ -268,6 +268,19 @@ export const agents =
                 "restrict",
             },
           ),
+      departmentId:
+        uuid(
+          "department_id",
+        )
+          .notNull()
+          .references(
+            () =>
+              departments.id,
+            {
+              onDelete:
+                "restrict",
+            },
+          ),
       slug:
         text("slug")
           .notNull()
@@ -275,9 +288,14 @@ export const agents =
       name:
         text("name")
           .notNull(),
+      /**
+       * Legacy Department-owned defaults, retained nullable for compatibility
+       * and rollback safety. No longer written for new Agents and no longer
+       * read as the source of runtime truth; effective configuration is
+       * resolved from the owning Department plus these Agent-level overrides.
+       */
       role:
-        text("role")
-          .notNull(),
+        text("role"),
       description:
         text(
           "description",
@@ -295,18 +313,17 @@ export const agents =
       harness:
         harnessEnum(
           "harness",
-        ).notNull(),
+        ),
       model:
-        text("model")
-          .notNull(),
+        text("model"),
       reasoning:
         text(
           "reasoning",
-        ).notNull(),
+        ),
       systemPrompt:
         text(
           "system_prompt",
-        ).notNull(),
+        ),
       enabled:
         boolean(
           "enabled",
@@ -335,6 +352,20 @@ export const agents =
         )
           .notNull()
           .default(false),
+      modelOverride:
+        text(
+          "model_override",
+        ),
+      reasoningOverride:
+        text(
+          "reasoning_override",
+        ),
+      additionalPrompt:
+        text(
+          "additional_prompt",
+        )
+          .notNull()
+          .default(""),
       ...timestamps,
     },
     (table) => [

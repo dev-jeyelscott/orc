@@ -83,11 +83,8 @@ export async function agentRoutes(app: FastifyInstance) {
       return reply.status(201).send(
         await createAgent({
           ...input,
-          description: input.description ?? "",
           enabled: input.enabled ?? true,
-          canWrite: input.canWrite ?? false,
-          canRunCommands: input.canRunCommands ?? false,
-          canCommit: input.canCommit ?? false,
+          additionalPrompt: input.additionalPrompt ?? "",
         }),
       );
     } catch (error) {
