@@ -30,7 +30,6 @@ import { db } from "../db/client.js";
 
 import {
   agentExecutions,
-  agentRoutes,
   agents,
   departments,
   domainEvents,
@@ -38,6 +37,8 @@ import {
   runs,
   taskDocuments,
   tasks,
+  teamMemberRoutes,
+  teamMembers,
   teams,
 } from "../db/schema.js";
 
@@ -367,22 +368,164 @@ type AgentWithDepartmentRow = {
     typeof agents.$inferSelect;
   department:
     typeof departments.$inferSelect;
+  layer:
+    number;
+  executionOrder:
+    number;
 };
+
+type SnapshotRouteInput = {
+  sourceAgentId: string;
+  outcome: AgentResultStatus;
+  targetAgentId: string | null;
+  terminalAction: TerminalAction | null;
+};
+
+/**
+ * Loads one Team's live workflow topology -- `team_members` joined to their
+ * Department-inheriting Agent configuration, plus `team_member_routes`
+ * translated to concrete Agent IDs -- as the sole authoritative source for
+ * new Run snapshots. Legacy Agent-owned team_id/layer/execution_order and
+ * `agent_routes` are never read here.
+ */
+type WorkflowDbClient =
+  | typeof db
+  | Parameters<
+      Parameters<typeof db.transaction>[0]
+    >[0];
+
+async function loadTeamWorkflowTopology(
+  tx:
+    WorkflowDbClient,
+  teamId:
+    string,
+): Promise<{
+  enabledAgents: AgentWithDepartmentRow[];
+  routes: SnapshotRouteInput[];
+}> {
+  const memberRows =
+    await tx
+      .select()
+      .from(teamMembers)
+      .innerJoin(
+        agents,
+        eq(
+          agents.id,
+          teamMembers.agentId,
+        ),
+      )
+      .innerJoin(
+        departments,
+        eq(
+          agents.departmentId,
+          departments.id,
+        ),
+      )
+      .where(
+        eq(
+          teamMembers.teamId,
+          teamId,
+        ),
+      );
+
+  const agentIdByMemberId =
+    new Map(
+      memberRows.map(
+        (row) => [
+          row.team_members.id,
+          row.agents.id,
+        ],
+      ),
+    );
+
+  const enabledAgents =
+    orderWorkflowAgents(
+      memberRows
+        .filter(
+          (row) =>
+            row.agents.enabled &&
+            row.departments.enabled,
+        )
+        .map(
+          (row) => ({
+            agent:
+              row.agents,
+            department:
+              row.departments,
+            layer:
+              row.team_members.layer,
+            executionOrder:
+              row.team_members.executionOrder,
+          }),
+        ),
+    );
+
+  const memberIds =
+    [...agentIdByMemberId.keys()];
+
+  const routeRows =
+    memberIds.length
+      ? await tx
+          .select()
+          .from(
+            teamMemberRoutes,
+          )
+          .where(
+            and(
+              inArray(
+                teamMemberRoutes.sourceTeamMemberId,
+                memberIds,
+              ),
+              eq(
+                teamMemberRoutes.enabled,
+                true,
+              ),
+            ),
+          )
+      : [];
+
+  const routes:
+    SnapshotRouteInput[] =
+      routeRows.map(
+        (route) => ({
+          sourceAgentId:
+            agentIdByMemberId.get(
+              route.sourceTeamMemberId,
+            )!,
+          outcome:
+            route.outcome,
+          targetAgentId:
+            route.targetTeamMemberId
+              ? (
+                  agentIdByMemberId.get(
+                    route.targetTeamMemberId,
+                  ) ??
+                  null
+                )
+              : null,
+          terminalAction:
+            route.terminalAction ??
+            null,
+        }),
+      );
+
+  return {
+    enabledAgents,
+    routes,
+  };
+}
 
 /**
  * Creates an immutable run-owned workflow snapshot from the current effective
  * Department + Agent configuration and optional orchestrator-selected bounded
- * durable knowledge. Workflow topology (layer/order) still comes from the
- * legacy Agent Team/layer/order fields until Team Composition (Spec 3)
- * replaces them; only the resolved worker configuration changes here.
+ * durable knowledge. Workflow topology (Team composition, layer/order, and
+ * routing) comes exclusively from `team_members`/`team_member_routes`.
  */
 function snapshotFromRows(
   agentRows:
     AgentWithDepartmentRow[],
   routeRows:
-    Array<
-      typeof agentRoutes.$inferSelect
-    >,
+    SnapshotRouteInput[],
   knowledgeContext:
     KnowledgeRef[] = [],
   taskDocumentContext:
@@ -390,15 +533,7 @@ function snapshotFromRows(
 ): WorkflowSnapshot {
   const orderedAgents =
     orderWorkflowAgents(
-      agentRows.map(
-        (row) => ({
-          ...row,
-          layer:
-            row.agent.layer,
-          executionOrder:
-            row.agent.executionOrder,
-        }),
-      ),
+      agentRows,
     );
 
   const enabledIds =
@@ -412,7 +547,7 @@ function snapshotFromRows(
   return {
     agents:
       orderedAgents.map(
-        ({ agent, department }) => {
+        ({ agent, department, layer, executionOrder }) => {
           const effective =
             resolveEffectiveAgentConfig(
               agent,
@@ -426,10 +561,8 @@ function snapshotFromRows(
               agent.name,
             role:
               effective.role,
-            layer:
-              agent.layer,
-            executionOrder:
-              agent.executionOrder,
+            layer,
+            executionOrder,
             harness:
               effective.harness,
             model:
@@ -453,7 +586,6 @@ function snapshotFromRows(
       routeRows
         .filter(
           (route) =>
-            route.enabled &&
             enabledIds.has(
               route.sourceAgentId,
             ) &&
@@ -1852,13 +1984,20 @@ async function requireRunnableTeam(
     );
   }
 
-  const [enabledAgent] =
+  const [enabledMember] =
     await db
       .select({
         id:
-          agents.id,
+          teamMembers.id,
       })
-      .from(agents)
+      .from(teamMembers)
+      .innerJoin(
+        agents,
+        eq(
+          teamMembers.agentId,
+          agents.id,
+        ),
+      )
       .innerJoin(
         departments,
         eq(
@@ -1869,7 +2008,7 @@ async function requireRunnableTeam(
       .where(
         and(
           eq(
-            agents.teamId,
+            teamMembers.teamId,
             teamId,
           ),
           eq(
@@ -1885,7 +2024,7 @@ async function requireRunnableTeam(
       .limit(1);
 
   if (
-    !enabledAgent
+    !enabledMember
   ) {
     throw new WorkflowServiceError(
       "The selected team has no enabled agents",
@@ -2150,50 +2289,13 @@ export async function startTask(
           );
         }
 
-        const enabledAgentRows =
-          await tx
-            .select()
-            .from(agents)
-            .innerJoin(
-              departments,
-              eq(
-                agents.departmentId,
-                departments.id,
-              ),
-            )
-            .where(
-              and(
-                eq(
-                  agents.teamId,
-                  currentTask.teamId,
-                ),
-                eq(
-                  agents.enabled,
-                  true,
-                ),
-                eq(
-                  departments.enabled,
-                  true,
-                ),
-              ),
-            )
-            .orderBy(
-              asc(
-                agents.layer,
-              ),
-              asc(
-                agents.executionOrder,
-              ),
-            );
-
-        const enabledAgents =
-          enabledAgentRows.map(
-            (row) => ({
-              agent:
-                row.agents,
-              department:
-                row.departments,
-            }),
+        const {
+          enabledAgents,
+          routes,
+        } =
+          await loadTeamWorkflowTopology(
+            tx,
+            currentTask.teamId,
           );
 
         if (
@@ -2204,19 +2306,6 @@ export async function startTask(
             409,
           );
         }
-
-        const routes =
-          await tx
-            .select()
-            .from(
-              agentRoutes,
-            )
-            .where(
-              eq(
-                agentRoutes.enabled,
-                true,
-              ),
-            );
 
         const taskDocumentContext =
           await loadTaskDocumentContext(
@@ -2437,50 +2526,13 @@ export async function createAndStartTask(
           );
         }
 
-        const enabledAgentRows =
-          await tx
-            .select()
-            .from(agents)
-            .innerJoin(
-              departments,
-              eq(
-                agents.departmentId,
-                departments.id,
-              ),
-            )
-            .where(
-              and(
-                eq(
-                  agents.teamId,
-                  input.teamId,
-                ),
-                eq(
-                  agents.enabled,
-                  true,
-                ),
-                eq(
-                  departments.enabled,
-                  true,
-                ),
-              ),
-            )
-            .orderBy(
-              asc(
-                agents.layer,
-              ),
-              asc(
-                agents.executionOrder,
-              ),
-            );
-
-        const enabledAgents =
-          enabledAgentRows.map(
-            (row) => ({
-              agent:
-                row.agents,
-              department:
-                row.departments,
-            }),
+        const {
+          enabledAgents,
+          routes,
+        } =
+          await loadTeamWorkflowTopology(
+            tx,
+            input.teamId,
           );
 
         if (
@@ -2491,19 +2543,6 @@ export async function createAndStartTask(
             409,
           );
         }
-
-        const routes =
-          await tx
-            .select()
-            .from(
-              agentRoutes,
-            )
-            .where(
-              eq(
-                agentRoutes.enabled,
-                true,
-              ),
-            );
 
         const workflowSnapshot =
           snapshotFromRows(

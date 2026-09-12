@@ -6,7 +6,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { Team } from "@orc/shared";
 
-import { AgentsManager } from "@/components/agents-manager";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +17,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
+import { TeamWorkflowManager } from "@/components/team-workflow-manager";
 import { getTeam } from "@/lib/teams";
 
 /**
@@ -195,7 +195,7 @@ export function TeamDetailWorkspace({ teamId }: { teamId: string }) {
         </div>
       </header>
 
-      <AgentsManager key={team.id} team={team} />
+      <TeamWorkflowManager key={team.id} team={team} />
     </div>
   );
 }

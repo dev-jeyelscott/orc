@@ -79,10 +79,10 @@ function compareAgents(
     AgentWithRoutes,
 ): number {
   return (
-    left.layer -
-      right.layer ||
-    left.executionOrder -
-      right.executionOrder
+    (left.layer ?? 0) -
+      (right.layer ?? 0) ||
+    (left.executionOrder ?? 0) -
+      (right.executionOrder ?? 0)
   );
 }
 
@@ -137,15 +137,17 @@ export function groupAgentsByLayer(
   for (const agent of [
     ...agents,
   ].sort(compareAgents)) {
+    const layer = agent.layer ?? 0;
+
     const existing =
       groups.get(
-        agent.layer,
+        layer,
       ) ?? [];
 
     existing.push(agent);
 
     groups.set(
-      agent.layer,
+      layer,
       existing,
     );
   }

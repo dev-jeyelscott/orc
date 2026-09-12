@@ -864,9 +864,9 @@ describe(
               agentRole:
                 "Historical",
               layer:
-                source.layer,
+                source.layer ?? 1,
               executionOrder:
-                source.executionOrder,
+                source.executionOrder ?? 1,
               harness:
                 "codex",
               model:

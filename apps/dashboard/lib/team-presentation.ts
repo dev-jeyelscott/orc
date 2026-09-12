@@ -39,8 +39,8 @@ export function compareAgents(
   right: Agent,
 ): number {
   return (
-    left.layer - right.layer ||
-    left.executionOrder - right.executionOrder ||
+    (left.layer ?? 0) - (right.layer ?? 0) ||
+    (left.executionOrder ?? 0) - (right.executionOrder ?? 0) ||
     teamCollator.compare(
       left.name,
       right.name,

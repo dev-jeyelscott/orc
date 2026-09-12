@@ -4,6 +4,7 @@ import {
 import {
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -302,14 +303,20 @@ export const agents =
         )
           .notNull()
           .default(""),
+      /**
+       * Legacy Team-owned workflow placement, retained nullable for
+       * compatibility and rollback safety. `team_members` is now the
+       * authoritative source of Team composition, layer, and execution
+       * order; new Agents are created without workflow placement.
+       */
       layer:
         integer(
           "layer",
-        ).notNull(),
+        ),
       executionOrder:
         integer(
           "execution_order",
-        ).notNull(),
+        ),
       harness:
         harnessEnum(
           "harness",
@@ -375,6 +382,18 @@ export const agents =
         table.teamId,
         table.layer,
         table.executionOrder,
+      ),
+      /**
+       * Lets `team_members` declare a composite foreign key on
+       * (agent_id, department_id) so the database guarantees a Team
+       * member's stored Department always matches its selected Agent's
+       * Department.
+       */
+      unique(
+        "agents_id_department_id_unique",
+      ).on(
+        table.id,
+        table.departmentId,
       ),
       check(
         "agents_layer_check",
@@ -445,6 +464,179 @@ export const agentRoutes =
       check(
         "agent_routes_destination_check",
         sql`(${table.targetAgentId} is null) <> (${table.terminalAction} is null)`,
+      ),
+    ],
+  );
+
+/**
+ * Authoritative Team composition and workflow-placement table. Replaces
+ * Agent-owned `team_id`/`layer`/`execution_order` as the live source of
+ * Team topology; those legacy Agent columns are retained only for
+ * compatibility until Spec 5 removes them.
+ */
+export const teamMembers =
+  pgTable(
+    "team_members",
+    {
+      id:
+        uuid("id")
+          .primaryKey()
+          .defaultRandom(),
+      teamId:
+        uuid(
+          "team_id",
+        )
+          .notNull()
+          .references(
+            () =>
+              teams.id,
+            {
+              onDelete:
+                "restrict",
+            },
+          ),
+      departmentId:
+        uuid(
+          "department_id",
+        )
+          .notNull()
+          .references(
+            () =>
+              departments.id,
+            {
+              onDelete:
+                "restrict",
+            },
+          ),
+      agentId:
+        uuid(
+          "agent_id",
+        )
+          .notNull()
+          .unique()
+          .references(
+            () =>
+              agents.id,
+            {
+              onDelete:
+                "restrict",
+            },
+          ),
+      layer:
+        integer(
+          "layer",
+        ).notNull(),
+      executionOrder:
+        integer(
+          "execution_order",
+        ).notNull(),
+      ...timestamps,
+    },
+    (table) => [
+      unique(
+        "team_members_team_department_unique",
+      ).on(
+        table.teamId,
+        table.departmentId,
+      ),
+      unique(
+        "team_members_team_layer_execution_order_unique",
+      ).on(
+        table.teamId,
+        table.layer,
+        table.executionOrder,
+      ),
+      check(
+        "team_members_layer_check",
+        sql`${table.layer} >= 1`,
+      ),
+      check(
+        "team_members_execution_order_check",
+        sql`${table.executionOrder} >= 1`,
+      ),
+      /**
+       * Guarantees a Team member's stored Department always matches its
+       * selected Agent's Department without duplicating this invariant in
+       * application code.
+       */
+      foreignKey({
+        name:
+          "team_members_agent_department_fk",
+        columns: [
+          table.agentId,
+          table.departmentId,
+        ],
+        foreignColumns: [
+          agents.id,
+          agents.departmentId,
+        ],
+      }),
+    ],
+  );
+
+/**
+ * Team-owned outcome routing. Source and target reference `team_members`
+ * rows rather than Agent IDs directly, so routing survives Agent identity
+ * while remaining scoped to one Team's composition.
+ */
+export const teamMemberRoutes =
+  pgTable(
+    "team_member_routes",
+    {
+      id:
+        uuid("id")
+          .primaryKey()
+          .defaultRandom(),
+      sourceTeamMemberId:
+        uuid(
+          "source_team_member_id",
+        )
+          .notNull()
+          .references(
+            () =>
+              teamMembers.id,
+            {
+              onDelete:
+                "cascade",
+            },
+          ),
+      outcome:
+        agentRouteOutcomeEnum(
+          "outcome",
+        ).notNull(),
+      targetTeamMemberId:
+        uuid(
+          "target_team_member_id",
+        ).references(
+          () =>
+            teamMembers.id,
+          {
+            onDelete:
+              "cascade",
+          },
+        ),
+      terminalAction:
+        terminalActionEnum(
+          "terminal_action",
+        ),
+      enabled:
+        boolean(
+          "enabled",
+        )
+          .notNull()
+          .default(true),
+      ...timestamps,
+    },
+    (table) => [
+      unique(
+        "team_member_routes_source_outcome_unique",
+      ).on(
+        table.sourceTeamMemberId,
+        table.outcome,
+      ),
+      check(
+        "team_member_routes_destination_check",
+        sql`(${table.targetTeamMemberId} is null) <> (${table.terminalAction} is null)`,
       ),
     ],
   );

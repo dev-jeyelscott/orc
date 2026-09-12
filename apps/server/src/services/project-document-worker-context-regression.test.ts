@@ -163,7 +163,6 @@ const { db } = await import("../db/client.js");
 const { RESOLUTION_TEAM_ID } = await import("../db/seed-ids.js");
 
 const {
-  agentRoutes,
   agents,
   conversationMessageDocuments,
   conversationMessages,
@@ -175,6 +174,8 @@ const {
   runs,
   taskDocuments,
   tasks,
+  teamMemberRoutes,
+  teamMembers,
   teams,
 } = await import("../db/schema.js");
 
@@ -293,6 +294,14 @@ async function createTestAgent(input: {
     .returning();
 
   createdAgentIds.add(agent.id);
+
+  await db.insert(teamMembers).values({
+    teamId: RESOLUTION_TEAM_ID,
+    departmentId: agent.departmentId,
+    agentId: agent.id,
+    layer: agent.layer ?? 1,
+    executionOrder: agent.executionOrder ?? 1,
+  });
 
   return agent;
 }
@@ -639,6 +648,19 @@ afterEach(async () => {
   }
 
   for (const agentId of createdAgentIds) {
+    const [member] = await db
+      .select({ id: teamMembers.id })
+      .from(teamMembers)
+      .where(eq(teamMembers.agentId, agentId));
+
+    if (member) {
+      await db
+        .delete(teamMemberRoutes)
+        .where(eq(teamMemberRoutes.sourceTeamMemberId, member.id));
+    }
+
+    await db.delete(teamMembers).where(eq(teamMembers.agentId, agentId));
+
     await db.delete(agents).where(eq(agents.id, agentId));
   }
 
@@ -855,10 +877,20 @@ describe("Project Documents -> worker context regression", () => {
       relativeLayer: 3,
     });
 
-    await db.insert(agentRoutes).values({
-      sourceAgentId: reviewer.id,
+    const [reviewerMember] = await db
+      .select({ id: teamMembers.id })
+      .from(teamMembers)
+      .where(eq(teamMembers.agentId, reviewer.id));
+
+    const [implementerMember] = await db
+      .select({ id: teamMembers.id })
+      .from(teamMembers)
+      .where(eq(teamMembers.agentId, implementer.id));
+
+    await db.insert(teamMemberRoutes).values({
+      sourceTeamMemberId: reviewerMember!.id,
       outcome: "changes_requested",
-      targetAgentId: implementer.id,
+      targetTeamMemberId: implementerMember!.id,
       terminalAction: null,
       enabled: true,
     });

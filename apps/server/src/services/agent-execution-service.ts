@@ -906,9 +906,9 @@ export async function startAgentExecution(
       role:
         effective.role,
       layer:
-        row.agents.layer,
+        row.agents.layer ?? 1,
       executionOrder:
-        row.agents.executionOrder,
+        row.agents.executionOrder ?? 1,
       harness:
         effective.harness,
       model:

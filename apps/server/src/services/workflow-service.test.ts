@@ -205,9 +205,9 @@ function toSnapshotAgent(
     id: agent.id,
     name: agent.name,
     role: `${agent.name} Role`,
-    layer: agent.layer,
+    layer: agent.layer ?? 1,
     executionOrder:
-      agent.executionOrder,
+      agent.executionOrder ?? 1,
     harness: "codex",
     model: "default",
     reasoning: "high",

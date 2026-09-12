@@ -63,6 +63,7 @@ import {
   domainEvents,
   runs,
   tasks,
+  teamMembers,
   teams,
 } from "../db/schema.js";
 import type {
@@ -208,6 +209,20 @@ async function createTestAgent(
   createdAgentIds.add(
     agent.id,
   );
+
+  await db
+    .insert(teamMembers)
+    .values({
+      teamId,
+      departmentId:
+        agent.departmentId,
+      agentId:
+        agent.id,
+      layer:
+        agent.layer ?? 1,
+      executionOrder:
+        agent.executionOrder ?? 1,
+    });
 
   return agent;
 }
@@ -424,6 +439,15 @@ afterEach(
       const id of
       createdAgentIds
     ) {
+      await db
+        .delete(teamMembers)
+        .where(
+          eq(
+            teamMembers.agentId,
+            id,
+          ),
+        );
+
       await db
         .delete(agents)
         .where(

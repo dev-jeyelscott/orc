@@ -17,6 +17,7 @@ import {
   conversations,
   runs,
   tasks,
+  teamMembers,
   teams,
 } from "../db/schema.js";
 
@@ -377,6 +378,30 @@ export async function deleteTeam(
         ) {
           throw new TeamServiceError(
             "Team cannot be deleted because agents still reference it",
+            409,
+          );
+        }
+
+        const [teamMemberReference] =
+          await tx
+            .select({
+              id:
+                teamMembers.id,
+            })
+            .from(teamMembers)
+            .where(
+              eq(
+                teamMembers.teamId,
+                id,
+              ),
+            )
+            .limit(1);
+
+        if (
+          teamMemberReference
+        ) {
+          throw new TeamServiceError(
+            "Team cannot be deleted because it still has workflow members",
             409,
           );
         }

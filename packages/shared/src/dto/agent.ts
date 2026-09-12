@@ -49,14 +49,24 @@ const agentFieldsSchema =
         .trim()
         .min(1)
         .max(160),
+    /**
+     * Legacy Team-owned workflow placement, retained only for backward
+     * compatibility. `team_members` (the Team workflow resource) is the
+     * authoritative source of layer/order; new Agents have no placement
+     * until a Team workflow save assigns one.
+     */
     layer:
       z.number()
         .int()
-        .min(1),
+        .min(1)
+        .nullable()
+        .optional(),
     executionOrder:
       z.number()
         .int()
-        .min(1),
+        .min(1)
+        .nullable()
+        .optional(),
     enabled:
       z.boolean()
         .default(true),
@@ -115,6 +125,16 @@ export const agentSchema =
       z.boolean(),
     hasReasoningOverride:
       z.boolean(),
+    /**
+     * The Agent's current authoritative Team assignment resolved from
+     * `team_members` (null when unassigned). Distinct from the legacy
+     * `teamId` field above, which always carries a compatibility default
+     * and no longer reflects real Team composition.
+     */
+    currentTeamId:
+      z.string()
+        .uuid()
+        .nullable(),
     createdAt:
       z.string().datetime(),
     updatedAt:

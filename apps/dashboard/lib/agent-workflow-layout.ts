@@ -104,10 +104,10 @@ function compareAgents(
   right: AgentWithRoutes,
 ): number {
   return (
-    left.layer -
-      right.layer ||
-    left.executionOrder -
-      right.executionOrder ||
+    (left.layer ?? 0) -
+      (right.layer ?? 0) ||
+    (left.executionOrder ?? 0) -
+      (right.executionOrder ?? 0) ||
     left.id.localeCompare(
       right.id,
     )
@@ -232,8 +232,8 @@ function edgeHandles(
   if (
     source &&
     target &&
-    target.layer <
-      source.layer
+    (target.layer ?? 0) <
+      (source.layer ?? 0)
   ) {
     return {
       sourceHandle:

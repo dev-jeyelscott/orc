@@ -72,6 +72,7 @@ const {
   domainEvents,
   runs,
   tasks,
+  teamMembers,
 } =
   await import(
     "../db/schema.js"
@@ -307,6 +308,21 @@ beforeEach(
     agentId =
       agent.id;
 
+    await db
+      .insert(teamMembers)
+      .values({
+        teamId:
+          RESOLUTION_TEAM_ID,
+        departmentId:
+          agent.departmentId,
+        agentId:
+          agent.id,
+        layer:
+          agent.layer ?? 1,
+        executionOrder:
+          agent.executionOrder ?? 1,
+      });
+
     mocks.startSnapshotAgentExecution
       .mockImplementation(
         async (
@@ -407,6 +423,15 @@ afterEach(
     if (
       agentId
     ) {
+      await db
+        .delete(teamMembers)
+        .where(
+          eq(
+            teamMembers.agentId,
+            agentId,
+          ),
+        );
+
       await db
         .delete(agents)
         .where(

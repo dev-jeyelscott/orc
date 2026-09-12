@@ -56,6 +56,8 @@ function createAgent(
     layer: 1,
     executionOrder: 1,
     enabled: true,
+    currentTeamId:
+      TEST_TEAM_ID,
     modelOverride: null,
     reasoningOverride: null,
     additionalPrompt: "",

@@ -27,6 +27,7 @@ import {
   agentRoutes,
   departments,
   runs,
+  teamMembers,
   teams,
 } from "../db/schema.js";
 import {
@@ -70,6 +71,8 @@ export function serializeAgent(
     typeof agents.$inferSelect,
   departmentRow:
     typeof departments.$inferSelect,
+  currentTeamId:
+    string | null = null,
 ): Agent {
   const department =
     serializeDepartment(
@@ -109,6 +112,7 @@ export function serializeAgent(
       row.additionalPrompt,
     department,
     effective,
+    currentTeamId,
     hasModelOverride:
       row.modelOverride !==
         null &&
@@ -340,6 +344,13 @@ export async function listAgents(): Promise<
           departments.id,
         ),
       )
+      .leftJoin(
+        teamMembers,
+        eq(
+          teamMembers.agentId,
+          agents.id,
+        ),
+      )
       .orderBy(
         asc(
           agents.teamId,
@@ -360,6 +371,8 @@ export async function listAgents(): Promise<
       serializeAgent(
         row.agents,
         row.departments,
+        row.team_members?.teamId ??
+          null,
       ),
   );
 }
@@ -382,6 +395,13 @@ export async function getAgent(
         eq(
           agents.departmentId,
           departments.id,
+        ),
+      )
+      .leftJoin(
+        teamMembers,
+        eq(
+          teamMembers.agentId,
+          agents.id,
         ),
       )
       .where(
@@ -414,6 +434,8 @@ export async function getAgent(
     ...serializeAgent(
       row.agents,
       row.departments,
+      row.team_members?.teamId ??
+        null,
     ),
     routes:
       routes.map(
@@ -630,9 +652,25 @@ export async function updateAgent(
           agent.departmentId,
         );
 
+      const [currentMember] =
+        await db
+          .select({
+            teamId:
+              teamMembers.teamId,
+          })
+          .from(teamMembers)
+          .where(
+            eq(
+              teamMembers.agentId,
+              agent.id,
+            ),
+          );
+
       return serializeAgent(
         agent,
         department,
+        currentMember?.teamId ??
+          null,
       );
     }
 
@@ -701,33 +739,36 @@ export async function updateAgent(
         }
 
         const [slotConflict] =
-          await tx
-            .select({
-              id:
-                agents.id,
-            })
-            .from(agents)
-            .where(
-              and(
-                eq(
-                  agents.teamId,
-                  destinationTeamId,
-                ),
-                eq(
-                  agents.layer,
-                  destinationLayer,
-                ),
-                eq(
-                  agents.executionOrder,
-                  destinationExecutionOrder,
-                ),
-                ne(
-                  agents.id,
-                  id,
-                ),
-              ),
-            )
-            .limit(1);
+          destinationLayer !== null &&
+          destinationExecutionOrder !== null
+            ? await tx
+                .select({
+                  id:
+                    agents.id,
+                })
+                .from(agents)
+                .where(
+                  and(
+                    eq(
+                      agents.teamId,
+                      destinationTeamId,
+                    ),
+                    eq(
+                      agents.layer,
+                      destinationLayer,
+                    ),
+                    eq(
+                      agents.executionOrder,
+                      destinationExecutionOrder,
+                    ),
+                    ne(
+                      agents.id,
+                      id,
+                    ),
+                  ),
+                )
+                .limit(1)
+            : [];
 
         if (
           slotConflict
@@ -947,9 +988,25 @@ export async function updateAgent(
           );
         }
 
+        const [currentMember] =
+          await tx
+            .select({
+              teamId:
+                teamMembers.teamId,
+            })
+            .from(teamMembers)
+            .where(
+              eq(
+                teamMembers.agentId,
+                agent.id,
+              ),
+            );
+
         return serializeAgent(
           agent,
           departmentRow,
+          currentMember?.teamId ??
+            null,
         );
       },
     );
@@ -1435,6 +1492,13 @@ export async function listEnabledAgentsForFutureRuns(): Promise<
           departments.id,
         ),
       )
+      .leftJoin(
+        teamMembers,
+        eq(
+          teamMembers.agentId,
+          agents.id,
+        ),
+      )
       .where(
         and(
           eq(
@@ -1464,6 +1528,8 @@ export async function listEnabledAgentsForFutureRuns(): Promise<
       serializeAgent(
         row.agents,
         row.departments,
+        row.team_members?.teamId ??
+          null,
       ),
   );
 }
