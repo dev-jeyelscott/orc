@@ -186,21 +186,10 @@ async function createTestAgent(
       .values({
         departmentId:
           department.id,
-        teamId,
         slug:
           `workflow-start-${label}-${crypto.randomUUID()}`,
         name:
           `${label} Worker`,
-        description:
-          "Workflow Team scope regression agent",
-        layer:
-          1_000_000 +
-          Math.floor(
-            Math.random() *
-              100_000_000,
-          ),
-        executionOrder:
-          1,
         enabled:
           true,
       })
@@ -210,6 +199,13 @@ async function createTestAgent(
     agent.id,
   );
 
+  const layer =
+    1_000_000 +
+    Math.floor(
+      Math.random() *
+        100_000_000,
+    );
+
   await db
     .insert(teamMembers)
     .values({
@@ -218,13 +214,17 @@ async function createTestAgent(
         agent.departmentId,
       agentId:
         agent.id,
-      layer:
-        agent.layer ?? 1,
+      layer,
       executionOrder:
-        agent.executionOrder ?? 1,
+        1,
     });
 
-  return agent;
+  return {
+    ...agent,
+    layer,
+    executionOrder:
+      1,
+  };
 }
 
 /**

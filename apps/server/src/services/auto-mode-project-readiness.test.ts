@@ -21,6 +21,12 @@ const mocks =
             query,
         );
 
+      const innerJoin =
+        vi.fn(
+          () =>
+            query,
+        );
+
       const where =
         vi.fn(
           () =>
@@ -40,6 +46,7 @@ const mocks =
         query,
         {
           from,
+          innerJoin,
           where,
           limit,
         },
@@ -48,15 +55,22 @@ const mocks =
       return {
         select,
         from,
+        innerJoin,
         where,
         limit,
         getTeam:
+          vi.fn(),
+        getProjectTeamAssignmentByPath:
+          vi.fn(),
+        getProjectByPath:
           vi.fn(),
         env: {
           NOTION_API_KEY:
             undefined as
               | string
               | undefined,
+          WORKSPACE_ROOT:
+            "/tmp/orc-workspace",
         },
       };
     },
@@ -101,27 +115,79 @@ vi.mock(
   () => ({
     getTeam:
       mocks.getTeam,
+    listTeams:
+      vi.fn(),
+  }),
+);
+
+vi.mock(
+  "./project-team-assignment-service.js",
+  () => ({
+    getProjectTeamAssignmentByPath:
+      mocks.getProjectTeamAssignmentByPath,
+    listProjectTeamAssignments:
+      vi.fn(),
+  }),
+);
+
+vi.mock(
+  "./project-discovery.js",
+  () => ({
+    getProjectByPath:
+      mocks.getProjectByPath,
   }),
 );
 
 import {
-  getTeamAutomationReadiness,
+  getProjectAutomationReadiness,
 } from "./auto-mode-service.js";
 
 const TEAM_ID =
   "33333333-3333-4333-8333-333333333333";
 
+const PROJECT_PATH =
+  "/tmp/orc-workspace/project-readiness";
+
 /**
- * Builds a fully-configured Team row, overridden per test case.
+ * Builds a fully-configured Project Team assignment, overridden per test case.
+ */
+function buildAssignment(
+  overrides:
+    Partial<{
+      teamId:
+        string;
+      notionDataSourceId:
+        string | null;
+      autoModeEnabled:
+        boolean;
+    }> = {},
+) {
+  return {
+    projectPath:
+      PROJECT_PATH,
+    teamId:
+      TEAM_ID,
+    teamName:
+      "Development",
+    notionDataSourceId:
+      "data-source-id",
+    autoModeEnabled:
+      true,
+    createdAt:
+      "2026-01-01T00:00:00.000Z",
+    updatedAt:
+      "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/**
+ * Builds a Team row, overridden per test case.
  */
 function buildTeam(
   overrides:
     Partial<{
       enabled:
-        boolean;
-      notionDataSourceId:
-        string | null;
-      autoModeEnabled:
         boolean;
     }> = {},
 ) {
@@ -136,10 +202,6 @@ function buildTeam(
       "",
     enabled:
       true,
-    notionDataSourceId:
-      "data-source-id",
-    autoModeEnabled:
-      true,
     ...overrides,
   };
 }
@@ -150,11 +212,33 @@ function buildTeam(
 function resetMocks(): void {
   mocks.select.mockClear();
   mocks.from.mockClear();
+  mocks.innerJoin.mockClear();
   mocks.where.mockClear();
   mocks.limit.mockReset();
   mocks.getTeam.mockReset();
+  mocks.getProjectTeamAssignmentByPath.mockReset();
+  mocks.getProjectByPath.mockReset();
   mocks.env.NOTION_API_KEY =
     "notion-secret";
+
+  mocks.getProjectByPath
+    .mockResolvedValue({
+      id:
+        "orc-project-readiness",
+      name:
+        "project-readiness",
+      path:
+        PROJECT_PATH,
+      branch:
+        "main",
+      gitState:
+        "clean",
+      primaryFiles: [],
+      packageManager:
+        "pnpm",
+      stack:
+        "node",
+    });
 }
 
 beforeEach(
@@ -164,25 +248,29 @@ beforeEach(
 );
 
 describe(
-  "Team automation readiness",
+  "Project automation readiness",
   () => {
     it(
-      "reports team_disabled for a nonexistent Team",
+      "reports team_disabled when no Project assignment exists",
       async () => {
-        mocks.getTeam
+        mocks.getProjectTeamAssignmentByPath
           .mockResolvedValue(
             null,
           );
 
         const result =
-          await getTeamAutomationReadiness(
-            TEAM_ID,
+          await getProjectAutomationReadiness(
+            PROJECT_PATH,
           );
 
         expect(
           result,
         ).toEqual({
-          team:
+          projectPath:
+            PROJECT_PATH,
+          teamId:
+            null,
+          notionDataSourceId:
             null,
           autoModeEnabled:
             false,
@@ -195,8 +283,13 @@ describe(
     );
 
     it(
-      "reports team_disabled when the Team itself is disabled",
+      "reports team_disabled when the assigned Team is disabled",
       async () => {
+        mocks.getProjectTeamAssignmentByPath
+          .mockResolvedValue(
+            buildAssignment(),
+          );
+
         mocks.getTeam
           .mockResolvedValue(
             buildTeam({
@@ -206,8 +299,8 @@ describe(
           );
 
         const result =
-          await getTeamAutomationReadiness(
-            TEAM_ID,
+          await getProjectAutomationReadiness(
+            PROJECT_PATH,
           );
 
         expect(
@@ -225,19 +318,24 @@ describe(
     );
 
     it(
-      "reports missing_notion_data_source when the Team has no configured data source",
+      "reports missing_notion_data_source when the assignment has no configured data source",
       async () => {
-        mocks.getTeam
+        mocks.getProjectTeamAssignmentByPath
           .mockResolvedValue(
-            buildTeam({
+            buildAssignment({
               notionDataSourceId:
                 null,
             }),
           );
 
+        mocks.getTeam
+          .mockResolvedValue(
+            buildTeam(),
+          );
+
         const result =
-          await getTeamAutomationReadiness(
-            TEAM_ID,
+          await getProjectAutomationReadiness(
+            PROJECT_PATH,
           );
 
         expect(
@@ -260,14 +358,19 @@ describe(
         mocks.env.NOTION_API_KEY =
           undefined;
 
+        mocks.getProjectTeamAssignmentByPath
+          .mockResolvedValue(
+            buildAssignment(),
+          );
+
         mocks.getTeam
           .mockResolvedValue(
             buildTeam(),
           );
 
         const result =
-          await getTeamAutomationReadiness(
-            TEAM_ID,
+          await getProjectAutomationReadiness(
+            PROJECT_PATH,
           );
 
         expect(
@@ -287,6 +390,11 @@ describe(
     it(
       "reports no_enabled_agents when the Team has no enabled worker Agent",
       async () => {
+        mocks.getProjectTeamAssignmentByPath
+          .mockResolvedValue(
+            buildAssignment(),
+          );
+
         mocks.getTeam
           .mockResolvedValue(
             buildTeam(),
@@ -296,8 +404,8 @@ describe(
           .mockResolvedValueOnce([]);
 
         const result =
-          await getTeamAutomationReadiness(
-            TEAM_ID,
+          await getProjectAutomationReadiness(
+            PROJECT_PATH,
           );
 
         expect(
@@ -315,8 +423,13 @@ describe(
     );
 
     it(
-      "reports ready when the Team is fully configured",
+      "reports ready when the Project assignment is fully configured",
       async () => {
+        mocks.getProjectTeamAssignmentByPath
+          .mockResolvedValue(
+            buildAssignment(),
+          );
+
         mocks.getTeam
           .mockResolvedValue(
             buildTeam(),
@@ -326,20 +439,24 @@ describe(
           .mockResolvedValueOnce([
             {
               id:
-                "agent-1",
+                "team-member-1",
             },
           ]);
 
         const result =
-          await getTeamAutomationReadiness(
-            TEAM_ID,
+          await getProjectAutomationReadiness(
+            PROJECT_PATH,
           );
 
         expect(
           result,
         ).toEqual({
-          team:
-            buildTeam(),
+          projectPath:
+            PROJECT_PATH,
+          teamId:
+            TEAM_ID,
+          notionDataSourceId:
+            "data-source-id",
           autoModeEnabled:
             true,
           ready:
@@ -351,37 +468,43 @@ describe(
     );
 
     it(
-      "reports not-ready but no unavailable reason when a configured Team simply has Auto Mode switched off",
+      "reports not-ready but no unavailable reason when a configured Project simply has Auto Mode switched off",
       async () => {
-        mocks.getTeam
+        mocks.getProjectTeamAssignmentByPath
           .mockResolvedValue(
-            buildTeam({
+            buildAssignment({
               autoModeEnabled:
                 false,
             }),
+          );
+
+        mocks.getTeam
+          .mockResolvedValue(
+            buildTeam(),
           );
 
         mocks.limit
           .mockResolvedValueOnce([
             {
               id:
-                "agent-1",
+                "team-member-1",
             },
           ]);
 
         const result =
-          await getTeamAutomationReadiness(
-            TEAM_ID,
+          await getProjectAutomationReadiness(
+            PROJECT_PATH,
           );
 
         expect(
           result,
         ).toEqual({
-          team:
-            buildTeam({
-              autoModeEnabled:
-                false,
-            }),
+          projectPath:
+            PROJECT_PATH,
+          teamId:
+            TEAM_ID,
+          notionDataSourceId:
+            "data-source-id",
           autoModeEnabled:
             false,
           ready:

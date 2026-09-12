@@ -1,6 +1,5 @@
 import {
   and,
-  asc,
   desc,
   eq,
   inArray,
@@ -11,8 +10,6 @@ import {
 import type {
   AgentResultStatus,
   Run,
-  Team,
-  TeamAutomationStatus,
   TeamAutomationUnavailableReason,
   ProjectAutomationStatus,
 } from "@orc/shared";
@@ -33,13 +30,11 @@ import {
 } from "../db/schema.js";
 import {
   createNotionTaskSourceAdapter,
-  NotionTaskSourceError,
   type NotionTaskCandidate,
   type NotionTaskSourceAdapter,
 } from "./notion-task-source.js";
 import {
   getTeam,
-  listTeams,
 } from "./team-service.js";
 import {
   getProjectTeamAssignmentByPath,
@@ -79,7 +74,7 @@ export type AutoModeEligibility = {
     boolean;
   state:
     Exclude<
-      TeamAutomationStatus["state"],
+      ProjectAutomationStatus["state"],
       | "off"
       | "unavailable"
     >;
@@ -92,22 +87,6 @@ export type TeamAutoModeEligibility =
     blockedByActiveRun:
       boolean;
   };
-
-export type TeamAutomationReadiness = {
-  team:
-    Team | null;
-  autoModeEnabled:
-    boolean;
-  ready:
-    boolean;
-  unavailableReason:
-    TeamAutomationUnavailableReason;
-};
-
-type LegacyTeamAutomation = Team & {
-  notionDataSourceId: string | null;
-  autoModeEnabled: boolean;
-};
 
 export type AutoModeNotionAdapter =
   Pick<
@@ -124,30 +103,6 @@ type StartExistingTask =
 
 type CanClaimTask =
   () => Promise<boolean>;
-
-export type AutoModeCycleDependencies = {
-  listAutomationReadyTeamIds?:
-    () => Promise<string[]>;
-  isTeamAutomationReady?:
-    (
-      teamId:
-        string,
-    ) => Promise<boolean>;
-  evaluateEligibility?:
-    (
-      teamId:
-        string,
-      now?:
-        Date,
-    ) => Promise<TeamAutoModeEligibility>;
-  createNotionAdapter?:
-    (
-      teamId:
-        string,
-    ) => AutoModeNotionAdapter | Promise<AutoModeNotionAdapter>;
-  startExistingTask?:
-    StartExistingTask;
-};
 
 export type ProjectAutomationReadiness = {
   projectPath: string;
@@ -338,50 +293,6 @@ async function getActiveRunSnapshot(): Promise<ActiveRunSnapshot> {
   };
 }
 
-/**
- * Finds the task whose persisted workflow activity for one Team was updated most recently.
- */
-async function getMostRecentlyExecutedTaskId(
-  teamId:
-    string,
-): Promise<string | null> {
-  const [activity] =
-    await db
-      .select({
-        taskId:
-          runs.taskId,
-      })
-      .from(runs)
-      .where(
-        and(
-          eq(
-            runs.teamId,
-            teamId,
-          ),
-          isNotNull(
-            runs.taskId,
-          ),
-        ),
-      )
-      .orderBy(
-        desc(
-          runs.updatedAt,
-        ),
-        desc(
-          runs.createdAt,
-        ),
-        desc(
-          runs.id,
-        ),
-      )
-      .limit(1);
-
-  return (
-    activity?.taskId ??
-    null
-  );
-}
-
 async function getMostRecentlyExecutedProjectTaskId(teamId: string, projectPath: string): Promise<string | null> {
   const [activity] = await db.select({ taskId: runs.taskId }).from(runs).innerJoin(tasks, eq(runs.taskId, tasks.id)).where(and(eq(runs.teamId, teamId), eq(tasks.projectPath, projectPath), isNotNull(runs.taskId))).orderBy(desc(runs.updatedAt), desc(runs.createdAt), desc(runs.id)).limit(1);
   return activity?.taskId ?? null;
@@ -469,226 +380,6 @@ async function getLatestExecutionForRun(
 }
 
 /**
- * Builds one Team's own history snapshot, independent of any other Team's workflow activity.
- */
-async function getTeamHistorySnapshot(
-  teamId:
-    string,
-): Promise<AutoModeEligibilitySnapshot> {
-  const taskId =
-    await getMostRecentlyExecutedTaskId(
-      teamId,
-    );
-
-  if (
-    !taskId
-  ) {
-    return null;
-  }
-
-  const latestRun =
-    await getLatestRunForTask(
-      taskId,
-      teamId,
-    );
-
-  if (
-    !latestRun
-  ) {
-    return null;
-  }
-
-  return {
-    runStatus:
-      latestRun.status,
-    latestExecution:
-      await getLatestExecutionForRun(
-        latestRun.id,
-      ),
-  };
-}
-
-/**
- * Evaluates one Team's Auto Mode eligibility, combining the global active-run capacity gate with that Team's own history.
- */
-export async function evaluateAutoModeEligibility(
-  teamId:
-    string,
-  now:
-    Date = new Date(),
-): Promise<TeamAutoModeEligibility> {
-  const activeRun =
-    await getActiveRunSnapshot();
-
-  const blockedByActiveRun =
-    activeRun !==
-    null;
-
-  if (
-    activeRun &&
-    activeRun.teamId ===
-      teamId
-  ) {
-    return {
-      eligible:
-        false,
-      state:
-        "running",
-      nextEligibleAt:
-        null,
-      blockedByActiveRun:
-        true,
-    };
-  }
-
-  const historyEligibility =
-    resolveAutoModeEligibility(
-      await getTeamHistorySnapshot(
-        teamId,
-      ),
-      now,
-      env.NOTION_POST_APPROVAL_DELAY_SECONDS,
-    );
-
-  return {
-    ...historyEligibility,
-    eligible:
-      historyEligibility.eligible &&
-      !blockedByActiveRun,
-    blockedByActiveRun,
-  };
-}
-
-/**
- * Checks whether one Team has at least one enabled worker Agent.
- */
-async function teamHasEnabledAgent(
-  teamId:
-    string,
-): Promise<boolean> {
-  const [row] =
-    await db
-      .select({
-        id:
-          agents.id,
-      })
-      .from(agents)
-      .where(
-        and(
-          eq(
-            agents.teamId,
-            teamId,
-          ),
-          eq(
-            agents.enabled,
-            true,
-          ),
-        ),
-      )
-      .limit(1);
-
-  return Boolean(
-    row,
-  );
-}
-
-/**
- * Loads whether one Team can currently participate in Notion Auto Mode intake, and why not if it cannot.
- */
-export async function getTeamAutomationReadiness(
-  teamId:
-    string,
-): Promise<TeamAutomationReadiness> {
-  const team =
-    await getTeam(
-      teamId,
-    ) as LegacyTeamAutomation | null;
-
-  if (
-    !team
-  ) {
-    return {
-      team:
-        null,
-      autoModeEnabled:
-        false,
-      ready:
-        false,
-      unavailableReason:
-        "team_disabled",
-    };
-  }
-
-  if (
-    !team.enabled
-  ) {
-    return {
-      team,
-      autoModeEnabled:
-        team.autoModeEnabled,
-      ready:
-        false,
-      unavailableReason:
-        "team_disabled",
-    };
-  }
-
-  if (
-    !team.notionDataSourceId
-  ) {
-    return {
-      team,
-      autoModeEnabled:
-        team.autoModeEnabled,
-      ready:
-        false,
-      unavailableReason:
-        "missing_notion_data_source",
-    };
-  }
-
-  if (
-    !env.NOTION_API_KEY
-  ) {
-    return {
-      team,
-      autoModeEnabled:
-        team.autoModeEnabled,
-      ready:
-        false,
-      unavailableReason:
-        "missing_notion_api_key",
-    };
-  }
-
-  if (
-    !await teamHasEnabledAgent(
-      teamId,
-    )
-  ) {
-    return {
-      team,
-      autoModeEnabled:
-        team.autoModeEnabled,
-      ready:
-        false,
-      unavailableReason:
-        "no_enabled_agents",
-    };
-  }
-
-  return {
-    team,
-    autoModeEnabled:
-      team.autoModeEnabled,
-    ready:
-      team.autoModeEnabled,
-    unavailableReason:
-      null,
-  };
-}
-
-/**
  * Resolves automation intent from one Project assignment. The filesystem check
  * is deliberate: a persisted row can never resurrect a removed repository.
  */
@@ -720,88 +411,6 @@ export async function evaluateProjectAutoModeEligibility(projectPath: string, te
   return { ...resolveAutoModeEligibility(history, now, env.NOTION_POST_APPROVAL_DELAY_SECONDS), blockedByActiveRun: false };
 }
 
-/**
- * Projects each Team's persisted automation intent, readiness, local workflow gate, and shared Run capacity into
- * the dashboard contract. The browser must not infer any of these gates itself.
- */
-export async function getTeamAutomationStatuses(): Promise<
-  TeamAutomationStatus[]
-> {
-  const configuredTeams =
-    await listTeams() as LegacyTeamAutomation[];
-
-  return Promise.all(
-    configuredTeams.map(
-      async (team) => {
-        if (
-          !team.autoModeEnabled
-        ) {
-          return {
-            teamId:
-              team.id,
-            autoModeEnabled:
-              false,
-            state:
-              "off" as const,
-            nextEligibleAt:
-              null,
-            blockedByActiveRun:
-              false,
-            unavailableReason:
-              null,
-          };
-        }
-
-        const readiness =
-          await getTeamAutomationReadiness(
-            team.id,
-          );
-
-        if (
-          !readiness.ready
-        ) {
-          return {
-            teamId:
-              team.id,
-            autoModeEnabled:
-              true,
-            state:
-              "unavailable" as const,
-            nextEligibleAt:
-              null,
-            blockedByActiveRun:
-              false,
-            unavailableReason:
-              readiness.unavailableReason,
-          };
-        }
-
-        const eligibility =
-          await evaluateAutoModeEligibility(
-            team.id,
-          );
-
-        return {
-          teamId:
-            team.id,
-          autoModeEnabled:
-            true,
-          state:
-            eligibility.state,
-          nextEligibleAt:
-            eligibility.nextEligibleAt
-              ?.toISOString() ??
-            null,
-          blockedByActiveRun:
-            eligibility.blockedByActiveRun,
-          unavailableReason:
-            null,
-        };
-      },
-    ),
-  );
-}
-
 /** Exposes only current Project-assignment automation state to API consumers. */
 export async function getProjectAutomationStatuses(): Promise<ProjectAutomationStatus[]> {
   const assignments = await listProjectTeamAssignments();
@@ -821,59 +430,6 @@ export async function getProjectAutomationStatuses(): Promise<ProjectAutomationS
     return { projectPath: assignment.projectPath, teamId: assignment.teamId, autoModeEnabled: true, state: eligibility.state, nextEligibleAt: eligibility.nextEligibleAt?.toISOString() ?? null, blockedByActiveRun: eligibility.blockedByActiveRun, unavailableReason: null };
   }));
   return statuses.filter((status): status is ProjectAutomationStatus => status !== null);
-}
-
-/**
- * Finds the lowest-numbered-priority locally persisted pending Notion task that has never acquired a run and whose owning
- * Team is still automation-ready, with oldest-first deterministic tie-breaking. Never reassigns a task's Team.
- */
-async function findRecoverablePendingNotionTask(
-  isTeamAutomationReady:
-    (
-      teamId:
-        string,
-    ) => Promise<boolean>,
-): Promise<PersistedTask | null> {
-  const candidates =
-    await db
-      .select()
-      .from(tasks)
-      .where(
-        sql`
-          ${tasks.source} = 'notion'
-          and ${tasks.status} = 'pending'
-          and not exists (
-            select 1
-            from ${runs}
-            where ${runs.taskId} = ${tasks.id}
-          )
-        `,
-      )
-      .orderBy(
-        asc(
-          tasks.priority,
-        ),
-        asc(
-          tasks.createdAt,
-        ),
-        asc(
-          tasks.id,
-        ),
-      );
-
-  for (
-    const candidate of candidates
-  ) {
-    if (
-      await isTeamAutomationReady(
-        candidate.teamId,
-      )
-    ) {
-      return candidate;
-    }
-  }
-
-  return null;
 }
 
 /**
@@ -1191,271 +747,6 @@ function compareCandidates(
     : 1;
 }
 
-/**
- * Queries exactly one top Ready candidate from every eligible Team's own Notion data source, read-only, and
- * selects the single global winner without claiming or updating any remote page.
- */
-async function selectGlobalWinner(
-  eligibleTeamIds:
-    readonly string[],
-  createAdapter:
-    (
-      teamId:
-        string,
-    ) => AutoModeNotionAdapter | Promise<AutoModeNotionAdapter>,
-): Promise<TeamCandidate | null> {
-  const results =
-    await Promise.all(
-      eligibleTeamIds.map(
-        async (
-          teamId,
-        ) => {
-          const adapter =
-            await createAdapter(
-              teamId,
-            );
-
-          const candidate =
-            await adapter.getNextReadyTask();
-
-          return candidate
-            ? {
-                teamId,
-                candidate,
-                adapter,
-              }
-            : null;
-        },
-      ),
-    );
-
-  const found =
-    results.filter(
-      (
-        result,
-      ): result is TeamCandidate =>
-        result !== null,
-    );
-
-  if (
-    found.length === 0
-  ) {
-    return null;
-  }
-
-  return found.sort(
-    compareCandidates,
-  )[0]!;
-}
-
-/**
- * Executes one global Auto Mode intake cycle across every automation-ready Team using PostgreSQL as the durable
- * source of truth, selecting and claiming at most one Task.
- */
-export async function runAutoModeCycle(
-  dependencies:
-    AutoModeCycleDependencies = {},
-): Promise<void> {
-  // Production uses Project assignments. The legacy dependency hooks remain
-  // solely for the pre-existing focused harness tests during this migration.
-  if (Object.keys(dependencies).length === 0) {
-    await runProjectAutoModeCycle();
-    return;
-  }
-  const readReady =
-    dependencies.isTeamAutomationReady ??
-    (async (
-      id:
-        string,
-    ) =>
-      (
-        await getTeamAutomationReadiness(
-          id,
-        )
-      ).ready);
-
-  const evaluateEligibility =
-    dependencies.evaluateEligibility ??
-    evaluateAutoModeEligibility;
-
-  const listReadyTeamIds =
-    dependencies.listAutomationReadyTeamIds ??
-    (async () => {
-      const teams =
-        await listTeams();
-
-      const ready =
-        await Promise.all(
-          teams.map(
-            async (
-              team,
-            ) =>
-              (
-                await readReady(
-                  team.id,
-                )
-              )
-                ? team.id
-                : null,
-          ),
-        );
-
-      return ready.filter(
-        (
-          id,
-        ): id is string =>
-          id !== null,
-      );
-    });
-
-  const createAdapter =
-    dependencies.createNotionAdapter ??
-    (() => {
-      throw new NotionTaskSourceError(
-        "Auto Mode intake requires a Team Notion data source.",
-      );
-    });
-
-  const startExistingTask =
-    dependencies.startExistingTask ??
-    startTask;
-
-  /**
-   * Builds a recheck of the persisted switch and eligibility gate for one Team, immediately before any remote
-   * claim or local start.
-   */
-  function canClaim(
-    teamId:
-      string,
-  ): CanClaimTask {
-    return async () => {
-      if (
-        !await readReady(
-          teamId,
-        )
-      ) {
-        return false;
-      }
-
-      return (
-        await evaluateEligibility(
-          teamId,
-        )
-      ).eligible;
-    };
-  }
-
-  if (
-    await getActiveRunSnapshot()
-  ) {
-    return;
-  }
-
-  const eligibleTeamIds =
-    await listReadyTeamIds();
-
-  if (
-    eligibleTeamIds.length === 0
-  ) {
-    return;
-  }
-
-  const recoverable =
-    await findRecoverablePendingNotionTask(
-      readReady,
-    );
-
-  if (
-    recoverable
-  ) {
-    const claim =
-      canClaim(
-        recoverable.teamId,
-      );
-
-    if (
-      !await claim()
-    ) {
-      return;
-    }
-
-    const adapter =
-      await createAdapter(
-        recoverable.teamId,
-      );
-
-    await claimPersistedNotionTask(
-      recoverable,
-      adapter,
-      startExistingTask,
-      claim,
-    );
-
-    return;
-  }
-
-  const winner =
-    await selectGlobalWinner(
-      eligibleTeamIds,
-      createAdapter,
-    );
-
-  if (
-    !winner
-  ) {
-    return;
-  }
-
-  const claim =
-    canClaim(
-      winner.teamId,
-    );
-
-  if (
-    !await claim()
-  ) {
-    return;
-  }
-
-  const persisted =
-    await persistNotionCandidate(
-      winner.teamId,
-      winner.candidate,
-    );
-
-  if (
-    persisted.teamMismatch
-  ) {
-    throw new Error(
-      `Notion page ${winner.candidate.externalId} is already claimed by Team ${persisted.task.teamId}; refusing to move it to ${winner.teamId}.`,
-    );
-  }
-
-  if (
-    !persisted.inserted
-  ) {
-    await reconcileExistingNotionTask(
-      persisted.task,
-      winner.adapter,
-      startExistingTask,
-      claim,
-      () =>
-        readReady(
-          persisted.task.teamId,
-        ),
-    );
-
-    return;
-  }
-
-  await claimPersistedNotionTask(
-    persisted.task,
-    winner.adapter,
-    startExistingTask,
-    claim,
-  );
-}
-
 type ProjectCandidate = {
   teamId: string;
   projectPath: string;
@@ -1463,8 +754,32 @@ type ProjectCandidate = {
   adapter: AutoModeNotionAdapter;
 };
 
-/** Executes intake strictly from current, filesystem-backed Project assignments. */
-async function runProjectAutoModeCycle(): Promise<void> {
+/**
+ * Test-only seam for the two effects that cannot run against a real Notion
+ * workspace or start a real worker process in a focused harness test.
+ * Production always uses the real Notion adapter and `startTask`.
+ */
+export type AutoModeCycleDependencies = {
+  createNotionAdapter?: (
+    notionDataSourceId: string,
+  ) => AutoModeNotionAdapter | Promise<AutoModeNotionAdapter>;
+  startExistingTask?: StartExistingTask;
+};
+
+/**
+ * Executes one Auto Mode intake cycle strictly from current, filesystem-backed
+ * Project assignments, selecting and claiming at most one Task.
+ */
+export async function runAutoModeCycle(
+  dependencies: AutoModeCycleDependencies = {},
+): Promise<void> {
+  const createAdapter =
+    dependencies.createNotionAdapter ??
+    createNotionTaskSourceAdapter;
+  const startExistingTask =
+    dependencies.startExistingTask ??
+    startTask;
+
   if (await getActiveRunSnapshot()) return;
 
   const assignments = await listProjectTeamAssignments();
@@ -1472,11 +787,11 @@ async function runProjectAutoModeCycle(): Promise<void> {
   if (!ready.length) return;
 
   const candidates = await Promise.all(ready.map(async ({ assignment }) => {
-    const adapter = createNotionTaskSourceAdapter(assignment.notionDataSourceId!);
+    const adapter = await createAdapter(assignment.notionDataSourceId!);
     const candidate = await adapter.getNextReadyTask();
     // A data source associated with Project A must never create work for B.
     if (!candidate || candidate.project.path !== assignment.projectPath) return null;
-    return { teamId: assignment.teamId, projectPath: assignment.projectPath, candidate, adapter: adapter as AutoModeNotionAdapter } satisfies ProjectCandidate;
+    return { teamId: assignment.teamId, projectPath: assignment.projectPath, candidate, adapter } satisfies ProjectCandidate;
   }));
   const winner = candidates.filter((candidate): candidate is ProjectCandidate => candidate !== null).sort(compareCandidates)[0];
   if (!winner) return;
@@ -1493,8 +808,8 @@ async function runProjectAutoModeCycle(): Promise<void> {
     throw new Error(`Notion page ${winner.candidate.externalId} is already claimed by a different Project or Team.`);
   }
   if (!persisted.inserted) {
-    await reconcileExistingNotionTask(persisted.task, winner.adapter, startTask, canClaim, async () => (await getProjectAutomationReadiness(winner.projectPath)).ready);
+    await reconcileExistingNotionTask(persisted.task, winner.adapter, startExistingTask, canClaim, async () => (await getProjectAutomationReadiness(winner.projectPath)).ready);
     return;
   }
-  await claimPersistedNotionTask(persisted.task, winner.adapter, startTask, canClaim);
+  await claimPersistedNotionTask(persisted.task, winner.adapter, startExistingTask, canClaim);
 }

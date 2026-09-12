@@ -8,9 +8,6 @@ import {
   agentExecutionRoutes,
 } from "./routes/agent-executions.js";
 import {
-  agentMonitoringRoutes,
-} from "./routes/agent-monitoring.js";
-import {
   agentRoutes,
 } from "./routes/agents.js";
 import {
@@ -90,10 +87,6 @@ export async function buildApp() {
 
   await app.register(
     departmentRoutes,
-  );
-
-  await app.register(
-    agentMonitoringRoutes,
   );
 
   await app.register(

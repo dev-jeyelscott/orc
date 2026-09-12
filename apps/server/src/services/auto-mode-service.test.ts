@@ -14,68 +14,173 @@ import type {
   Project,
 } from "@orc/shared";
 
+vi.mock(
+  "./project-discovery.js",
+  () => ({
+    getProjectByPath:
+      vi.fn(
+        async (
+          _workspaceRoot: string,
+          projectPath: string,
+        ): Promise<Project> => ({
+          id: projectPath,
+          name: "orc",
+          path: projectPath,
+          branch: "main",
+          gitState: "clean",
+          primaryFiles: [
+            "package.json",
+          ],
+          packageManager: "pnpm",
+          stack: "node",
+        }),
+      ),
+    getProject:
+      vi.fn(),
+  }),
+);
+
 import {
   db,
 } from "../db/client.js";
 import {
-  DEVELOPMENT_TEAM_ID,
-  RESOLUTION_TEAM_ID,
-} from "../db/seed-ids.js";
-import {
+  agents,
+  departments,
+  projectTeamAssignments,
   runs,
   tasks,
+  teamMembers,
+  teams,
 } from "../db/schema.js";
 import {
   runAutoModeCycle,
-  type TeamAutoModeEligibility,
   type AutoModeNotionAdapter,
 } from "./auto-mode-service.js";
+import {
+  upsertProjectTeamAssignment,
+} from "./project-team-assignment-service.js";
 
-const project: Project = {
-  id:
-    "auto-mode-test-project",
-  name:
-    "orc",
-  path:
-    `/tmp/orc-auto-mode-${crypto.randomUUID()}`,
-  branch:
-    "main",
-  gitState:
-    "clean",
-  primaryFiles: [
-    "package.json",
-  ],
-  packageManager:
-    "pnpm",
-  stack:
-    "node",
+const created = {
+  teamIds: new Set<string>(),
+  departmentIds: new Set<string>(),
+  agentIds: new Set<string>(),
 };
+
+let team:
+  typeof teams.$inferSelect;
+
+let projectPath: string;
+
+let notionDataSourceId: string;
+
+/**
+ * Creates one fully-runnable Team (enabled Agent under an enabled Department)
+ * and assigns it to a dedicated Project path with Auto Mode enabled.
+ */
+async function createRunnableProjectTeam(): Promise<
+  void
+> {
+  const [createdTeam] =
+    await db
+      .insert(teams)
+      .values({
+        slug:
+          `auto-mode-service-${crypto.randomUUID()}`,
+        name:
+          "Auto Mode Service Test Team",
+        description:
+          "",
+        enabled:
+          true,
+      })
+      .returning();
+
+  team =
+    createdTeam;
+
+  created.teamIds.add(
+    team.id,
+  );
+
+  const [department] =
+    await db
+      .insert(departments)
+      .values({
+        slug:
+          `auto-mode-service-department-${crypto.randomUUID()}`,
+        name:
+          "Auto Mode Service Test Department",
+        role:
+          "Worker",
+        harness:
+          "codex",
+        defaultModel:
+          "default",
+        defaultReasoning:
+          "low",
+        systemPrompt:
+          "Perform the task.",
+      })
+      .returning();
+
+  created.departmentIds.add(
+    department.id,
+  );
+
+  const [agent] =
+    await db
+      .insert(agents)
+      .values({
+        departmentId:
+          department.id,
+        slug:
+          `auto-mode-service-agent-${crypto.randomUUID()}`,
+        name:
+          "Auto Mode Service Test Agent",
+        enabled:
+          true,
+      })
+      .returning();
+
+  created.agentIds.add(
+    agent.id,
+  );
+
+  await db
+    .insert(teamMembers)
+    .values({
+      teamId:
+        team.id,
+      departmentId:
+        department.id,
+      agentId:
+        agent.id,
+      layer:
+        1,
+      executionOrder:
+        1,
+    });
+
+  projectPath =
+    `/tmp/orc-auto-mode-${crypto.randomUUID()}`;
+
+  notionDataSourceId =
+    `auto-mode-service-source-${crypto.randomUUID()}`;
+
+  await upsertProjectTeamAssignment(
+    projectPath,
+    {
+      teamId:
+        team.id,
+      notionDataSourceId,
+      autoModeEnabled:
+        true,
+    },
+  );
+}
 
 const createdExternalIds =
   new Set<string>();
-
-/**
- * Returns the always-ready readiness dependency used by claim-flow tests.
- */
-async function readyTeam(): Promise<boolean> {
-  return true;
-}
-
-/**
- * Returns an eligible gate so claim-flow tests can isolate crash and idempotency semantics.
- */
-async function eligibleState(): Promise<TeamAutoModeEligibility> {
-  return {
-    eligible:
-      true,
-    state:
-      "ready",
-    nextEligibleAt:
-      null,
-    blockedByActiveRun:
-      false,
-  };
-}
 
 /**
  * Creates one unique Notion candidate mapped to the test project.
@@ -100,7 +205,27 @@ function createCandidate() {
       "# Test\n\nRun the task.",
     priority:
       100,
-    project,
+    createdTime:
+      new Date().toISOString(),
+    project: {
+      id:
+        projectPath,
+      name:
+        "orc",
+      path:
+        projectPath,
+      branch:
+        "main",
+      gitState:
+        "clean",
+      primaryFiles: [
+        "package.json",
+      ],
+      packageManager:
+        "pnpm",
+      stack:
+        "node",
+    },
   };
 }
 
@@ -161,7 +286,7 @@ async function getLocalTask(
 }
 
 /**
- * Runs one claim cycle with test-only deterministic eligibility and Auto Mode settings.
+ * Runs one claim cycle against the test Project's own Notion data source.
  */
 async function runCycle(
   adapter:
@@ -174,14 +299,6 @@ async function runCycle(
 ) {
   await runAutoModeCycle(
     {
-      listAutomationReadyTeamIds:
-        async () => [
-          RESOLUTION_TEAM_ID,
-        ],
-      isTeamAutomationReady:
-        readyTeam,
-      evaluateEligibility:
-        eligibleState,
       createNotionAdapter:
         () =>
           adapter,
@@ -191,8 +308,10 @@ async function runCycle(
 }
 
 beforeEach(
-  () => {
+  async () => {
     createdExternalIds.clear();
+
+    await createRunnableProjectTeam();
   },
 );
 
@@ -203,7 +322,7 @@ afterEach(
       .where(
         eq(
           runs.projectPath,
-          project.path,
+          projectPath,
         ),
       );
 
@@ -212,9 +331,73 @@ afterEach(
       .where(
         eq(
           tasks.projectPath,
-          project.path,
+          projectPath,
         ),
       );
+
+    await db
+      .delete(projectTeamAssignments)
+      .where(
+        eq(
+          projectTeamAssignments.projectPath,
+          projectPath,
+        ),
+      );
+
+    for (
+      const agentId of
+      created.agentIds
+    ) {
+      await db
+        .delete(teamMembers)
+        .where(
+          eq(
+            teamMembers.agentId,
+            agentId,
+          ),
+        );
+
+      await db
+        .delete(agents)
+        .where(
+          eq(
+            agents.id,
+            agentId,
+          ),
+        );
+    }
+
+    for (
+      const departmentId of
+      created.departmentIds
+    ) {
+      await db
+        .delete(departments)
+        .where(
+          eq(
+            departments.id,
+            departmentId,
+          ),
+        );
+    }
+
+    for (
+      const teamId of
+      created.teamIds
+    ) {
+      await db
+        .delete(teams)
+        .where(
+          eq(
+            teams.id,
+            teamId,
+          ),
+        );
+    }
+
+    created.teamIds.clear();
+    created.departmentIds.clear();
+    created.agentIds.clear();
   },
 );
 
@@ -222,7 +405,7 @@ describe.sequential(
   "Auto Mode Notion claim flow",
   () => {
     it(
-      "recovers a local pending Notion task with no run before querying another Ready page",
+      "reconciles a local pending Notion task instead of duplicating it when the same page wins the cycle",
       async () => {
         const existingExternalId =
           crypto.randomUUID();
@@ -230,8 +413,9 @@ describe.sequential(
         await db
           .insert(tasks)
           .values({
-            projectPath:
-              project.path,
+            teamId:
+              team.id,
+            projectPath,
             title:
               "Recover persisted task",
             instruction:
@@ -248,12 +432,15 @@ describe.sequential(
               100,
           });
 
-        const nextCandidate =
-          createCandidate();
+        const matchingCandidate = {
+          ...createCandidate(),
+          externalId:
+            existingExternalId,
+        };
 
         const mocks =
           createAdapter(
-            nextCandidate,
+            matchingCandidate,
           );
 
         const startExistingTask =
@@ -269,7 +456,9 @@ describe.sequential(
 
         expect(
           mocks.getNextReadyTask,
-        ).not.toHaveBeenCalled();
+        ).toHaveBeenCalledTimes(
+          1,
+        );
 
         expect(
           mocks.updateStatus,
@@ -283,253 +472,22 @@ describe.sequential(
         ).toHaveBeenCalledTimes(
           1,
         );
-      },
-    );
 
-    it(
-      "recovers a newer priority-1 task before an older priority-7 task",
-      async () => {
-        const prioritySevenExternalId =
-          crypto.randomUUID();
-
-        const priorityOneExternalId =
-          crypto.randomUUID();
-
-        const [prioritySevenTask] =
+        const matching =
           await db
-            .insert(tasks)
-            .values({
-              projectPath:
-                project.path,
-              title:
-                "Older priority-7 task",
-              instruction:
-                "This task must wait for priority-1 work.",
-              status:
-                "pending",
-              source:
-                "notion",
-              externalId:
-                prioritySevenExternalId,
-              externalUrl:
-                `https://www.notion.so/${prioritySevenExternalId}`,
-              priority:
-                7,
-              createdAt:
-                new Date(
-                  "2099-01-01T00:00:00.000Z",
-                ),
-              updatedAt:
-                new Date(
-                  "2099-01-01T00:00:00.000Z",
-                ),
-            })
-            .returning();
-
-        const [priorityOneTask] =
-          await db
-            .insert(tasks)
-            .values({
-              projectPath:
-                project.path,
-              title:
-                "Newer priority-1 task",
-              instruction:
-                "This task must run before lower priority work.",
-              status:
-                "pending",
-              source:
-                "notion",
-              externalId:
-                priorityOneExternalId,
-              externalUrl:
-                `https://www.notion.so/${priorityOneExternalId}`,
-              priority:
-                1,
-              createdAt:
-                new Date(
-                  "2099-01-02T00:00:00.000Z",
-                ),
-              updatedAt:
-                new Date(
-                  "2099-01-02T00:00:00.000Z",
-                ),
-            })
-            .returning();
-
-        const mocks =
-          createAdapter(
-            null,
-          );
-
-        const startExistingTask =
-          vi.fn()
-            .mockResolvedValue(
-              {},
+            .select()
+            .from(tasks)
+            .where(
+              eq(
+                tasks.externalId,
+                existingExternalId,
+              ),
             );
 
-        await runCycle(
-          mocks.adapter,
-          startExistingTask,
-        );
-
         expect(
-          mocks.getNextReadyTask,
-        ).not.toHaveBeenCalled();
-
-        expect(
-          mocks.updateStatus,
-        ).toHaveBeenCalledTimes(
+          matching,
+        ).toHaveLength(
           1,
-        );
-
-        expect(
-          mocks.updateStatus,
-        ).toHaveBeenCalledWith(
-          priorityOneExternalId,
-          "In Progress",
-        );
-
-        expect(
-          startExistingTask,
-        ).toHaveBeenCalledTimes(
-          1,
-        );
-
-        expect(
-          startExistingTask,
-        ).toHaveBeenCalledWith(
-          priorityOneTask.id,
-        );
-
-        expect(
-          startExistingTask,
-        ).not.toHaveBeenCalledWith(
-          prioritySevenTask.id,
-        );
-      },
-    );
-
-    it(
-      "recovers the oldest task first when pending Notion tasks have equal priority",
-      async () => {
-        const olderExternalId =
-          crypto.randomUUID();
-
-        const newerExternalId =
-          crypto.randomUUID();
-
-        const [olderTask] =
-          await db
-            .insert(tasks)
-            .values({
-              projectPath:
-                project.path,
-              title:
-                "Older equal-priority task",
-              instruction:
-                "This equal-priority task should run first.",
-              status:
-                "pending",
-              source:
-                "notion",
-              externalId:
-                olderExternalId,
-              externalUrl:
-                `https://www.notion.so/${olderExternalId}`,
-              priority:
-                100,
-              createdAt:
-                new Date(
-                  "2099-02-01T00:00:00.000Z",
-                ),
-              updatedAt:
-                new Date(
-                  "2099-02-01T00:00:00.000Z",
-                ),
-            })
-            .returning();
-
-        const [newerTask] =
-          await db
-            .insert(tasks)
-            .values({
-              projectPath:
-                project.path,
-              title:
-                "Newer equal-priority task",
-              instruction:
-                "This equal-priority task should run second.",
-              status:
-                "pending",
-              source:
-                "notion",
-              externalId:
-                newerExternalId,
-              externalUrl:
-                `https://www.notion.so/${newerExternalId}`,
-              priority:
-                100,
-              createdAt:
-                new Date(
-                  "2099-02-02T00:00:00.000Z",
-                ),
-              updatedAt:
-                new Date(
-                  "2099-02-02T00:00:00.000Z",
-                ),
-            })
-            .returning();
-
-        const mocks =
-          createAdapter(
-            null,
-          );
-
-        const startExistingTask =
-          vi.fn()
-            .mockResolvedValue(
-              {},
-            );
-
-        await runCycle(
-          mocks.adapter,
-          startExistingTask,
-        );
-
-        expect(
-          mocks.getNextReadyTask,
-        ).not.toHaveBeenCalled();
-
-        expect(
-          mocks.updateStatus,
-        ).toHaveBeenCalledTimes(
-          1,
-        );
-
-        expect(
-          mocks.updateStatus,
-        ).toHaveBeenCalledWith(
-          olderExternalId,
-          "In Progress",
-        );
-
-        expect(
-          startExistingTask,
-        ).toHaveBeenCalledTimes(
-          1,
-        );
-
-        expect(
-          startExistingTask,
-        ).toHaveBeenCalledWith(
-          olderTask.id,
-        );
-
-        expect(
-          startExistingTask,
-        ).not.toHaveBeenCalledWith(
-          newerTask.id,
         );
       },
     );
@@ -718,7 +676,7 @@ describe.sequential(
         expect(
           mocks.getNextReadyTask,
         ).toHaveBeenCalledTimes(
-          1,
+          2,
         );
 
         expect(
@@ -745,8 +703,9 @@ describe.sequential(
           await db
             .insert(tasks)
             .values({
-              projectPath:
-                project.path,
+              teamId:
+                team.id,
+              projectPath,
               title:
                 "Active conflict recovery",
               instruction:
@@ -763,9 +722,14 @@ describe.sequential(
             })
             .returning();
 
+        const matchingCandidate = {
+          ...createCandidate(),
+          externalId,
+        };
+
         const mocks =
           createAdapter(
-            null,
+            matchingCandidate,
           );
 
         const conflict =
@@ -823,8 +787,9 @@ describe.sequential(
         await db
           .insert(tasks)
           .values({
-            projectPath:
-              project.path,
+            teamId:
+              team.id,
+            projectPath,
             title:
               candidate.title,
             instruction:
@@ -885,7 +850,7 @@ describe.sequential(
     );
 
     it(
-      "does not remotely claim or start after Auto Mode is disabled during the cycle",
+      "does not remotely claim or start when the Project's Auto Mode is disabled",
       async () => {
         const candidate =
           createCandidate();
@@ -895,25 +860,23 @@ describe.sequential(
             candidate,
           );
 
-        const isTeamAutomationReady =
-          vi.fn()
-            .mockResolvedValue(
+        await upsertProjectTeamAssignment(
+          projectPath,
+          {
+            teamId:
+              team.id,
+            notionDataSourceId,
+            autoModeEnabled:
               false,
-            );
+          },
+        );
 
         const startExistingTask =
           vi.fn();
 
-        await runAutoModeCycle(
-          {
-            isTeamAutomationReady,
-            evaluateEligibility:
-              eligibleState,
-            createNotionAdapter:
-              () =>
-                mocks.adapter,
-            startExistingTask,
-          },
+        await runCycle(
+          mocks.adapter,
+          startExistingTask,
         );
 
         expect(
@@ -936,15 +899,33 @@ describe.sequential(
         const candidate =
           createCandidate();
 
+        const [otherTeam] =
+          await db
+            .insert(teams)
+            .values({
+              slug:
+                `auto-mode-service-other-${crypto.randomUUID()}`,
+              name:
+                "Auto Mode Service Other Team",
+              description:
+                "",
+              enabled:
+                true,
+            })
+            .returning();
+
+        created.teamIds.add(
+          otherTeam.id,
+        );
+
         // Not "pending" so it is excluded from recoverable-task recovery and the cycle instead
         // reaches remote candidate selection, where the conflicting externalId is discovered.
         await db
           .insert(tasks)
           .values({
             teamId:
-              DEVELOPMENT_TEAM_ID,
-            projectPath:
-              project.path,
+              otherTeam.id,
+            projectPath,
             title:
               candidate.title,
             instruction:
@@ -975,7 +956,7 @@ describe.sequential(
             startExistingTask,
           ),
         ).rejects.toThrow(
-          /already claimed by Team/,
+          /already claimed by a different Project or Team/,
         );
 
         expect(

@@ -1,6 +1,5 @@
 import {
   eq,
-  or,
 } from "drizzle-orm";
 import {
   afterEach,
@@ -10,26 +9,25 @@ import {
 } from "vitest";
 
 import {
-  RESOLUTION_TEAM_ID,
-} from "../db/seed-ids.js";
-import {
   db,
 } from "../db/client.js";
 import {
   agentExecutions,
-  agentRoutes,
   agents,
   departments,
   runs,
-  teams,
+  teamMembers,
 } from "../db/schema.js";
 import {
+  RESOLUTION_TEAM_ID,
+} from "../db/seed-ids.js";
+import {
   createAgent,
-  createAgentRoute,
   deleteAgent,
   getAgent,
+  listAgents,
+  listEnabledAgentsForFutureRuns,
   updateAgent,
-  updateAgentRoute,
 } from "./agent-service.js";
 import {
   createDepartment,
@@ -42,42 +40,8 @@ const createdAgentIds =
 const createdRunIds =
   new Set<string>();
 
-const createdTeamIds =
-  new Set<string>();
-
 const createdDepartmentIds =
   new Set<string>();
-
-let nextLayer =
-  100_000 +
-  Math.floor(
-    Math.random() *
-      100_000_000,
-  );
-
-/**
- * Creates and tracks one disposable Team.
- */
-async function createTestTeam(
-  label: string,
-) {
-  const [team] =
-    await db
-      .insert(teams)
-      .values({
-        slug:
-          `agent-test-${label}-${crypto.randomUUID()}`,
-        name:
-          `Agent Test ${label}`,
-      })
-      .returning();
-
-  createdTeamIds.add(
-    team.id,
-  );
-
-  return team;
-}
 
 /**
  * Creates a uniquely configured test agent and tracks it for cleanup.
@@ -86,9 +50,6 @@ async function createTestAgent(
   label: string,
   options: {
     enabled?: boolean;
-    teamId?: string;
-    layer?: number;
-    executionOrder?: number;
   } = {},
 ) {
   const [department] =
@@ -128,19 +89,10 @@ async function createTestAgent(
       .values({
         departmentId:
           department.id,
-        teamId:
-          options.teamId ??
-          RESOLUTION_TEAM_ID,
         slug:
           `test-${label.toLowerCase()}-${crypto.randomUUID()}`,
         name:
           `Test ${label}`,
-        layer:
-          options.layer ??
-          nextLayer++,
-        executionOrder:
-          options.executionOrder ??
-          1,
         enabled:
           options.enabled ??
           true,
@@ -219,47 +171,20 @@ describe(
           createdAgentIds
         ) {
           await db
-            .delete(
-              agentRoutes,
-            )
+            .delete(teamMembers)
             .where(
-              or(
-                eq(
-                  agentRoutes.sourceAgentId,
-                  agentId,
-                ),
-                eq(
-                  agentRoutes.targetAgentId,
-                  agentId,
-                ),
+              eq(
+                teamMembers.agentId,
+                agentId,
               ),
             );
-        }
 
-        for (
-          const agentId of
-          createdAgentIds
-        ) {
           await db
             .delete(agents)
             .where(
               eq(
                 agents.id,
                 agentId,
-              ),
-            );
-        }
-
-        for (
-          const teamId of
-          createdTeamIds
-        ) {
-          await db
-            .delete(teams)
-            .where(
-              eq(
-                teams.id,
-                teamId,
               ),
             );
         }
@@ -280,511 +205,7 @@ describe(
 
         createdRunIds.clear();
         createdAgentIds.clear();
-        createdTeamIds.clear();
         createdDepartmentIds.clear();
-      },
-    );
-
-    it(
-      "keeps route enabled state independent from source agent enabled state",
-      async () => {
-        const source =
-          await createTestAgent(
-            "Source",
-          );
-
-        const target =
-          await createTestAgent(
-            "Target",
-          );
-
-        const route =
-          await createAgentRoute(
-            source.id,
-            {
-              outcome:
-                "changes_requested",
-              targetAgentId:
-                target.id,
-              terminalAction:
-                null,
-              enabled:
-                true,
-            },
-          );
-
-        await updateAgent(
-          source.id,
-          {
-            enabled:
-              false,
-          },
-        );
-
-        const [persisted] =
-          await db
-            .select()
-            .from(
-              agentRoutes,
-            )
-            .where(
-              eq(
-                agentRoutes.id,
-                route.id,
-              ),
-            );
-
-        expect(
-          persisted.enabled,
-        ).toBe(true);
-
-        expect(
-          persisted.sourceAgentId,
-        ).toBe(
-          source.id,
-        );
-
-        expect(
-          persisted.targetAgentId,
-        ).toBe(
-          target.id,
-        );
-      },
-    );
-
-    it(
-      "rejects disabling a target agent while an enabled incoming route remains",
-      async () => {
-        const source =
-          await createTestAgent(
-            "Disable Source",
-          );
-
-        const target =
-          await createTestAgent(
-            "Disable Target",
-          );
-
-        await createAgentRoute(
-          source.id,
-          {
-            outcome:
-              "changes_requested",
-            targetAgentId:
-              target.id,
-            terminalAction:
-              null,
-            enabled:
-              true,
-          },
-        );
-
-        await expect(
-          updateAgent(
-            target.id,
-            {
-              enabled:
-                false,
-            },
-          ),
-        ).rejects.toMatchObject({
-          statusCode:
-            409,
-        });
-      },
-    );
-
-    it(
-      "allows a disabled route to retain a disabled same-Team target",
-      async () => {
-        const source =
-          await createTestAgent(
-            "Disabled Route Source",
-          );
-
-        const target =
-          await createTestAgent(
-            "Disabled Route Target",
-            {
-              enabled:
-                false,
-            },
-          );
-
-        const route =
-          await createAgentRoute(
-            source.id,
-            {
-              outcome:
-                "changes_requested",
-              targetAgentId:
-                target.id,
-              terminalAction:
-                null,
-              enabled:
-                false,
-            },
-          );
-
-        expect(
-          route.enabled,
-        ).toBe(false);
-
-        await expect(
-          updateAgentRoute(
-            source.id,
-            route.id,
-            {
-              enabled:
-                true,
-            },
-          ),
-        ).rejects.toMatchObject({
-          statusCode:
-            400,
-        });
-      },
-    );
-
-    it(
-      "rejects a route targeting another Team",
-      async () => {
-        const firstTeam =
-          await createTestTeam(
-            "first",
-          );
-
-        const secondTeam =
-          await createTestTeam(
-            "second",
-          );
-
-        const source =
-          await createTestAgent(
-            "Cross Source",
-            {
-              teamId:
-                firstTeam.id,
-            },
-          );
-
-        const target =
-          await createTestAgent(
-            "Cross Target",
-            {
-              teamId:
-                secondTeam.id,
-            },
-          );
-
-        await expect(
-          createAgentRoute(
-            source.id,
-            {
-              outcome:
-                "changes_requested",
-              targetAgentId:
-                target.id,
-              terminalAction:
-                null,
-              enabled:
-                true,
-            },
-          ),
-        ).rejects.toMatchObject({
-          statusCode:
-            400,
-          message:
-            expect.stringContaining(
-              "another Team",
-            ),
-        });
-      },
-    );
-
-    it(
-      "rejects a Team move when an outgoing route would become cross-Team",
-      async () => {
-        const sourceTeam =
-          await createTestTeam(
-            "move-source",
-          );
-
-        const destinationTeam =
-          await createTestTeam(
-            "move-destination",
-          );
-
-        const source =
-          await createTestAgent(
-            "Moving Source",
-            {
-              teamId:
-                sourceTeam.id,
-            },
-          );
-
-        const target =
-          await createTestAgent(
-            "Moving Target",
-            {
-              teamId:
-                sourceTeam.id,
-            },
-          );
-
-        await createAgentRoute(
-          source.id,
-          {
-            outcome:
-              "changes_requested",
-            targetAgentId:
-              target.id,
-            terminalAction:
-              null,
-            enabled:
-              true,
-          },
-        );
-
-        await expect(
-          updateAgent(
-            source.id,
-            {
-              teamId:
-                destinationTeam.id,
-            },
-          ),
-        ).rejects.toMatchObject({
-          statusCode:
-            409,
-          message:
-            expect.stringContaining(
-              "cross-Team",
-            ),
-        });
-      },
-    );
-
-    it(
-      "rejects a Team move when an incoming route would become cross-Team",
-      async () => {
-        const sourceTeam =
-          await createTestTeam(
-            "incoming-source",
-          );
-
-        const destinationTeam =
-          await createTestTeam(
-            "incoming-destination",
-          );
-
-        const source =
-          await createTestAgent(
-            "Incoming Source",
-            {
-              teamId:
-                sourceTeam.id,
-            },
-          );
-
-        const target =
-          await createTestAgent(
-            "Incoming Target",
-            {
-              teamId:
-                sourceTeam.id,
-            },
-          );
-
-        await createAgentRoute(
-          source.id,
-          {
-            outcome:
-              "changes_requested",
-            targetAgentId:
-              target.id,
-            terminalAction:
-              null,
-            enabled:
-              true,
-          },
-        );
-
-        await expect(
-          updateAgent(
-            target.id,
-            {
-              teamId:
-                destinationTeam.id,
-            },
-          ),
-        ).rejects.toMatchObject({
-          statusCode:
-            409,
-          message:
-            expect.stringContaining(
-              "cross-Team",
-            ),
-        });
-      },
-    );
-
-    it(
-      "rejects a Team move when the destination slot is occupied",
-      async () => {
-        const sourceTeam =
-          await createTestTeam(
-            "slot-source",
-          );
-
-        const destinationTeam =
-          await createTestTeam(
-            "slot-destination",
-          );
-
-        const layer =
-          nextLayer++;
-
-        const moving =
-          await createTestAgent(
-            "Moving Slot",
-            {
-              teamId:
-                sourceTeam.id,
-              layer,
-              executionOrder:
-                1,
-            },
-          );
-
-        await createTestAgent(
-          "Occupied Slot",
-          {
-            teamId:
-              destinationTeam.id,
-            layer,
-            executionOrder:
-              1,
-          },
-        );
-
-        await expect(
-          updateAgent(
-            moving.id,
-            {
-              teamId:
-                destinationTeam.id,
-            },
-          ),
-        ).rejects.toMatchObject({
-          statusCode:
-            409,
-          message:
-            expect.stringContaining(
-              "already has an agent",
-            ),
-        });
-      },
-    );
-
-    it(
-      "allows an unrouted agent to move into a free destination slot",
-      async () => {
-        const sourceTeam =
-          await createTestTeam(
-            "free-source",
-          );
-
-        const destinationTeam =
-          await createTestTeam(
-            "free-destination",
-          );
-
-        const moving =
-          await createTestAgent(
-            "Free Move",
-            {
-              teamId:
-                sourceTeam.id,
-            },
-          );
-
-        const updated =
-          await updateAgent(
-            moving.id,
-            {
-              teamId:
-                destinationTeam.id,
-            },
-          );
-
-        expect(
-          updated?.teamId,
-        ).toBe(
-          destinationTeam.id,
-        );
-      },
-    );
-
-    it(
-      "edits outcome, destination, terminal action, and enabled state in place",
-      async () => {
-        const source =
-          await createTestAgent(
-            "Editor",
-          );
-
-        const target =
-          await createTestAgent(
-            "Editor Target",
-          );
-
-        const route =
-          await createAgentRoute(
-            source.id,
-            {
-              outcome:
-                "changes_requested",
-              targetAgentId:
-                target.id,
-              terminalAction:
-                null,
-              enabled:
-                true,
-            },
-          );
-
-        const terminalRoute =
-          await updateAgentRoute(
-            source.id,
-            route.id,
-            {
-              outcome:
-                "failed",
-              targetAgentId:
-                null,
-              terminalAction:
-                "fail_run",
-              enabled:
-                false,
-            },
-          );
-
-        expect(
-          terminalRoute,
-        ).toMatchObject({
-          id:
-            route.id,
-          outcome:
-            "failed",
-          targetAgentId:
-            null,
-          terminalAction:
-            "fail_run",
-          enabled:
-            false,
-        });
       },
     );
 
@@ -795,39 +216,6 @@ describe(
           await createTestAgent(
             "Historical",
           );
-
-        const target =
-          await createTestAgent(
-            "Historical Target",
-          );
-
-        await createAgentRoute(
-          source.id,
-          {
-            outcome:
-              "changes_requested",
-            targetAgentId:
-              target.id,
-            terminalAction:
-              null,
-            enabled:
-              true,
-          },
-        );
-
-        await createAgentRoute(
-          target.id,
-          {
-            outcome:
-              "failed",
-            targetAgentId:
-              source.id,
-            terminalAction:
-              null,
-            enabled:
-              true,
-          },
-        );
 
         const workflowSnapshot = {
           agents: [
@@ -864,9 +252,9 @@ describe(
               agentRole:
                 "Historical",
               layer:
-                source.layer ?? 1,
+                1,
               executionOrder:
-                source.executionOrder ?? 1,
+                1,
               harness:
                 "codex",
               model:
@@ -949,7 +337,7 @@ describe(
                   name:
                     source.name,
                   role:
-                    source.role,
+                    "Active",
                 },
               ],
               routes: [],
@@ -1010,16 +398,10 @@ describe(
             {
               departmentId:
                 "00000000-0000-4000-9000-00000000dead",
-              teamId:
-                RESOLUTION_TEAM_ID,
               slug:
                 `agent-service-invalid-department-${crypto.randomUUID()}`,
               name:
                 "Invalid Department Agent",
-              layer:
-                nextLayer++,
-              executionOrder:
-                1,
               enabled:
                 true,
               additionalPrompt:
@@ -1036,16 +418,10 @@ describe(
             {
               departmentId:
                 department.id,
-              teamId:
-                RESOLUTION_TEAM_ID,
               slug:
                 `agent-service-inherit-${crypto.randomUUID()}`,
               name:
                 "Inheriting Agent",
-              layer:
-                nextLayer++,
-              executionOrder:
-                1,
               enabled:
                 true,
               additionalPrompt:
@@ -1134,6 +510,92 @@ describe(
         expect(
           withDisabledDepartment?.enabled,
         ).toBe(true);
+      },
+    );
+
+    it(
+      "resolves currentTeamId from team_members and reports null when unassigned",
+      async () => {
+        const unassigned =
+          await createTestAgent(
+            "Unassigned",
+          );
+
+        expect(
+          (
+            await getAgent(
+              unassigned.id,
+            )
+          )?.currentTeamId,
+        ).toBeNull();
+
+        const assigned =
+          await createTestAgent(
+            "Assigned",
+          );
+
+        await db
+          .insert(teamMembers)
+          .values({
+            teamId:
+              RESOLUTION_TEAM_ID,
+            departmentId:
+              assigned.departmentId,
+            agentId:
+              assigned.id,
+            layer:
+              9_000_000 +
+              Math.floor(
+                Math.random() *
+                  100_000,
+              ),
+            executionOrder:
+              1,
+          });
+
+        expect(
+          (
+            await getAgent(
+              assigned.id,
+            )
+          )?.currentTeamId,
+        ).toBe(
+          RESOLUTION_TEAM_ID,
+        );
+
+        const listed =
+          await listAgents();
+
+        expect(
+          listed.find(
+            (agent) =>
+              agent.id ===
+              assigned.id,
+          )?.currentTeamId,
+        ).toBe(
+          RESOLUTION_TEAM_ID,
+        );
+
+        expect(
+          listed.find(
+            (agent) =>
+              agent.id ===
+              unassigned.id,
+          )?.currentTeamId,
+        ).toBeNull();
+
+        const enabledForFutureRuns =
+          await listEnabledAgentsForFutureRuns();
+
+        expect(
+          enabledForFutureRuns.find(
+            (agent) =>
+              agent.id ===
+              assigned.id,
+          )?.currentTeamId,
+        ).toBe(
+          RESOLUTION_TEAM_ID,
+        );
       },
     );
   },

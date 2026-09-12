@@ -21,6 +21,12 @@ const mocks =
             query,
         );
 
+      const innerJoin =
+        vi.fn(
+          () =>
+            query,
+        );
+
       const where =
         vi.fn(
           () =>
@@ -46,6 +52,7 @@ const mocks =
         query,
         {
           from,
+          innerJoin,
           where,
           orderBy,
           limit,
@@ -55,6 +62,7 @@ const mocks =
       return {
         select,
         from,
+        innerJoin,
         where,
         orderBy,
         limit,
@@ -98,8 +106,36 @@ vi.mock(
   }),
 );
 
+vi.mock(
+  "./team-service.js",
+  () => ({
+    getTeam:
+      vi.fn(),
+    listTeams:
+      vi.fn(),
+  }),
+);
+
+vi.mock(
+  "./project-team-assignment-service.js",
+  () => ({
+    getProjectTeamAssignmentByPath:
+      vi.fn(),
+    listProjectTeamAssignments:
+      vi.fn(),
+  }),
+);
+
+vi.mock(
+  "./project-discovery.js",
+  () => ({
+    getProjectByPath:
+      vi.fn(),
+  }),
+);
+
 import {
-  evaluateAutoModeEligibility,
+  evaluateProjectAutoModeEligibility,
 } from "./auto-mode-service.js";
 
 /**
@@ -108,6 +144,7 @@ import {
 function resetQueryMocks(): void {
   mocks.select.mockClear();
   mocks.from.mockClear();
+  mocks.innerJoin.mockClear();
   mocks.where.mockClear();
   mocks.orderBy.mockClear();
   mocks.limit.mockReset();
@@ -119,6 +156,9 @@ const RESOLUTION_TEAM_ID =
 const DEVELOPMENT_TEAM_ID =
   "22222222-2222-4222-8222-222222222222";
 
+const PROJECT_PATH =
+  "/tmp/orc-persistence-gate";
+
 beforeEach(
   () => {
     resetQueryMocks();
@@ -129,7 +169,7 @@ describe(
   "Auto Mode persistence gate",
   () => {
     it(
-      "short-circuits historical approval state when PostgreSQL contains an active run for this Team",
+      "short-circuits historical approval state when PostgreSQL contains an active run for this Project's Team",
       async () => {
         mocks.limit
           .mockResolvedValueOnce([
@@ -142,7 +182,8 @@ describe(
           ]);
 
         const result =
-          await evaluateAutoModeEligibility(
+          await evaluateProjectAutoModeEligibility(
+            PROJECT_PATH,
             RESOLUTION_TEAM_ID,
             new Date(
               "2026-09-04T14:00:00.000Z",
@@ -201,7 +242,8 @@ describe(
           ]);
 
         const result =
-          await evaluateAutoModeEligibility(
+          await evaluateProjectAutoModeEligibility(
+            PROJECT_PATH,
             RESOLUTION_TEAM_ID,
             new Date(
               "2026-09-04T14:00:00.000Z",
@@ -230,7 +272,7 @@ describe(
     );
 
     it(
-      "reports blockedByActiveRun without collapsing another Team's active run into this Team's own state",
+      "reports blockedByActiveRun without collapsing another Team's active run into this Project's own state",
       async () => {
         mocks.limit
           .mockResolvedValueOnce([
@@ -240,11 +282,11 @@ describe(
               teamId:
                 DEVELOPMENT_TEAM_ID,
             },
-          ])
-          .mockResolvedValueOnce([]);
+          ]);
 
         const result =
-          await evaluateAutoModeEligibility(
+          await evaluateProjectAutoModeEligibility(
+            PROJECT_PATH,
             RESOLUTION_TEAM_ID,
             new Date(
               "2026-09-04T14:00:00.000Z",
@@ -267,7 +309,7 @@ describe(
         expect(
           mocks.select,
         ).toHaveBeenCalledTimes(
-          2,
+          1,
         );
       },
     );

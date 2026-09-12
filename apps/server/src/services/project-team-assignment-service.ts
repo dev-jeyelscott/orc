@@ -62,7 +62,7 @@ export async function getProjectTeamAssignmentsByPaths(projectPaths: readonly st
   return new Map(results.filter((assignment): assignment is ProjectTeamAssignment => assignment !== null).map((assignment) => [assignment.projectPath, assignment]));
 }
 
-async function ensureNotionDataSourceAvailable(notionDataSourceId: string | null, projectPath: string, teamId: string): Promise<void> {
+async function ensureNotionDataSourceAvailable(notionDataSourceId: string | null, projectPath: string): Promise<void> {
   if (!notionDataSourceId) return;
 
   const [assignment] = await db
@@ -72,15 +72,6 @@ async function ensureNotionDataSourceAvailable(notionDataSourceId: string | null
     .limit(1);
   if (assignment && assignment.projectPath !== projectPath) {
     throw new ProjectTeamAssignmentError("That Notion data source is already assigned to another Project", 409);
-  }
-
-  const [legacyTeam] = await db
-    .select({ id: teams.id })
-    .from(teams)
-    .where(eq(teams.notionDataSourceId, notionDataSourceId))
-    .limit(1);
-  if (legacyTeam && legacyTeam.id !== teamId) {
-    throw new ProjectTeamAssignmentError("That Notion data source is still assigned to a legacy Team configuration", 409);
   }
 }
 
@@ -104,7 +95,7 @@ export async function upsertProjectTeamAssignment(projectPath: string, input: Up
   const [team] = await db.select({ id: teams.id }).from(teams).where(eq(teams.id, input.teamId)).limit(1);
   if (!team) throw new ProjectTeamAssignmentError("The selected team does not exist", 404);
 
-  await ensureNotionDataSourceAvailable(notionDataSourceId, canonicalPath, input.teamId);
+  await ensureNotionDataSourceAvailable(notionDataSourceId, canonicalPath);
 
   try {
     await db.insert(projectTeamAssignments).values({

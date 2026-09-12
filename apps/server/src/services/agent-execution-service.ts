@@ -26,6 +26,7 @@ import {
   agents,
   departments,
   runs,
+  teamMembers,
   terminalChunks,
 } from "../db/schema.js";
 import {
@@ -897,6 +898,24 @@ export async function startAgentExecution(
     );
   }
 
+  const [membership] =
+    await db
+      .select()
+      .from(teamMembers)
+      .where(
+        eq(
+          teamMembers.agentId,
+          agentId,
+        ),
+      );
+
+  if (!membership) {
+    throw new AgentExecutionServiceError(
+      "The agent is not a member of any Team workflow",
+      404,
+    );
+  }
+
   return startSnapshotAgentExecution(
     run,
     {
@@ -906,9 +925,9 @@ export async function startAgentExecution(
       role:
         effective.role,
       layer:
-        row.agents.layer ?? 1,
+        membership.layer,
       executionOrder:
-        row.agents.executionOrder ?? 1,
+        membership.executionOrder,
       harness:
         effective.harness,
       model:

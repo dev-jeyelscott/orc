@@ -30,6 +30,7 @@ import {
   runs,
   systemSettings,
   tasks,
+  teamMembers,
   teams,
 } from "./schema.js";
 
@@ -49,6 +50,9 @@ const createdTeamIds =
   new Set<string>();
 
 const createdDepartmentIds =
+  new Set<string>();
+
+const createdTeamMemberIds =
   new Set<string>();
 
 /**
@@ -137,7 +141,7 @@ async function createTestTeam(
 }
 
 /**
- * Creates one disposable agent in a selected Team.
+ * Creates one disposable agent placed onto a selected Team via `team_members`.
  */
 async function createTestAgent(
   teamId: string,
@@ -153,13 +157,10 @@ async function createTestAgent(
       .values({
         departmentId:
           department.id,
-        teamId,
         slug:
           `schema-agent-${crypto.randomUUID()}`,
         name:
           "Schema Agent",
-        layer,
-        executionOrder,
       })
       .returning();
 
@@ -167,7 +168,33 @@ async function createTestAgent(
     agent.id,
   );
 
-  return agent;
+  const [member] =
+    await db
+      .insert(teamMembers)
+      .values({
+        teamId,
+        departmentId:
+          department.id,
+        agentId:
+          agent.id,
+        layer,
+        executionOrder,
+      })
+      .returning();
+
+  createdTeamMemberIds.add(
+    member.id,
+  );
+
+  return {
+    ...agent,
+    teamId:
+      member.teamId,
+    layer:
+      member.layer,
+    executionOrder:
+      member.executionOrder,
+  };
 }
 
 afterEach(
@@ -210,6 +237,20 @@ afterEach(
           eq(
             tasks.id,
             taskId,
+          ),
+        );
+    }
+
+    for (
+      const teamMemberId of
+      createdTeamMemberIds
+    ) {
+      await db
+        .delete(teamMembers)
+        .where(
+          eq(
+            teamMembers.id,
+            teamMemberId,
           ),
         );
     }
@@ -259,6 +300,7 @@ afterEach(
     createdConversationIds.clear();
     createdRunIds.clear();
     createdTaskIds.clear();
+    createdTeamMemberIds.clear();
     createdAgentIds.clear();
     createdTeamIds.clear();
     createdDepartmentIds.clear();
@@ -322,62 +364,6 @@ describe(
     );
 
     it(
-      "defaults Team automation configuration and allows no source",
-      async () => {
-        const team =
-          await createTestTeam(
-            "automation-defaults",
-          );
-
-        expect(
-          team.notionDataSourceId,
-        ).toBeNull();
-        expect(
-          team.autoModeEnabled,
-        ).toBe(false);
-      },
-    );
-
-    it(
-      "rejects duplicate non-null Notion data source IDs",
-      async () => {
-        const dataSourceId =
-          `notion-source-${crypto.randomUUID()}`;
-
-        const first =
-          await createTestTeam(
-            "notion-source-first",
-          );
-
-        await db
-          .update(teams)
-          .set({
-            notionDataSourceId:
-              dataSourceId,
-          })
-          .where(
-            eq(
-              teams.id,
-              first.id,
-            ),
-          );
-
-        await expect(
-          db
-            .insert(teams)
-            .values({
-              slug:
-                `schema-notion-source-${crypto.randomUUID()}`,
-              name:
-                "Duplicate Notion Source Team",
-              notionDataSourceId:
-                dataSourceId,
-            }),
-        ).rejects.toThrow();
-      },
-    );
-
-    it(
       "keeps deterministic Resolution and Development seed Agent ownership",
       async () => {
         const resolutionAgents =
@@ -399,10 +385,25 @@ describe(
           resolutionAgents,
         ).toHaveLength(3);
 
+        const resolutionMembers =
+          await db
+            .select()
+            .from(teamMembers)
+            .where(
+              inArray(
+                teamMembers.agentId,
+                [
+                  RESOLUTION_ARCHITECT_AGENT_ID,
+                  RESOLUTION_BUILDER_AGENT_ID,
+                  RESOLUTION_QA_AGENT_ID,
+                ],
+              ),
+            );
+
         expect(
-          resolutionAgents.every(
-            (agent) =>
-              agent.teamId ===
+          resolutionMembers.every(
+            (member) =>
+              member.teamId ===
               RESOLUTION_TEAM_ID,
           ),
         ).toBe(true);
@@ -426,10 +427,25 @@ describe(
           developmentAgents,
         ).toHaveLength(3);
 
+        const developmentMembers =
+          await db
+            .select()
+            .from(teamMembers)
+            .where(
+              inArray(
+                teamMembers.agentId,
+                [
+                  DEVELOPMENT_ARCHITECT_AGENT_ID,
+                  DEVELOPMENT_BUILDER_AGENT_ID,
+                  DEVELOPMENT_QA_AGENT_ID,
+                ],
+              ),
+            );
+
         expect(
-          developmentAgents.every(
-            (agent) =>
-              agent.teamId ===
+          developmentMembers.every(
+            (member) =>
+              member.teamId ===
               DEVELOPMENT_TEAM_ID,
           ),
         ).toBe(true);
@@ -487,34 +503,6 @@ describe(
           conversation.id,
         );
 
-        const department =
-          await createTestDepartment();
-
-        const [agent] =
-          await db
-            .insert(agents)
-            .values({
-              departmentId:
-                department.id,
-              slug:
-                `schema-default-${crypto.randomUUID()}`,
-              name:
-                "Default Team Agent",
-              layer:
-                900_000 +
-                Math.floor(
-                  Math.random() *
-                    100_000,
-                ),
-              executionOrder:
-                1,
-            })
-            .returning();
-
-        createdAgentIds.add(
-          agent.id,
-        );
-
         expect(
           task.teamId,
         ).toBe(
@@ -529,12 +517,6 @@ describe(
 
         expect(
           conversation.teamId,
-        ).toBe(
-          RESOLUTION_TEAM_ID,
-        );
-
-        expect(
-          agent.teamId,
         ).toBe(
           RESOLUTION_TEAM_ID,
         );
@@ -610,18 +592,33 @@ describe(
         const department =
           await createTestDepartment();
 
-        await expect(
-          db
+        const [duplicateAgent] =
+          await db
             .insert(agents)
             .values({
               departmentId:
                 department.id,
-              teamId:
-                team.id,
               slug:
                 `schema-duplicate-${crypto.randomUUID()}`,
               name:
                 "Duplicate Slot Agent",
+            })
+            .returning();
+
+        createdAgentIds.add(
+          duplicateAgent.id,
+        );
+
+        await expect(
+          db
+            .insert(teamMembers)
+            .values({
+              teamId:
+                team.id,
+              departmentId:
+                department.id,
+              agentId:
+                duplicateAgent.id,
               layer,
               executionOrder:
                 1,

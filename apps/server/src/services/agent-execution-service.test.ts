@@ -200,8 +200,10 @@ const {
   agentExecutions,
   departments,
   runs,
+  teamMembers,
   terminalChunks,
 } = await import("../db/schema.js");
+const { RESOLUTION_TEAM_ID } = await import("../db/seed-ids.js");
 const {
   createRun,
   startAgentExecution,
@@ -268,13 +270,20 @@ describe("agent-execution-service", () => {
         departmentId: department.id,
         slug: `test-agent-${crypto.randomUUID()}`,
         name: "Test Agent",
-        layer: (agentLayer =
-          900 + Math.floor(Math.random() * 100_000)),
-        executionOrder: 1,
       })
       .returning();
 
     agentId = agent.id;
+
+    agentLayer = 900 + Math.floor(Math.random() * 100_000);
+
+    await db.insert(teamMembers).values({
+      teamId: RESOLUTION_TEAM_ID,
+      departmentId: department.id,
+      agentId: agent.id,
+      layer: agentLayer,
+      executionOrder: 1,
+    });
 
     const run = await createRun(projectPath);
     runId = run.id;
@@ -299,6 +308,10 @@ describe("agent-execution-service", () => {
     await db
       .delete(runs)
       .where(eq(runs.id, runId));
+
+    await db
+      .delete(teamMembers)
+      .where(eq(teamMembers.agentId, agentId));
 
     await db
       .delete(agents)

@@ -5,8 +5,8 @@ import {
 } from "vitest";
 
 import {
-  teamAutomationStatusResponseSchema,
-  teamAutomationStatusSchema,
+  projectAutomationStatusResponseSchema,
+  projectAutomationStatusSchema,
 } from "./system-settings.js";
 
 describe(
@@ -20,10 +20,12 @@ describe(
       "cooldown",
       "unavailable",
     ] as const)(
-      "accepts Team automation state %s",
+      "accepts Project automation state %s",
       (state) => {
         expect(
-          teamAutomationStatusSchema.parse({
+          projectAutomationStatusSchema.parse({
+            projectPath:
+              "/tmp/orc-test-project",
             teamId:
               "00000000-0000-4000-9000-000000009999",
             autoModeEnabled:
@@ -43,12 +45,14 @@ describe(
     );
 
     it(
-      "accepts aggregate Team automation status without secrets",
+      "accepts aggregate Project automation status without secrets",
       () => {
         expect(
-          teamAutomationStatusResponseSchema.parse({
-            teams: [
+          projectAutomationStatusResponseSchema.parse({
+            projects: [
               {
+                projectPath:
+                  "/tmp/orc-test-project",
                 teamId:
                   "00000000-0000-4000-9000-000000009999",
                 autoModeEnabled:
@@ -65,8 +69,10 @@ describe(
             ],
           }),
         ).toEqual({
-          teams: [
+          projects: [
             {
+              projectPath:
+                "/tmp/orc-test-project",
               teamId:
                 "00000000-0000-4000-9000-000000009999",
               autoModeEnabled:
@@ -94,7 +100,9 @@ describe(
       "accepts unavailable reason %s",
       (unavailableReason) => {
         expect(
-          teamAutomationStatusSchema.parse({
+          projectAutomationStatusSchema.parse({
+            projectPath:
+              "/tmp/orc-test-project",
             teamId:
               "00000000-0000-4000-9000-000000009999",
             autoModeEnabled:

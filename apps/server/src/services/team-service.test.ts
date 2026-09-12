@@ -17,6 +17,7 @@ import {
   departments,
   runs,
   tasks,
+  teamMembers,
   teams,
 } from "../db/schema.js";
 import {
@@ -95,14 +96,33 @@ async function cleanupTrackedTeams() {
         ),
       );
 
-    await db
-      .delete(agents)
-      .where(
-        eq(
-          agents.teamId,
-          teamId,
-        ),
-      );
+    const members =
+      await db
+        .delete(teamMembers)
+        .where(
+          eq(
+            teamMembers.teamId,
+            teamId,
+          ),
+        )
+        .returning({
+          agentId:
+            teamMembers.agentId,
+        });
+
+    for (
+      const member of
+      members
+    ) {
+      await db
+        .delete(agents)
+        .where(
+          eq(
+            agents.id,
+            member.agentId,
+          ),
+        );
+    }
 
     await db
       .delete(teams)
@@ -276,17 +296,28 @@ describe(
           department.id,
         );
 
+        const [agent] =
+          await db
+            .insert(agents)
+            .values({
+              departmentId:
+                department.id,
+              slug:
+                `team-agent-${crypto.randomUUID()}`,
+              name:
+                "Referenced Agent",
+            })
+            .returning();
+
         await db
-          .insert(agents)
+          .insert(teamMembers)
           .values({
-            departmentId:
-              department.id,
             teamId:
               team.id,
-            slug:
-              `team-agent-${crypto.randomUUID()}`,
-            name:
-              "Referenced Agent",
+            departmentId:
+              department.id,
+            agentId:
+              agent.id,
             layer:
               700_001,
             executionOrder:
@@ -302,7 +333,7 @@ describe(
             409,
           message:
             expect.stringContaining(
-              "agents",
+              "workflow members",
             ),
         });
       },

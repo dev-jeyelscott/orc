@@ -199,6 +199,7 @@ const {
   agentExecutions,
   departments,
   runs,
+  teamMembers,
   terminalChunks,
 } = await import("../db/schema.js");
 const {
@@ -404,15 +405,20 @@ describe("agent-execution routes", () => {
       .insert(agents)
       .values({
         departmentId: department.id,
-        teamId: RESOLUTION_TEAM_ID,
         slug: `test-route-agent-${crypto.randomUUID()}`,
         name: "Route Test Agent",
-        layer: 900 + Math.floor(Math.random() * 100_000),
-        executionOrder: 1,
       })
       .returning();
 
     agentId = agent.id;
+
+    await db.insert(teamMembers).values({
+      teamId: RESOLUTION_TEAM_ID,
+      departmentId: department.id,
+      agentId: agent.id,
+      layer: 900 + Math.floor(Math.random() * 100_000),
+      executionOrder: 1,
+    });
 
     const runResponse = await fetch(
       `${baseUrl}/api/runs`,
@@ -467,6 +473,10 @@ describe("agent-execution routes", () => {
     }
 
     if (agentId) {
+      await db
+        .delete(teamMembers)
+        .where(eq(teamMembers.agentId, agentId));
+
       await db
         .delete(agents)
         .where(eq(agents.id, agentId));

@@ -278,14 +278,6 @@ async function createTestAgent(
             )}-${crypto.randomUUID()}`,
         name:
           input.label,
-        description:
-          "Project Document worker-context regression agent",
-        layer:
-          layerBase +
-          input.relativeLayer,
-        executionOrder:
-          input.executionOrder ??
-          1,
         enabled:
           true,
       })
@@ -295,7 +287,15 @@ async function createTestAgent(
     agent.id,
   );
 
-  return agent;
+  return {
+    ...agent,
+    layer:
+      layerBase +
+      input.relativeLayer,
+    executionOrder:
+      input.executionOrder ??
+      1,
+  };
 }
 
 /**
@@ -303,7 +303,9 @@ async function createTestAgent(
  */
 function toSnapshotAgent(
   agent:
-    typeof agents.$inferSelect,
+    Awaited<
+      ReturnType<typeof createTestAgent>
+    >,
 ): SnapshotAgent {
   return {
     id:
@@ -313,9 +315,9 @@ function toSnapshotAgent(
     role:
       "Generic Role",
     layer:
-      agent.layer ?? 1,
+      agent.layer,
     executionOrder:
-      agent.executionOrder ?? 1,
+      agent.executionOrder,
     harness:
       "codex",
     model:
@@ -325,11 +327,11 @@ function toSnapshotAgent(
     systemPrompt:
       `Act as ${agent.name}.`,
     canWrite:
-      agent.canWrite,
+      false,
     canRunCommands:
-      agent.canRunCommands,
+      true,
     canCommit:
-      agent.canCommit,
+      false,
   };
 }
 

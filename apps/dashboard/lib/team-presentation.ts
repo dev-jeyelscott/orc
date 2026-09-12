@@ -32,15 +32,14 @@ const teamCollator = new Intl.Collator(
 );
 
 /**
- * Orders Agents using the workflow order already established by the Team configuration.
+ * Orders Agents deterministically for display; precise workflow layer/order
+ * belongs to the Team Workflow editor, not this summary presentation.
  */
 export function compareAgents(
   left: Agent,
   right: Agent,
 ): number {
   return (
-    (left.layer ?? 0) - (right.layer ?? 0) ||
-    (left.executionOrder ?? 0) - (right.executionOrder ?? 0) ||
     teamCollator.compare(
       left.name,
       right.name,
@@ -53,7 +52,8 @@ export function compareAgents(
 }
 
 /**
- * Groups Agents by Team and keeps every Team membership in deterministic workflow order.
+ * Groups Agents by their current Team membership, resolved from `team_members`.
+ * Agents not currently selected onto any Team are omitted.
  */
 export function groupAgentsByTeam(
   agents: Agent[],
@@ -64,12 +64,16 @@ export function groupAgentsByTeam(
   >();
 
   for (const agent of agents) {
+    if (agent.currentTeamId === null) {
+      continue;
+    }
+
     const members =
-      result.get(agent.teamId) ?? [];
+      result.get(agent.currentTeamId) ?? [];
 
     members.push(agent);
     result.set(
-      agent.teamId,
+      agent.currentTeamId,
       members,
     );
   }

@@ -1,26 +1,20 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
-  createAgentRouteSchema,
   createAgentSchema,
-  updateAgentRouteSchema,
   updateAgentSchema,
 } from "@orc/shared";
 
 import {
   AgentServiceError,
   createAgent,
-  createAgentRoute,
   deleteAgent,
-  deleteAgentRoute,
   getAgent,
   listAgents,
   updateAgent,
-  updateAgentRoute,
 } from "../services/agent-service.js";
 
 const idParams = z.object({ agentId: z.string().uuid() });
-const routeParams = idParams.extend({ routeId: z.string().uuid() });
 
 /**
  * Parses and validates route or request payload data with a shared Zod schema.
@@ -57,7 +51,8 @@ function sendError(
 }
 
 /**
- * Registers agent CRUD and routing endpoints.
+ * Registers Agent CRUD endpoints. Team placement is managed exclusively
+ * through the Team workflow resource, not here.
  */
 export async function agentRoutes(app: FastifyInstance) {
   app.get("/api/agents", async () => ({
@@ -123,56 +118,4 @@ export async function agentRoutes(app: FastifyInstance) {
       return sendError(error, reply);
     }
   });
-
-  app.post("/api/agents/:agentId/routes", async (request, reply) => {
-    try {
-      const { agentId } = parse(idParams, request.params);
-      const input = parse(createAgentRouteSchema, request.body);
-
-      return reply.status(201).send(
-        await createAgentRoute(agentId, {
-          ...input,
-          targetAgentId: input.targetAgentId ?? null,
-          terminalAction: input.terminalAction ?? null,
-          enabled: input.enabled ?? true,
-        }),
-      );
-    } catch (error) {
-      return sendError(error, reply);
-    }
-  });
-
-  app.patch(
-    "/api/agents/:agentId/routes/:routeId",
-    async (request, reply) => {
-      try {
-        const { agentId, routeId } = parse(routeParams, request.params);
-        const route = await updateAgentRoute(
-          agentId,
-          routeId,
-          parse(updateAgentRouteSchema, request.body),
-        );
-
-        return (
-          route ??
-          reply.status(404).send({
-            error: "route_not_found",
-          })
-        );
-      } catch (error) {
-        return sendError(error, reply);
-      }
-    },
-  );
-
-  app.delete(
-    "/api/agents/:agentId/routes/:routeId",
-    async (request, reply) => {
-      const { agentId, routeId } = parse(routeParams, request.params);
-
-      return (await deleteAgentRoute(agentId, routeId))
-        ? reply.status(204).send()
-        : reply.status(404).send({ error: "route_not_found" });
-    },
-  );
 }

@@ -21,32 +21,6 @@ export const teamAutomationUnavailableReasonSchema =
   ])
     .nullable();
 
-export const teamAutomationStatusSchema =
-  z.object({
-    teamId:
-      z.string().uuid(),
-    autoModeEnabled:
-      z.boolean(),
-    state:
-      teamAutomationStatusStateSchema,
-    nextEligibleAt:
-      z.string()
-        .datetime()
-        .nullable(),
-    blockedByActiveRun:
-      z.boolean(),
-    unavailableReason:
-      teamAutomationUnavailableReasonSchema,
-  });
-
-export const teamAutomationStatusResponseSchema =
-  z.object({
-    teams:
-      z.array(
-        teamAutomationStatusSchema,
-      ),
-  });
-
 export const projectAutomationStatusSchema =
   z.object({
     projectPath: z.string(),
@@ -71,16 +45,6 @@ export type TeamAutomationStatusState =
 export type TeamAutomationUnavailableReason =
   z.infer<
     typeof teamAutomationUnavailableReasonSchema
-  >;
-
-export type TeamAutomationStatus =
-  z.infer<
-    typeof teamAutomationStatusSchema
-  >;
-
-export type TeamAutomationStatusResponse =
-  z.infer<
-    typeof teamAutomationStatusResponseSchema
   >;
 
 export type ProjectAutomationStatus =

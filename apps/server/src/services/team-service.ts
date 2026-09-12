@@ -13,7 +13,6 @@ import {
   db,
 } from "../db/client.js";
 import {
-  agents,
   conversations,
   runs,
   tasks,
@@ -273,30 +272,6 @@ export async function deleteTeam(
           !existing
         ) {
           return false;
-        }
-
-        const [agentReference] =
-          await tx
-            .select({
-              id:
-                agents.id,
-            })
-            .from(agents)
-            .where(
-              eq(
-                agents.teamId,
-                id,
-              ),
-            )
-            .limit(1);
-
-        if (
-          agentReference
-        ) {
-          throw new TeamServiceError(
-            "Team cannot be deleted because agents still reference it",
-            409,
-          );
         }
 
         const [teamMemberReference] =

@@ -179,44 +179,45 @@ async function createTestAgent(
             "",
           )}-${crypto.randomUUID()}`,
       name: input.label,
-      description:
-        `${input.label} workflow test agent`,
-      layer:
-        layerBase +
-        input.relativeLayer,
-      executionOrder:
-        input.executionOrder,
       enabled: true,
     })
     .returning();
 
   createdAgentIds.add(agent.id);
 
-  return agent;
+  return {
+    ...agent,
+    layer:
+      layerBase +
+      input.relativeLayer,
+    executionOrder:
+      input.executionOrder,
+  };
 }
 
 /**
- * Converts an agent database row into the workflow-owned snapshot shape.
+ * Converts a test agent fixture into the workflow-owned snapshot shape.
  */
 function toSnapshotAgent(
-  agent: typeof agents.$inferSelect,
+  agent: Awaited<
+    ReturnType<typeof createTestAgent>
+  >,
 ): SnapshotAgent {
   return {
     id: agent.id,
     name: agent.name,
     role: `${agent.name} Role`,
-    layer: agent.layer ?? 1,
+    layer: agent.layer,
     executionOrder:
-      agent.executionOrder ?? 1,
+      agent.executionOrder,
     harness: "codex",
     model: "default",
     reasoning: "high",
     systemPrompt:
       `Act as ${agent.name}.`,
-    canWrite: agent.canWrite,
-    canRunCommands:
-      agent.canRunCommands,
-    canCommit: agent.canCommit,
+    canWrite: false,
+    canRunCommands: true,
+    canCommit: false,
   };
 }
 

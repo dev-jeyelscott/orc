@@ -20,7 +20,7 @@ import {
   teams,
 } from "../db/schema.js";
 import {
-  evaluateAutoModeEligibility,
+  evaluateProjectAutoModeEligibility,
 } from "./auto-mode-service.js";
 
 const projectPath =
@@ -233,7 +233,8 @@ describe.sequential(
           "approved",
         );
 
-        await evaluateAutoModeEligibility(
+        await evaluateProjectAutoModeEligibility(
+          projectPath,
           resolutionTeamId,
           new Date(
             "2099-01-01T00:00:01.000Z",
@@ -241,7 +242,8 @@ describe.sequential(
         );
 
         const development =
-          await evaluateAutoModeEligibility(
+          await evaluateProjectAutoModeEligibility(
+            projectPath,
             developmentTeamId,
             new Date(
               "2099-01-01T00:00:01.000Z",
@@ -271,7 +273,8 @@ describe.sequential(
         );
 
         const resolution =
-          await evaluateAutoModeEligibility(
+          await evaluateProjectAutoModeEligibility(
+            projectPath,
             resolutionTeamId,
             new Date(
               "2099-01-01T00:00:01.000Z",
@@ -285,7 +288,8 @@ describe.sequential(
         );
 
         const development =
-          await evaluateAutoModeEligibility(
+          await evaluateProjectAutoModeEligibility(
+            projectPath,
             developmentTeamId,
             new Date(
               "2099-01-01T00:00:01.000Z",
@@ -315,7 +319,8 @@ describe.sequential(
         );
 
         const resolution =
-          await evaluateAutoModeEligibility(
+          await evaluateProjectAutoModeEligibility(
+            projectPath,
             resolutionTeamId,
           );
 
@@ -331,7 +336,8 @@ describe.sequential(
         });
 
         const development =
-          await evaluateAutoModeEligibility(
+          await evaluateProjectAutoModeEligibility(
+            projectPath,
             developmentTeamId,
           );
 

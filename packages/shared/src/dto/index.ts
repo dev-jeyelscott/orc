@@ -14,5 +14,4 @@ export * from "./project-document.js";
 export * from "./event.js";
 export * from "./dashboard.js";
 export * from "./run-monitoring.js";
-export * from "./agent-monitoring.js";
 export * from "./system-settings.js";

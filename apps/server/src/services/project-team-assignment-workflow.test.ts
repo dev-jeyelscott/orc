@@ -78,11 +78,9 @@ async function createRunnableTeam(label: string) {
   created.departmentIds.add(department.id);
 
   const [agent] = await db.insert(agents).values({
-    teamId: team.id,
     departmentId: department.id,
     slug: `assignment-workflow-agent-${label}-${crypto.randomUUID()}`,
     name: `Assignment Workflow Agent ${label}`,
-    description: "",
     enabled: true,
   }).returning();
   created.agentIds.add(agent.id);

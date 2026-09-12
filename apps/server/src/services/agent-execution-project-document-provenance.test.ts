@@ -391,9 +391,16 @@ const {
   agentExecutions,
   departments,
   runs,
+  teamMembers,
   terminalChunks,
 } = await import(
   "../db/schema.js"
+);
+
+const {
+  RESOLUTION_TEAM_ID,
+} = await import(
+  "../db/seed-ids.js"
 );
 
 const {
@@ -532,19 +539,32 @@ describe(
                 `project-document-provenance-${crypto.randomUUID()}`,
               name:
                 "Project Document Provenance Worker",
-              layer:
-                900 +
-                Math.floor(
-                  Math.random() *
-                    100_000,
-                ),
-              executionOrder:
-                1,
             })
             .returning();
 
         agentId =
           agent.id;
+
+        await db
+          .insert(
+            teamMembers,
+          )
+          .values({
+            teamId:
+              RESOLUTION_TEAM_ID,
+            departmentId:
+              department.id,
+            agentId:
+              agent.id,
+            layer:
+              900 +
+              Math.floor(
+                Math.random() *
+                  100_000,
+              ),
+            executionOrder:
+              1,
+          });
 
         const run =
           await createRun(
@@ -609,6 +629,17 @@ describe(
             eq(
               runs.id,
               runId,
+            ),
+          );
+
+        await db
+          .delete(
+            teamMembers,
+          )
+          .where(
+            eq(
+              teamMembers.agentId,
+              agentId,
             ),
           );
 

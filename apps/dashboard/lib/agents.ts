@@ -1,17 +1,9 @@
 import {
   agentListResponseSchema,
-  agentMonitoringOverviewSchema,
-  agentObservabilitySchema,
-  agentWithRoutesSchema,
+  agentSchema,
   type Agent,
-  type AgentMonitoringOverview,
-  type AgentMonitoringRange,
-  type AgentObservability,
-  type AgentWithRoutes,
   type CreateAgent,
-  type CreateAgentRoute,
   type UpdateAgent,
-  type UpdateAgentRoute,
 } from "@orc/shared";
 
 const SERVER_URL =
@@ -104,22 +96,7 @@ async function requestNoContent(
 }
 
 /**
- * Forces one create-Agent payload to the Team owning the current management workspace.
- */
-export function scopeCreateAgentToTeam(
-  input:
-    CreateAgent,
-  teamId:
-    string,
-): CreateAgent {
-  return {
-    ...input,
-    teamId,
-  };
-}
-
-/**
- * Loads all configured agents using deterministic workflow order.
+ * Loads all configured agents.
  */
 export async function getAgents(): Promise<
   Agent[]
@@ -134,65 +111,20 @@ export async function getAgents(): Promise<
 }
 
 /**
- * Loads one full agent configuration including persisted routes.
+ * Loads one agent configuration.
  */
 export function getAgent(
   id: string,
-): Promise<AgentWithRoutes> {
+): Promise<Agent> {
   return request(
     `/api/agents/${id}`,
     {},
-    agentWithRoutesSchema,
+    agentSchema,
   );
 }
 
 /**
- * Loads one Team-scoped Agent command-center read model without browser caching.
- */
-export function getAgentMonitoringOverview(
-  range:
-    AgentMonitoringRange,
-  teamId:
-    string,
-  signal?: AbortSignal,
-): Promise<AgentMonitoringOverview> {
-  const search =
-    new URLSearchParams({
-      range,
-      teamId,
-    });
-
-  return request(
-    `/api/agents/monitoring?${search.toString()}`,
-    {
-      cache: "no-store",
-      signal,
-    },
-    agentMonitoringOverviewSchema,
-  );
-}
-
-/**
- * Loads persisted observability for one selected agent without browser caching.
- */
-export function getAgentObservability(
-  id: string,
-  range:
-    AgentMonitoringRange,
-  signal?: AbortSignal,
-): Promise<AgentObservability> {
-  return request(
-    `/api/agents/${id}/observability?range=${encodeURIComponent(range)}`,
-    {
-      cache: "no-store",
-      signal,
-    },
-    agentObservabilitySchema,
-  );
-}
-
-/**
- * Creates a worker-agent configuration.
+ * Creates a Department-scoped worker-agent configuration.
  */
 export function createAgent(
   input: CreateAgent,
@@ -206,16 +138,7 @@ export function createAgent(
           input,
         ),
     },
-    {
-      parse: (
-        value,
-      ) =>
-        agentWithRoutesSchema
-          .omit({
-            routes: true,
-          })
-          .parse(value),
-    },
+    agentSchema,
   );
 }
 
@@ -235,16 +158,7 @@ export function updateAgent(
           input,
         ),
     },
-    {
-      parse: (
-        value,
-      ) =>
-        agentWithRoutesSchema
-          .omit({
-            routes: true,
-          })
-          .parse(value),
-    },
+    agentSchema,
   );
 }
 
@@ -256,80 +170,6 @@ export function deleteAgent(
 ): Promise<void> {
   return requestNoContent(
     `/api/agents/${id}`,
-    {
-      method: "DELETE",
-    },
-  );
-}
-
-/**
- * Creates an explicit outcome route for one agent.
- */
-export function createAgentRoute(
-  agentId: string,
-  input: CreateAgentRoute,
-) {
-  return request(
-    `/api/agents/${agentId}/routes`,
-    {
-      method: "POST",
-      body:
-        JSON.stringify(
-          input,
-        ),
-    },
-    {
-      parse: (
-        value,
-      ) =>
-        agentWithRoutesSchema
-          .shape.routes
-          .element.parse(
-            value,
-          ),
-    },
-  );
-}
-
-/**
- * Updates one existing outcome route in place.
- */
-export function updateAgentRoute(
-  agentId: string,
-  routeId: string,
-  input: UpdateAgentRoute,
-) {
-  return request(
-    `/api/agents/${agentId}/routes/${routeId}`,
-    {
-      method: "PATCH",
-      body:
-        JSON.stringify(
-          input,
-        ),
-    },
-    {
-      parse: (
-        value,
-      ) =>
-        agentWithRoutesSchema
-          .shape.routes
-          .element.parse(
-            value,
-          ),
-    },
-  );
-}
-
-/**
- * Removes one persisted outcome route.
- */
-export function deleteAgentRoute(
-  agentId: string,
-  routeId: string,
-): Promise<void> {
-  return requestNoContent(
-    `/api/agents/${agentId}/routes/${routeId}`,
     {
       method: "DELETE",
     },

@@ -13,78 +13,271 @@ import type {
   Project,
 } from "@orc/shared";
 
+vi.mock(
+  "./project-discovery.js",
+  () => ({
+    getProjectByPath:
+      vi.fn(
+        async (
+          _workspaceRoot: string,
+          projectPath: string,
+        ): Promise<Project> => ({
+          id: projectPath,
+          name: "orc",
+          path: projectPath,
+          branch: "main",
+          gitState: "clean",
+          primaryFiles: [
+            "package.json",
+          ],
+          packageManager: "pnpm",
+          stack: "node",
+        }),
+      ),
+    getProject:
+      vi.fn(),
+  }),
+);
+
 import {
   db,
 } from "../db/client.js";
 import {
-  DEVELOPMENT_TEAM_ID,
-  RESOLUTION_TEAM_ID,
-} from "../db/seed-ids.js";
-import {
+  agents,
+  departments,
+  projectTeamAssignments,
   runs,
   tasks,
+  teamMembers,
+  teams,
 } from "../db/schema.js";
 import {
   runAutoModeCycle,
   type AutoModeCycleDependencies,
   type AutoModeNotionAdapter,
 } from "./auto-mode-service.js";
+import {
+  upsertProjectTeamAssignment,
+} from "./project-team-assignment-service.js";
 
-const project:
-  Project =
-    {
-      id:
-        "auto-mode-team-test-project",
-      name:
-        "orc",
-      path:
-        `/tmp/orc-auto-mode-team-${crypto.randomUUID()}`,
-      branch:
-        "main",
-      gitState:
-        "clean",
-      primaryFiles: [
-        "package.json",
-      ],
-      packageManager:
-        "pnpm",
-      stack:
-        "node",
-    };
-
-const alwaysEligible =
-  async () => ({
-    eligible:
-      true as const,
-    state:
-      "ready" as const,
-    nextEligibleAt:
-      null,
-    blockedByActiveRun:
-      false,
-  });
+const created = {
+  teamIds: new Set<string>(),
+  departmentIds: new Set<string>(),
+  agentIds: new Set<string>(),
+  projectPaths: new Set<string>(),
+};
 
 /**
- * Removes local Auto Mode test rows after every Team ownership assertion.
+ * Creates one fully-runnable Team (enabled Agent under an enabled Department)
+ * and assigns it to a dedicated Project path with Auto Mode enabled.
  */
-async function cleanup(): Promise<void> {
-  await db
-    .delete(runs)
-    .where(
-      eq(
-        runs.projectPath,
-        project.path,
-      ),
-    );
+async function createRunnableProjectTeam(
+  label: string,
+): Promise<{
+  team:
+    typeof teams.$inferSelect;
+  projectPath:
+    string;
+  notionDataSourceId:
+    string;
+}> {
+  const [team] =
+    await db
+      .insert(teams)
+      .values({
+        slug:
+          `team-scope-${label}-${crypto.randomUUID()}`,
+        name:
+          `Team Scope ${label}`,
+        description:
+          "",
+        enabled:
+          true,
+      })
+      .returning();
+
+  created.teamIds.add(
+    team.id,
+  );
+
+  const [department] =
+    await db
+      .insert(departments)
+      .values({
+        slug:
+          `team-scope-department-${label}-${crypto.randomUUID()}`,
+        name:
+          `Team Scope Department ${label}`,
+        role:
+          "Worker",
+        harness:
+          "codex",
+        defaultModel:
+          "default",
+        defaultReasoning:
+          "low",
+        systemPrompt:
+          "Perform the task.",
+      })
+      .returning();
+
+  created.departmentIds.add(
+    department.id,
+  );
+
+  const [agent] =
+    await db
+      .insert(agents)
+      .values({
+        departmentId:
+          department.id,
+        slug:
+          `team-scope-agent-${label}-${crypto.randomUUID()}`,
+        name:
+          `Team Scope Agent ${label}`,
+        enabled:
+          true,
+      })
+      .returning();
+
+  created.agentIds.add(
+    agent.id,
+  );
 
   await db
-    .delete(tasks)
-    .where(
-      eq(
-        tasks.projectPath,
-        project.path,
-      ),
-    );
+    .insert(teamMembers)
+    .values({
+      teamId:
+        team.id,
+      departmentId:
+        department.id,
+      agentId:
+        agent.id,
+      layer:
+        1,
+      executionOrder:
+        1,
+    });
+
+  const projectPath =
+    `/tmp/orc-auto-mode-team-scope-${label}-${crypto.randomUUID()}`;
+
+  created.projectPaths.add(
+    projectPath,
+  );
+
+  const notionDataSourceId =
+    `team-scope-source-${label}-${crypto.randomUUID()}`;
+
+  await upsertProjectTeamAssignment(
+    projectPath,
+    {
+      teamId:
+        team.id,
+      notionDataSourceId,
+      autoModeEnabled:
+        true,
+    },
+  );
+
+  return {
+    team,
+    projectPath,
+    notionDataSourceId,
+  };
+}
+
+/**
+ * Removes local Auto Mode test rows after every Project/Team ownership assertion.
+ */
+async function cleanup(): Promise<void> {
+  for (
+    const projectPath of
+    created.projectPaths
+  ) {
+    await db
+      .delete(runs)
+      .where(
+        eq(
+          runs.projectPath,
+          projectPath,
+        ),
+      );
+
+    await db
+      .delete(tasks)
+      .where(
+        eq(
+          tasks.projectPath,
+          projectPath,
+        ),
+      );
+
+    await db
+      .delete(projectTeamAssignments)
+      .where(
+        eq(
+          projectTeamAssignments.projectPath,
+          projectPath,
+        ),
+      );
+  }
+
+  for (
+    const agentId of
+    created.agentIds
+  ) {
+    await db
+      .delete(teamMembers)
+      .where(
+        eq(
+          teamMembers.agentId,
+          agentId,
+        ),
+      );
+
+    await db
+      .delete(agents)
+      .where(
+        eq(
+          agents.id,
+          agentId,
+        ),
+      );
+  }
+
+  for (
+    const departmentId of
+    created.departmentIds
+  ) {
+    await db
+      .delete(departments)
+      .where(
+        eq(
+          departments.id,
+          departmentId,
+        ),
+      );
+  }
+
+  for (
+    const teamId of
+    created.teamIds
+  ) {
+    await db
+      .delete(teams)
+      .where(
+        eq(
+          teams.id,
+          teamId,
+        ),
+      );
+  }
+
+  created.teamIds.clear();
+  created.departmentIds.clear();
+  created.agentIds.clear();
+  created.projectPaths.clear();
 }
 
 afterEach(
@@ -102,6 +295,8 @@ function createTeamAdapter(
         priority:
           number;
         createdTime:
+          string;
+        projectPath:
           string;
       }
     | null,
@@ -125,7 +320,25 @@ function createTeamAdapter(
                 candidate.priority,
               createdTime:
                 candidate.createdTime,
-              project,
+              project: {
+                id:
+                  candidate.projectPath,
+                name:
+                  "orc",
+                path:
+                  candidate.projectPath,
+                branch:
+                  "main",
+                gitState:
+                  "clean",
+                primaryFiles: [
+                  "package.json",
+                ],
+                packageManager:
+                  "pnpm",
+                stack:
+                  "node",
+              },
             }
           : null,
       );
@@ -148,16 +361,13 @@ function createTeamAdapter(
 }
 
 /**
- * Runs one multi-Team cycle with both Teams treated as automation-ready and eligible, dispatching each Team's
- * adapter factory call to the matching mock adapter.
+ * Runs one multi-Project cycle, dispatching each Project's own Notion data source id to the matching mock adapter.
  */
 async function runTeamScopeCycle(
-  adapters: {
-    resolution?:
-      AutoModeNotionAdapter;
-    development?:
-      AutoModeNotionAdapter;
-  },
+  adapters: Record<
+    string,
+    AutoModeNotionAdapter
+  >,
   startExistingTask:
     (
       id:
@@ -167,31 +377,20 @@ async function runTeamScopeCycle(
     AutoModeCycleDependencies = {},
 ) {
   await runAutoModeCycle({
-    listAutomationReadyTeamIds:
-      async () => [
-        RESOLUTION_TEAM_ID,
-        DEVELOPMENT_TEAM_ID,
-      ],
-    isTeamAutomationReady:
-      async () =>
-        true,
-    evaluateEligibility:
-      alwaysEligible,
     createNotionAdapter:
       (
-        teamId,
+        notionDataSourceId,
       ) => {
         const adapter =
-          teamId ===
-          RESOLUTION_TEAM_ID
-            ? adapters.resolution
-            : adapters.development;
+          adapters[
+            notionDataSourceId
+          ];
 
         if (
           !adapter
         ) {
           throw new Error(
-            `No adapter configured for Team ${teamId}`,
+            `No adapter configured for Notion data source ${notionDataSourceId}`,
           );
         }
 
@@ -206,22 +405,33 @@ describe.sequential(
   "Auto Mode Team scope",
   () => {
     it(
-      "assigns newly persisted Notion Tasks to Resolution Team when only Resolution has Ready work",
+      "assigns newly persisted Notion Tasks to the Project's own Team when only that Project has Ready work",
       async () => {
-        const resolutionExternalId =
+        const a =
+          await createRunnableProjectTeam(
+            "a",
+          );
+
+        const b =
+          await createRunnableProjectTeam(
+            "b",
+          );
+
+        const externalId =
           crypto.randomUUID();
 
-        const resolution =
+        const adapterA =
           createTeamAdapter({
-            externalId:
-              resolutionExternalId,
+            externalId,
             priority:
               100,
             createdTime:
               "2099-01-01T00:00:00.000Z",
+            projectPath:
+              a.projectPath,
           });
 
-        const development =
+        const adapterB =
           createTeamAdapter(
             null,
           );
@@ -234,10 +444,10 @@ describe.sequential(
 
         await runTeamScopeCycle(
           {
-            resolution:
-              resolution.adapter,
-            development:
-              development.adapter,
+            [a.notionDataSourceId]:
+              adapterA.adapter,
+            [b.notionDataSourceId]:
+              adapterB.adapter,
           },
           startExistingTask,
         );
@@ -249,14 +459,14 @@ describe.sequential(
             .where(
               eq(
                 tasks.externalId,
-                resolutionExternalId,
+                externalId,
               ),
             );
 
         expect(
           persisted.teamId,
         ).toBe(
-          RESOLUTION_TEAM_ID,
+          a.team.id,
         );
 
         expect(
@@ -272,104 +482,52 @@ describe.sequential(
         );
 
         expect(
-          development.updateStatus,
+          adapterB.updateStatus,
         ).not.toHaveBeenCalled();
       },
     );
 
     it(
-      "assigns newly persisted Notion Tasks to Development Team when only Development has Ready work",
+      "selects the globally lowest-numbered priority candidate across Projects",
       async () => {
-        const developmentExternalId =
-          crypto.randomUUID();
-
-        const resolution =
-          createTeamAdapter(
-            null,
+        const a =
+          await createRunnableProjectTeam(
+            "priority-a",
           );
 
-        const development =
-          createTeamAdapter({
-            externalId:
-              developmentExternalId,
-            priority:
-              100,
-            createdTime:
-              "2099-01-01T00:00:00.000Z",
-          });
+        const b =
+          await createRunnableProjectTeam(
+            "priority-b",
+          );
 
-        const startExistingTask =
-          vi.fn()
-            .mockResolvedValue(
-              {},
-            );
-
-        await runTeamScopeCycle(
-          {
-            resolution:
-              resolution.adapter,
-            development:
-              development.adapter,
-          },
-          startExistingTask,
-        );
-
-        const [persisted] =
-          await db
-            .select()
-            .from(tasks)
-            .where(
-              eq(
-                tasks.externalId,
-                developmentExternalId,
-              ),
-            );
-
-        expect(
-          persisted.teamId,
-        ).toBe(
-          DEVELOPMENT_TEAM_ID,
-        );
-
-        expect(
-          startExistingTask,
-        ).toHaveBeenCalledWith(
-          persisted.id,
-        );
-
-        expect(
-          resolution.updateStatus,
-        ).not.toHaveBeenCalled();
-      },
-    );
-
-    it(
-      "selects the globally lowest-numbered priority candidate across Teams",
-      async () => {
-        const resolutionExternalId =
+        const externalIdA =
           crypto.randomUUID();
 
-        const developmentExternalId =
+        const externalIdB =
           crypto.randomUUID();
 
-        const resolution =
+        const adapterA =
           createTeamAdapter({
             externalId:
-              resolutionExternalId,
+              externalIdA,
             priority:
               7,
             createdTime:
               "2099-01-01T00:00:00.000Z",
+            projectPath:
+              a.projectPath,
           });
 
-        const development =
+        const adapterB =
           createTeamAdapter({
             externalId:
-              developmentExternalId,
+              externalIdB,
             priority:
               1,
             createdTime:
               "2099-01-02T00:00:00.000Z",
+            projectPath:
+              b.projectPath,
           });
 
         const startExistingTask =
@@ -380,23 +538,23 @@ describe.sequential(
 
         await runTeamScopeCycle(
           {
-            resolution:
-              resolution.adapter,
-            development:
-              development.adapter,
+            [a.notionDataSourceId]:
+              adapterA.adapter,
+            [b.notionDataSourceId]:
+              adapterB.adapter,
           },
           startExistingTask,
         );
 
         expect(
-          development.updateStatus,
+          adapterB.updateStatus,
         ).toHaveBeenCalledWith(
-          developmentExternalId,
+          externalIdB,
           "In Progress",
         );
 
         expect(
-          resolution.updateStatus,
+          adapterA.updateStatus,
         ).not.toHaveBeenCalled();
 
         const [loser] =
@@ -406,7 +564,7 @@ describe.sequential(
             .where(
               eq(
                 tasks.externalId,
-                resolutionExternalId,
+                externalIdA,
               ),
             );
 
@@ -417,32 +575,46 @@ describe.sequential(
     );
 
     it(
-      "selects the older Notion page when priority ties across Teams",
+      "selects the older Notion page when priority ties across Projects",
       async () => {
-        const resolutionExternalId =
+        const a =
+          await createRunnableProjectTeam(
+            "tie-time-a",
+          );
+
+        const b =
+          await createRunnableProjectTeam(
+            "tie-time-b",
+          );
+
+        const externalIdA =
           crypto.randomUUID();
 
-        const developmentExternalId =
+        const externalIdB =
           crypto.randomUUID();
 
-        const resolution =
+        const adapterA =
           createTeamAdapter({
             externalId:
-              resolutionExternalId,
+              externalIdA,
             priority:
               100,
             createdTime:
               "2099-01-01T00:00:00.000Z",
+            projectPath:
+              a.projectPath,
           });
 
-        const development =
+        const adapterB =
           createTeamAdapter({
             externalId:
-              developmentExternalId,
+              externalIdB,
             priority:
               100,
             createdTime:
               "2099-01-02T00:00:00.000Z",
+            projectPath:
+              b.projectPath,
           });
 
         const startExistingTask =
@@ -453,23 +625,23 @@ describe.sequential(
 
         await runTeamScopeCycle(
           {
-            resolution:
-              resolution.adapter,
-            development:
-              development.adapter,
+            [a.notionDataSourceId]:
+              adapterA.adapter,
+            [b.notionDataSourceId]:
+              adapterB.adapter,
           },
           startExistingTask,
         );
 
         expect(
-          resolution.updateStatus,
+          adapterA.updateStatus,
         ).toHaveBeenCalledWith(
-          resolutionExternalId,
+          externalIdA,
           "In Progress",
         );
 
         expect(
-          development.updateStatus,
+          adapterB.updateStatus,
         ).not.toHaveBeenCalled();
       },
     );
@@ -477,25 +649,45 @@ describe.sequential(
     it(
       "breaks an exact priority and creation-time tie deterministically by Team id then external id",
       async () => {
+        const a =
+          await createRunnableProjectTeam(
+            "tie-break-a",
+          );
+
+        const b =
+          await createRunnableProjectTeam(
+            "tie-break-b",
+          );
+
+        const [winner, loser] =
+          a.team.id <
+          b.team.id
+            ? [a, b]
+            : [b, a];
+
         const createdTime =
           "2099-01-01T00:00:00.000Z";
 
-        const resolution =
+        const winnerAdapter =
           createTeamAdapter({
             externalId:
               "zzzz-tie-external-id",
             priority:
               100,
             createdTime,
+            projectPath:
+              winner.projectPath,
           });
 
-        const development =
+        const loserAdapter =
           createTeamAdapter({
             externalId:
               "aaaa-tie-external-id",
             priority:
               100,
             createdTime,
+            projectPath:
+              loser.projectPath,
           });
 
         const startExistingTask =
@@ -506,56 +698,70 @@ describe.sequential(
 
         await runTeamScopeCycle(
           {
-            resolution:
-              resolution.adapter,
-            development:
-              development.adapter,
+            [winner.notionDataSourceId]:
+              winnerAdapter.adapter,
+            [loser.notionDataSourceId]:
+              loserAdapter.adapter,
           },
           startExistingTask,
         );
 
-        // RESOLUTION_TEAM_ID < DEVELOPMENT_TEAM_ID lexically, so Resolution wins the stable tie break
-        // regardless of external id ordering.
+        // The lexically smaller Team id wins the stable tie break regardless
+        // of external id ordering.
         expect(
-          resolution.updateStatus,
+          winnerAdapter.updateStatus,
         ).toHaveBeenCalledWith(
           "zzzz-tie-external-id",
           "In Progress",
         );
 
         expect(
-          development.updateStatus,
+          loserAdapter.updateStatus,
         ).not.toHaveBeenCalled();
       },
     );
 
     it(
-      "leaves the losing Team's candidate Ready and unpersisted",
+      "leaves the losing Project's candidate Ready and unpersisted",
       async () => {
-        const resolutionExternalId =
+        const a =
+          await createRunnableProjectTeam(
+            "losing-a",
+          );
+
+        const b =
+          await createRunnableProjectTeam(
+            "losing-b",
+          );
+
+        const externalIdA =
           crypto.randomUUID();
 
-        const developmentExternalId =
+        const externalIdB =
           crypto.randomUUID();
 
-        const resolution =
+        const adapterA =
           createTeamAdapter({
             externalId:
-              resolutionExternalId,
+              externalIdA,
             priority:
               7,
             createdTime:
               "2099-01-01T00:00:00.000Z",
+            projectPath:
+              a.projectPath,
           });
 
-        const development =
+        const adapterB =
           createTeamAdapter({
             externalId:
-              developmentExternalId,
+              externalIdB,
             priority:
               1,
             createdTime:
               "2099-01-01T00:00:00.000Z",
+            projectPath:
+              b.projectPath,
           });
 
         const startExistingTask =
@@ -566,16 +772,16 @@ describe.sequential(
 
         await runTeamScopeCycle(
           {
-            resolution:
-              resolution.adapter,
-            development:
-              development.adapter,
+            [a.notionDataSourceId]:
+              adapterA.adapter,
+            [b.notionDataSourceId]:
+              adapterB.adapter,
           },
           startExistingTask,
         );
 
         expect(
-          resolution.updateStatus,
+          adapterA.updateStatus,
         ).not.toHaveBeenCalled();
 
         const [loserTask] =
@@ -585,7 +791,7 @@ describe.sequential(
             .where(
               eq(
                 tasks.externalId,
-                resolutionExternalId,
+                externalIdA,
               ),
             );
 
@@ -604,7 +810,17 @@ describe.sequential(
     it(
       "never starts more than one Task in a single cycle",
       async () => {
-        const resolution =
+        const a =
+          await createRunnableProjectTeam(
+            "single-a",
+          );
+
+        const b =
+          await createRunnableProjectTeam(
+            "single-b",
+          );
+
+        const adapterA =
           createTeamAdapter({
             externalId:
               crypto.randomUUID(),
@@ -612,9 +828,11 @@ describe.sequential(
               50,
             createdTime:
               "2099-01-01T00:00:00.000Z",
+            projectPath:
+              a.projectPath,
           });
 
-        const development =
+        const adapterB =
           createTeamAdapter({
             externalId:
               crypto.randomUUID(),
@@ -622,6 +840,8 @@ describe.sequential(
               200,
             createdTime:
               "2099-01-01T00:00:00.000Z",
+            projectPath:
+              b.projectPath,
           });
 
         const startExistingTask =
@@ -632,10 +852,10 @@ describe.sequential(
 
         await runTeamScopeCycle(
           {
-            resolution:
-              resolution.adapter,
-            development:
-              development.adapter,
+            [a.notionDataSourceId]:
+              adapterA.adapter,
+            [b.notionDataSourceId]:
+              adapterB.adapter,
           },
           startExistingTask,
         );
@@ -649,18 +869,28 @@ describe.sequential(
     );
 
     it(
-      "does not query any Team's Notion source while another Team's Run is globally active",
+      "does not query any Project's Notion source while another Project's Run is globally active",
       async () => {
+        const a =
+          await createRunnableProjectTeam(
+            "active-a",
+          );
+
+        const b =
+          await createRunnableProjectTeam(
+            "active-b",
+          );
+
         const [activeTask] =
           await db
             .insert(tasks)
             .values({
               teamId:
-                DEVELOPMENT_TEAM_ID,
+                b.team.id,
               projectPath:
-                project.path,
+                b.projectPath,
               title:
-                "Development active run",
+                "Active run",
               instruction:
                 "Keep the global workflow slot occupied.",
               status:
@@ -676,14 +906,14 @@ describe.sequential(
             taskId:
               activeTask.id,
             teamId:
-              DEVELOPMENT_TEAM_ID,
+              b.team.id,
             projectPath:
-              project.path,
+              b.projectPath,
             status:
               "running",
           });
 
-        const resolution =
+        const adapterA =
           createTeamAdapter({
             externalId:
               crypto.randomUUID(),
@@ -691,9 +921,11 @@ describe.sequential(
               100,
             createdTime:
               "2099-01-01T00:00:00.000Z",
+            projectPath:
+              a.projectPath,
           });
 
-        const development =
+        const adapterB =
           createTeamAdapter(
             null,
           );
@@ -703,20 +935,20 @@ describe.sequential(
 
         await runTeamScopeCycle(
           {
-            resolution:
-              resolution.adapter,
-            development:
-              development.adapter,
+            [a.notionDataSourceId]:
+              adapterA.adapter,
+            [b.notionDataSourceId]:
+              adapterB.adapter,
           },
           startExistingTask,
         );
 
         expect(
-          resolution.getNextReadyTask,
+          adapterA.getNextReadyTask,
         ).not.toHaveBeenCalled();
 
         expect(
-          development.getNextReadyTask,
+          adapterB.getNextReadyTask,
         ).not.toHaveBeenCalled();
 
         expect(
@@ -726,85 +958,18 @@ describe.sequential(
     );
 
     it(
-      "does not query any Team's Notion source while Resolution's Run is globally active",
+      "preserves a recoverable pending Task's original Team even while another Project is also eligible",
       async () => {
-        const [activeTask] =
-          await db
-            .insert(tasks)
-            .values({
-              teamId:
-                RESOLUTION_TEAM_ID,
-              projectPath:
-                project.path,
-              title:
-                "Resolution active run",
-              instruction:
-                "Keep the global workflow slot occupied.",
-              status:
-                "running",
-              source:
-                "manual",
-            })
-            .returning();
-
-        await db
-          .insert(runs)
-          .values({
-            taskId:
-              activeTask.id,
-            teamId:
-              RESOLUTION_TEAM_ID,
-            projectPath:
-              project.path,
-            status:
-              "running",
-          });
-
-        const resolution =
-          createTeamAdapter(
-            null,
+        const a =
+          await createRunnableProjectTeam(
+            "recoverable-a",
           );
 
-        const development =
-          createTeamAdapter({
-            externalId:
-              crypto.randomUUID(),
-            priority:
-              100,
-            createdTime:
-              "2099-01-01T00:00:00.000Z",
-          });
+        const b =
+          await createRunnableProjectTeam(
+            "recoverable-b",
+          );
 
-        const startExistingTask =
-          vi.fn();
-
-        await runTeamScopeCycle(
-          {
-            resolution:
-              resolution.adapter,
-            development:
-              development.adapter,
-          },
-          startExistingTask,
-        );
-
-        expect(
-          resolution.getNextReadyTask,
-        ).not.toHaveBeenCalled();
-
-        expect(
-          development.getNextReadyTask,
-        ).not.toHaveBeenCalled();
-
-        expect(
-          startExistingTask,
-        ).not.toHaveBeenCalled();
-      },
-    );
-
-    it(
-      "preserves a recoverable pending Task's original Team even while another Team is also eligible",
-      async () => {
         const recoverableExternalId =
           crypto.randomUUID();
 
@@ -812,13 +977,13 @@ describe.sequential(
           .insert(tasks)
           .values({
             teamId:
-              DEVELOPMENT_TEAM_ID,
+              b.team.id,
             projectPath:
-              project.path,
+              b.projectPath,
             title:
-              "Recoverable Development task",
+              "Recoverable task",
             instruction:
-              "Resume this persisted claim under Development.",
+              "Resume this persisted claim.",
             status:
               "pending",
             source:
@@ -831,7 +996,7 @@ describe.sequential(
               100,
           });
 
-        const resolution =
+        const adapterA =
           createTeamAdapter({
             externalId:
               crypto.randomUUID(),
@@ -839,12 +1004,21 @@ describe.sequential(
               999,
             createdTime:
               "2099-01-01T00:00:00.000Z",
+            projectPath:
+              a.projectPath,
           });
 
-        const development =
-          createTeamAdapter(
-            null,
-          );
+        const adapterB =
+          createTeamAdapter({
+            externalId:
+              recoverableExternalId,
+            priority:
+              100,
+            createdTime:
+              "2099-01-01T00:00:00.000Z",
+            projectPath:
+              b.projectPath,
+          });
 
         const startExistingTask =
           vi.fn()
@@ -854,24 +1028,16 @@ describe.sequential(
 
         await runTeamScopeCycle(
           {
-            resolution:
-              resolution.adapter,
-            development:
-              development.adapter,
+            [a.notionDataSourceId]:
+              adapterA.adapter,
+            [b.notionDataSourceId]:
+              adapterB.adapter,
           },
           startExistingTask,
         );
 
         expect(
-          resolution.getNextReadyTask,
-        ).not.toHaveBeenCalled();
-
-        expect(
-          development.getNextReadyTask,
-        ).not.toHaveBeenCalled();
-
-        expect(
-          development.updateStatus,
+          adapterB.updateStatus,
         ).toHaveBeenCalledWith(
           recoverableExternalId,
           "In Progress",
@@ -891,7 +1057,7 @@ describe.sequential(
         expect(
           recovered.teamId,
         ).toBe(
-          DEVELOPMENT_TEAM_ID,
+          b.team.id,
         );
 
         expect(

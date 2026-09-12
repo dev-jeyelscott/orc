@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -279,16 +279,11 @@ async function createTestAgent(input: {
     .insert(agents)
     .values({
       departmentId: department.id,
-      teamId: RESOLUTION_TEAM_ID,
       slug: `project-document-worker-context-${input.label
         .toLowerCase()
         .replaceAll(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "")}-${crypto.randomUUID()}`,
       name: input.label,
-      description:
-        "End-to-end Project Document worker-context regression agent",
-      layer: layerBase + input.relativeLayer,
-      executionOrder: 1,
       enabled: true,
     })
     .returning();
@@ -299,8 +294,8 @@ async function createTestAgent(input: {
     teamId: RESOLUTION_TEAM_ID,
     departmentId: agent.departmentId,
     agentId: agent.id,
-    layer: agent.layer ?? 1,
-    executionOrder: agent.executionOrder ?? 1,
+    layer: layerBase + input.relativeLayer,
+    executionOrder: 1,
   });
 
   return agent;
@@ -539,7 +534,8 @@ beforeEach(async () => {
       enabled: agents.enabled,
     })
     .from(agents)
-    .where(eq(agents.teamId, RESOLUTION_TEAM_ID));
+    .innerJoin(teamMembers, eq(teamMembers.agentId, agents.id))
+    .where(eq(teamMembers.teamId, RESOLUTION_TEAM_ID));
 
   const [resolutionTeam] = await db
     .select({
@@ -555,7 +551,12 @@ beforeEach(async () => {
     .set({
       enabled: false,
     })
-    .where(eq(agents.teamId, RESOLUTION_TEAM_ID));
+    .where(
+      inArray(
+        agents.id,
+        originalAgentStates.map((state) => state.id),
+      ),
+    );
 
   await db
     .update(teams)

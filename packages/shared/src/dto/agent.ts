@@ -9,10 +9,6 @@ import {
   sandboxModeSchema,
 } from "../enums/sandbox-mode.js";
 import {
-  agentRouteOutcomeSchema,
-  terminalActionSchema,
-} from "../enums/agent-route.js";
-import {
   departmentSchema,
 } from "./department.js";
 
@@ -24,16 +20,14 @@ const overridableTextSchema =
     .nullable()
     .optional();
 
+/**
+ * An Agent is a lightweight, Department-scoped worker instance. Team
+ * placement (layer/order/routes) is owned exclusively by `team_members` and
+ * is never part of Agent identity.
+ */
 const agentFieldsSchema =
   z.object({
     departmentId:
-      z.string().uuid(),
-    /**
-     * Team/layer/order remain the authoritative workflow-topology fields
-     * until the Team Composition and Layered Workflow slice replaces them
-     * with `team_members`. Department inheritance does not change topology.
-     */
-    teamId:
       z.string().uuid(),
     slug:
       z.string()
@@ -49,24 +43,6 @@ const agentFieldsSchema =
         .trim()
         .min(1)
         .max(160),
-    /**
-     * Legacy Team-owned workflow placement, retained only for backward
-     * compatibility. `team_members` (the Team workflow resource) is the
-     * authoritative source of layer/order; new Agents have no placement
-     * until a Team workflow save assigns one.
-     */
-    layer:
-      z.number()
-        .int()
-        .min(1)
-        .nullable()
-        .optional(),
-    executionOrder:
-      z.number()
-        .int()
-        .min(1)
-        .nullable()
-        .optional(),
     enabled:
       z.boolean()
         .default(true),
@@ -126,10 +102,8 @@ export const agentSchema =
     hasReasoningOverride:
       z.boolean(),
     /**
-     * The Agent's current authoritative Team assignment resolved from
-     * `team_members` (null when unassigned). Distinct from the legacy
-     * `teamId` field above, which always carries a compatibility default
-     * and no longer reflects real Team composition.
+     * The Agent's current Team assignment resolved from `team_members`
+     * (null when the Agent is not currently selected onto any Team).
      */
     currentTeamId:
       z.string()
@@ -139,82 +113,6 @@ export const agentSchema =
       z.string().datetime(),
     updatedAt:
       z.string().datetime(),
-  });
-
-const routeTargetFieldsSchema =
-  z.object({
-    targetAgentId:
-      z.string()
-        .uuid()
-        .nullable(),
-    terminalAction:
-      terminalActionSchema
-        .nullable(),
-  });
-
-const agentRouteFieldsSchema =
-  routeTargetFieldsSchema.extend({
-    outcome:
-      agentRouteOutcomeSchema,
-    enabled:
-      z.boolean()
-        .default(true),
-  });
-
-export const createAgentRouteSchema =
-  agentRouteFieldsSchema.superRefine(
-    (
-      value,
-      context,
-    ) => {
-      if (
-        (
-          value.targetAgentId ===
-          null
-        ) ===
-        (
-          value.terminalAction ===
-          null
-        )
-      ) {
-        context.addIssue({
-          code:
-            z.ZodIssueCode.custom,
-          message:
-            "Set exactly one target agent or terminal action",
-        });
-      }
-    },
-  );
-
-export const updateAgentRouteSchema =
-  routeTargetFieldsSchema
-    .partial()
-    .extend({
-      outcome:
-        agentRouteOutcomeSchema.optional(),
-      enabled:
-        z.boolean().optional(),
-    });
-
-export const agentRouteSchema =
-  agentRouteFieldsSchema.extend({
-    id:
-      z.string().uuid(),
-    sourceAgentId:
-      z.string().uuid(),
-    createdAt:
-      z.string().datetime(),
-    updatedAt:
-      z.string().datetime(),
-  });
-
-export const agentWithRoutesSchema =
-  agentSchema.extend({
-    routes:
-      z.array(
-        agentRouteSchema,
-      ),
   });
 
 export const agentListResponseSchema =
@@ -235,16 +133,6 @@ export type EffectiveAgentConfig =
     typeof effectiveAgentConfigSchema
   >;
 
-export type AgentRoute =
-  z.infer<
-    typeof agentRouteSchema
-  >;
-
-export type AgentWithRoutes =
-  z.infer<
-    typeof agentWithRoutesSchema
-  >;
-
 export type CreateAgent =
   z.infer<
     typeof createAgentSchema
@@ -253,14 +141,4 @@ export type CreateAgent =
 export type UpdateAgent =
   z.infer<
     typeof updateAgentSchema
-  >;
-
-export type CreateAgentRoute =
-  z.infer<
-    typeof createAgentRouteSchema
-  >;
-
-export type UpdateAgentRoute =
-  z.infer<
-    typeof updateAgentRouteSchema
   >;

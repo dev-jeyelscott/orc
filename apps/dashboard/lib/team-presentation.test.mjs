@@ -18,8 +18,6 @@ function team(overrides = {}) {
     name: "Platform",
     description: "Platform engineering",
     enabled: true,
-    notionDataSourceId: null,
-    autoModeEnabled: false,
     createdAt: "2026-09-01T00:00:00.000Z",
     updatedAt: "2026-09-10T00:00:00.000Z",
     ...overrides,
@@ -30,11 +28,9 @@ function agent(overrides = {}) {
   return {
     id: "10000000-0000-4000-8000-000000000001",
     departmentId: "20000000-0000-4000-7000-000000000001",
-    teamId: "00000000-0000-4000-8000-000000000001",
+    currentTeamId: "00000000-0000-4000-8000-000000000001",
     slug: "backend-engineer",
     name: "Jordan Diaz",
-    layer: 2,
-    executionOrder: 1,
     enabled: true,
     modelOverride: null,
     reasoningOverride: null,
@@ -152,26 +148,20 @@ test("Agent avatar summary handles Teams with no Agents", () => {
   );
 });
 
-test("Agent memberships are ordered by layer, execution order, and name", () => {
+test("Agent memberships are ordered by name", () => {
   const membersByTeam =
     groupAgentsByTeam([
       agent({
         id: "10000000-0000-4000-8000-000000000003",
         name: "Zulu",
-        layer: 2,
-        executionOrder: 2,
       }),
       agent({
         id: "10000000-0000-4000-8000-000000000002",
         name: "Beta",
-        layer: 1,
-        executionOrder: 2,
       }),
       agent({
         id: "10000000-0000-4000-8000-000000000001",
         name: "Alpha",
-        layer: 1,
-        executionOrder: 1,
       }),
     ]);
 
@@ -180,6 +170,22 @@ test("Agent memberships are ordered by layer, execution order, and name", () => 
       .get("00000000-0000-4000-8000-000000000001")
       .map((member) => member.name),
     ["Alpha", "Beta", "Zulu"],
+  );
+});
+
+test("Agents not currently assigned to a Team are omitted from groupings", () => {
+  const membersByTeam =
+    groupAgentsByTeam([
+      agent({
+        id: "10000000-0000-4000-8000-000000000004",
+        name: "Unassigned",
+        currentTeamId: null,
+      }),
+    ]);
+
+  assert.equal(
+    membersByTeam.size,
+    0,
   );
 });
 

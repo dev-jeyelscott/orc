@@ -224,25 +224,8 @@ export const teams =
         )
           .notNull()
           .default(true),
-      notionDataSourceId:
-        text(
-          "notion_data_source_id",
-        ),
-      autoModeEnabled:
-        boolean(
-          "auto_mode_enabled",
-        )
-          .notNull()
-          .default(false),
       ...timestamps,
     },
-    (table) => [
-      unique(
-        "teams_notion_data_source_id_unique",
-      ).on(
-        table.notionDataSourceId,
-      ),
-    ],
   );
 
 /**
@@ -277,22 +260,6 @@ export const agents =
         uuid("id")
           .primaryKey()
           .defaultRandom(),
-      teamId:
-        uuid(
-          "team_id",
-        )
-          .notNull()
-          .default(
-            RESOLUTION_TEAM_ID,
-          )
-          .references(
-            () =>
-              teams.id,
-            {
-              onDelete:
-                "restrict",
-            },
-          ),
       departmentId:
         uuid(
           "department_id",
@@ -313,76 +280,12 @@ export const agents =
       name:
         text("name")
           .notNull(),
-      /**
-       * Legacy Department-owned defaults, retained nullable for compatibility
-       * and rollback safety. No longer written for new Agents and no longer
-       * read as the source of runtime truth; effective configuration is
-       * resolved from the owning Department plus these Agent-level overrides.
-       */
-      role:
-        text("role"),
-      description:
-        text(
-          "description",
-        )
-          .notNull()
-          .default(""),
-      /**
-       * Legacy Team-owned workflow placement, retained nullable for
-       * compatibility and rollback safety. `team_members` is now the
-       * authoritative source of Team composition, layer, and execution
-       * order; new Agents are created without workflow placement.
-       */
-      layer:
-        integer(
-          "layer",
-        ),
-      executionOrder:
-        integer(
-          "execution_order",
-        ),
-      harness:
-        harnessEnum(
-          "harness",
-        ),
-      model:
-        text("model"),
-      reasoning:
-        text(
-          "reasoning",
-        ),
-      systemPrompt:
-        text(
-          "system_prompt",
-        ),
       enabled:
         boolean(
           "enabled",
         )
           .notNull()
           .default(true),
-      canWrite:
-        boolean(
-          "can_write",
-        )
-          .notNull()
-          .default(false),
-      canRunCommands:
-        boolean(
-          "can_run_commands",
-        )
-          .notNull()
-          .default(false),
-      sandboxMode:
-        sandboxModeEnum(
-          "sandbox_mode",
-        ),
-      canCommit:
-        boolean(
-          "can_commit",
-        )
-          .notNull()
-          .default(false),
       modelOverride:
         text(
           "model_override",
@@ -400,13 +303,6 @@ export const agents =
       ...timestamps,
     },
     (table) => [
-      unique(
-        "agents_team_layer_execution_order_unique",
-      ).on(
-        table.teamId,
-        table.layer,
-        table.executionOrder,
-      ),
       /**
        * Lets `team_members` declare a composite foreign key on
        * (agent_id, department_id) so the database guarantees a Team
@@ -419,84 +315,13 @@ export const agents =
         table.id,
         table.departmentId,
       ),
-      check(
-        "agents_layer_check",
-        sql`${table.layer} >= 1`,
-      ),
-      check(
-        "agents_execution_order_check",
-        sql`${table.executionOrder} >= 1`,
-      ),
-    ],
-  );
-
-export const agentRoutes =
-  pgTable(
-    "agent_routes",
-    {
-      id:
-        uuid("id")
-          .primaryKey()
-          .defaultRandom(),
-      sourceAgentId:
-        uuid(
-          "source_agent_id",
-        )
-          .notNull()
-          .references(
-            () =>
-              agents.id,
-            {
-              onDelete:
-                "cascade",
-            },
-          ),
-      outcome:
-        agentRouteOutcomeEnum(
-          "outcome",
-        ).notNull(),
-      targetAgentId:
-        uuid(
-          "target_agent_id",
-        ).references(
-          () =>
-            agents.id,
-          {
-            onDelete:
-              "cascade",
-          },
-        ),
-      terminalAction:
-        terminalActionEnum(
-          "terminal_action",
-        ),
-      enabled:
-        boolean(
-          "enabled",
-        )
-          .notNull()
-          .default(true),
-      ...timestamps,
-    },
-    (table) => [
-      unique(
-        "agent_routes_source_outcome_unique",
-      ).on(
-        table.sourceAgentId,
-        table.outcome,
-      ),
-      check(
-        "agent_routes_destination_check",
-        sql`(${table.targetAgentId} is null) <> (${table.terminalAction} is null)`,
-      ),
     ],
   );
 
 /**
- * Authoritative Team composition and workflow-placement table. Replaces
- * Agent-owned `team_id`/`layer`/`execution_order` as the live source of
- * Team topology; those legacy Agent columns are retained only for
- * compatibility until Spec 5 removes them.
+ * Authoritative Team composition and workflow-placement table: the sole
+ * source of Team topology (layer/execution order) and, via `agentId`, of an
+ * Agent's current Team assignment.
  */
 export const teamMembers =
   pgTable(

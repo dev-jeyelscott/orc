@@ -45,8 +45,6 @@ describe("department-service", () => {
       departmentId: department.id,
       slug: `department-referenced-agent-${crypto.randomUUID()}`,
       name: "Referenced Agent",
-      layer: 800_000 + Math.floor(Math.random() * 100_000),
-      executionOrder: 1,
     }).returning();
     createdAgentIds.add(agent.id);
 

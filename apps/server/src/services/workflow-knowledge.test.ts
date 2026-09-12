@@ -284,22 +284,10 @@ beforeEach(
         .values({
           departmentId:
             department.id,
-          teamId:
-            RESOLUTION_TEAM_ID,
           slug:
             `phase8-context-synthesizer-${crypto.randomUUID()}`,
           name:
             "Context Synthesizer",
-          description:
-            "Generic Phase 8 worker",
-          layer:
-            1_500_000 +
-            Math.floor(
-              Math.random() *
-                100_000,
-            ),
-          executionOrder:
-            1,
           enabled:
             true,
         })
@@ -318,9 +306,13 @@ beforeEach(
         agentId:
           agent.id,
         layer:
-          agent.layer ?? 1,
+          1_500_000 +
+          Math.floor(
+            Math.random() *
+              100_000,
+          ),
         executionOrder:
-          agent.executionOrder ?? 1,
+          1,
       });
 
     mocks.startSnapshotAgentExecution

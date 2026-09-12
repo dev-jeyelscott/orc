@@ -106,9 +106,6 @@ describe.sequential(
 
         await runAutoModeCycle(
           {
-            isTeamAutomationReady:
-              async () =>
-                true,
             createNotionAdapter,
             startExistingTask,
           },
@@ -125,11 +122,8 @@ describe.sequential(
     );
 
     it(
-      "does no eligibility, source, or claim work when no Team is automation-ready",
+      "does no source or claim work when no Project has an automation-ready Team",
       async () => {
-        const evaluateEligibility =
-          vi.fn();
-
         const createNotionAdapter =
           vi.fn();
 
@@ -138,18 +132,10 @@ describe.sequential(
 
         await runAutoModeCycle(
           {
-            isTeamAutomationReady:
-              async () =>
-                false,
-            evaluateEligibility,
             createNotionAdapter,
             startExistingTask,
           },
         );
-
-        expect(
-          evaluateEligibility,
-        ).not.toHaveBeenCalled();
 
         expect(
           createNotionAdapter,
