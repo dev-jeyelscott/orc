@@ -10,6 +10,10 @@ import {
   projectDocumentProvenanceCollectionSchema,
 } from "./project-document.js";
 
+import {
+  knowledgeRequirementCollectionSchema,
+} from "./knowledge-requirement.js";
+
 const commitHashSchema = z
   .string()
   .trim()
@@ -36,6 +40,12 @@ export const agentResultSchema = z.strictObject({
       .optional(),
   projectDocumentRefs:
     projectDocumentProvenanceCollectionSchema
+      .optional(),
+  // Emitted by an upstream agent (typically an architect/planning agent, but the
+  // contract is generic) to explicitly declare durable knowledge the next worker must
+  // use. See apps/server/src/services/workflow-service.ts for the required-knowledge gate.
+  knowledgeRequirements:
+    knowledgeRequirementCollectionSchema
       .optional(),
 });
 

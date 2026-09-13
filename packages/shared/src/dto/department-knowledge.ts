@@ -21,7 +21,7 @@ export const departmentKnowledgeResponseSchema = z.object({
 /** Replaces the full set of primary Knowledge Categories declared by one Department. */
 export const putDepartmentKnowledgeSchema = z
   .object({
-    knowledgeCategoryIds: z.array(z.string().uuid()).max(50).default([]),
+    knowledgeCategoryIds: z.array(z.string().uuid()).max(50),
   })
   .strict();
 

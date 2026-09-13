@@ -4,7 +4,9 @@ import {
 
 import type {
   AgentResult,
+  KnowledgeCategory,
   KnowledgeRef,
+  KnowledgeRequirement,
   UploadedProjectDocumentContextRef,
 } from "@orc/shared";
 
@@ -18,11 +20,12 @@ export const RESULT_BLOCK_END = "</orc-result>";
 const RESULT_CONTRACT = [
   "Structured completion contract:",
   `As the very last content of your final message, emit exactly one JSON object wrapped in ${RESULT_BLOCK_START} and ${RESULT_BLOCK_END}. The closing ${RESULT_BLOCK_END} tag must be the final non-whitespace content of the message. The JSON object must match this shape:`,
-  '{"status":"completed"|"approved"|"changes_requested"|"blocked"|"failed","summary":"string","details":{},"findings":["string"],"filesChanged":["string"],"commandsRun":["string"],"validation":{},"commit":"hex Git commit hash or null","knowledgeRefs":[{"source":"vault","path":"vault-relative note path","heading":"optional heading"}],"projectDocumentRefs":[{"source":"project_document","documentId":"UUID","fileName":"document.md","documentContentHash":"lowercase SHA-256","chunkSequence":0,"chunkContentHash":"lowercase SHA-256","heading":"optional heading"}]}',
+  '{"status":"completed"|"approved"|"changes_requested"|"blocked"|"failed","summary":"string","details":{},"findings":["string"],"filesChanged":["string"],"commandsRun":["string"],"validation":{},"commit":"hex Git commit hash or null","knowledgeRefs":[{"source":"vault","path":"vault-relative note path","heading":"optional heading"}],"projectDocumentRefs":[{"source":"project_document","documentId":"UUID","fileName":"document.md","documentContentHash":"lowercase SHA-256","chunkSequence":0,"chunkContentHash":"lowercase SHA-256","heading":"optional heading"}],"knowledgeRequirements":[{"categorySlug":"kebab-case Knowledge Category slug","query":"string","reason":"string","required":true}]}',
   `Field notes: \`summary\` is required and must be non-empty. \`details\`, \`findings\`, \`filesChanged\`, \`commandsRun\`, and \`validation\` may be empty but should be present as their respective empty value if you have nothing to report. \`commit\` must be a Git commit hash attributable to this logical execution, or null if no commit was created. \`knowledgeRefs\` is optional and should contain only bounded durable vault references that materially informed this execution. \`projectDocumentRefs\` is optional and may contain at most ${MAX_PROJECT_DOCUMENT_CONTEXT_ITEMS} supplied Project Document references that materially informed this execution.`,
   "Do not copy complete vault note bodies into `knowledgeRefs`. Prefer source, path, and optional heading provenance.",
   "For `projectDocumentRefs`, copy source, documentId, fileName, documentContentHash, chunkSequence, chunkContentHash, and optional heading exactly from the supplied Project Document context. Do not copy excerpts or full document bodies into the structured result.",
   "Do not report Project Document references that were not supplied in the worker context. Omit `projectDocumentRefs` when no supplied Project Document reference materially informed the execution.",
+  "`knowledgeRequirements` is optional. Only populate it when planning or handoff work makes it clear the next worker in this workflow must use specific durable knowledge before proceeding. Each entry names a Knowledge Category slug, a search query, a short reason, and whether it is strictly `required`. Omit it entirely when this execution is not declaring knowledge requirements for a downstream worker.",
   `Do not include code fences or commentary inside ${RESULT_BLOCK_START} and ${RESULT_BLOCK_END}. Do not emit a second result block.`,
 ].join("\n");
 
@@ -242,6 +245,41 @@ export function composeIngestionInstruction(input: {
 }
 
 /**
+ * Formats an upstream agent's explicit `knowledgeRequirements` declaration for the
+ * downstream worker that must honor it. Every requirement here already resolved
+ * against an enabled Knowledge Category before this note was composed (see the
+ * required-knowledge gate in workflow-service.ts); a `required: true` entry that could
+ * not resolve blocks the handoff entirely instead of reaching this function.
+ */
+export function composeKnowledgeRequirementNote(
+  requirements: readonly (KnowledgeRequirement & {
+    category: Pick<KnowledgeCategory, "slug" | "name">;
+  })[],
+): string | null {
+  if (!requirements.length) {
+    return null;
+  }
+
+  const lines = [
+    "Required knowledge:",
+    "",
+    "The previous agent explicitly declared that this execution must consult the following durable knowledge before proceeding. Use your read-only knowledge retrieval capability to search each declared category with the given query before completing required work that depends on it.",
+  ];
+
+  requirements.forEach((requirement, index) => {
+    lines.push(
+      "",
+      `Requirement ${index + 1}${requirement.required ? " (required)" : " (optional)"}`,
+      `Category: ${requirement.category.name} (${requirement.categorySlug})`,
+      `Query: ${requirement.query}`,
+      `Reason: ${requirement.reason}`,
+    );
+  });
+
+  return lines.join("\n");
+}
+
+/**
  * Composes structured prior-agent context for the next configured workflow execution
  * while retaining only lightweight durable knowledge and Project Document provenance.
  */
@@ -325,6 +363,16 @@ export function composeHandoffNote(
 
   if (result.commit) {
     lines.push(`Commit: ${result.commit}`);
+  }
+
+  if (result.knowledgeRequirements?.length) {
+    lines.push(
+      "Declared knowledge requirements:",
+      ...result.knowledgeRequirements.map(
+        (requirement) =>
+          `- ${requirement.categorySlug}${requirement.required ? " (required)" : " (optional)"}: ${requirement.query}`,
+      ),
+    );
   }
 
   return lines.join("\n");

@@ -12,6 +12,7 @@ export * from "./agent-result.js";
 export * from "./conversation.js";
 export * from "./knowledge.js";
 export * from "./knowledge-category.js";
+export * from "./knowledge-requirement.js";
 export * from "./skill.js";
 export * from "./knowledge-ingestion.js";
 export * from "./project-document.js";

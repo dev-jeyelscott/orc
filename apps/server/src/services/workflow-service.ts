@@ -16,7 +16,9 @@ import {
   type AgentResult,
   type AgentResultStatus,
   type CreateTask,
+  type KnowledgeCategory,
   type KnowledgeRef,
+  type KnowledgeRequirement,
   type RetryRun,
   type Run,
   type Task,
@@ -49,8 +51,13 @@ import {
 import {
   composeHandoffNote,
   composeKnowledgeContext,
+  composeKnowledgeRequirementNote,
   composeTaskDocumentContext,
 } from "../runtime/index.js";
+
+import {
+  getKnowledgeCategoryBySlug,
+} from "./knowledge-category-service.js";
 
 import {
   cancelLiveExecution,
@@ -1940,10 +1947,94 @@ async function handleExecutionFinalization(
         )
       : undefined;
 
+  const knowledgeRequirements =
+    applied.result?.knowledgeRequirements ??
+    [];
+
+  let knowledgeRequirementNote:
+    string | undefined;
+
+  if (
+    knowledgeRequirements.length >
+    0
+  ) {
+    const resolved:
+      Array<
+        KnowledgeRequirement & {
+          category: Pick<
+            KnowledgeCategory,
+            "slug" | "name"
+          >;
+        }
+      > = [];
+
+    for (
+      const requirement of knowledgeRequirements
+    ) {
+      const category =
+        await getKnowledgeCategoryBySlug(
+          requirement.categorySlug,
+        );
+
+      if (
+        !category ||
+        !category.enabled
+      ) {
+        if (
+          requirement.required
+        ) {
+          await updateTerminal(
+            applied.run,
+            "blocked",
+            `Required knowledge category "${requirement.categorySlug}" declared by ${applied.sourceAgent?.name ?? "the previous agent"} could not be resolved: ${
+              category
+                ? "the category is disabled"
+                : "no such Knowledge Category exists"
+            }.`,
+            applied.run
+              .currentAgentId ??
+              undefined,
+          );
+
+          return;
+        }
+
+        // An optional requirement that cannot resolve is silently omitted rather than
+        // blocking the handoff.
+        continue;
+      }
+
+      resolved.push({
+        ...requirement,
+        category: {
+          slug:
+            category.slug,
+          name:
+            category.name,
+        },
+      });
+    }
+
+    knowledgeRequirementNote =
+      composeKnowledgeRequirementNote(
+        resolved,
+      ) ??
+      undefined;
+  }
+
   await launchClaimedAgent(
     applied.run,
     applied.targetAgent,
-    handoffNote,
+    [
+      handoffNote,
+      knowledgeRequirementNote,
+    ]
+      .filter(
+        (value): value is string =>
+          Boolean(value),
+      )
+      .join("\n\n") ||
+      undefined,
   );
 }
 

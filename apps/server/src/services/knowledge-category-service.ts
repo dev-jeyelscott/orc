@@ -115,6 +115,18 @@ export async function getKnowledgeCategory(
   return category ? serializeKnowledgeCategory(category) : null;
 }
 
+/** Gets one Knowledge Category by slug, used to resolve handoff-declared requirements. */
+export async function getKnowledgeCategoryBySlug(
+  slug: string,
+): Promise<KnowledgeCategory | null> {
+  const [category] = await db
+    .select()
+    .from(knowledgeCategories)
+    .where(eq(knowledgeCategories.slug, slug));
+
+  return category ? serializeKnowledgeCategory(category) : null;
+}
+
 /** Creates one Knowledge Category configuration. */
 export async function createKnowledgeCategory(
   input: CreateKnowledgeCategory,

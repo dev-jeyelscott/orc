@@ -22,6 +22,7 @@ export {
   composeIngestionInstruction,
   composeInitialInstruction,
   composeKnowledgeContext,
+  composeKnowledgeRequirementNote,
   composeTaskDocumentContext,
   composeRepairInstruction,
   RESULT_BLOCK_END,
