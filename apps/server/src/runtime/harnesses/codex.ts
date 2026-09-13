@@ -4,6 +4,51 @@ import type {
   UnsequencedRuntimeEvent,
 } from "../contracts.js";
 
+import { getKnowledgeMcpServerConfig } from "../../services/knowledge-mcp-client.js";
+
+const KNOWLEDGE_MCP_SERVER_NAME = "knowledge_vault";
+
+/** Serializes one string as a quoted TOML value for a `-c key=value` override. */
+function tomlString(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+/** Serializes a flat string map as a TOML inline table for a `-c key=value` override. */
+function tomlInlineTable(values: Record<string, string>): string {
+  const entries = Object.entries(values)
+    .map(([key, value]) => `${tomlString(key)} = ${tomlString(value)}`)
+    .join(", ");
+
+  return `{ ${entries} }`;
+}
+
+/**
+ * Builds the `-c mcp_servers.<name>.*` overrides that grant this Codex invocation the
+ * same read-only standalone knowledge MCP server ORC's own process consumes (Slice 8).
+ * Returns an empty array when no knowledge MCP command is configured.
+ */
+function knowledgeMcpConfigArgs(): string[] {
+  const knowledgeServer = getKnowledgeMcpServerConfig();
+
+  if (!knowledgeServer) {
+    return [];
+  }
+
+  const args: string[] = [
+    "-c",
+    `mcp_servers.${KNOWLEDGE_MCP_SERVER_NAME}.command=${tomlString(knowledgeServer.command)}`,
+  ];
+
+  if (Object.keys(knowledgeServer.env).length > 0) {
+    args.push(
+      "-c",
+      `mcp_servers.${KNOWLEDGE_MCP_SERVER_NAME}.env=${tomlInlineTable(knowledgeServer.env)}`,
+    );
+  }
+
+  return args;
+}
+
 const CODEX_REASONING_LEVELS = new Set([
   "none",
   "low",
@@ -111,6 +156,10 @@ export const codexHarness: HarnessAdapter = {
         `model_reasoning_effort=${input.agent.reasoning}`,
         "--sandbox",
         sandboxMode,
+        // Read-only durable knowledge retrieval (Slice 8), granted regardless of
+        // sandbox/write/command capability. Absent when no knowledge MCP command is
+        // configured.
+        ...knowledgeMcpConfigArgs(),
         prompt,
       ],
       cwd: input.projectPath,

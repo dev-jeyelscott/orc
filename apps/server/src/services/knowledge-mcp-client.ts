@@ -244,6 +244,36 @@ function createKnowledgeMcpEnvironment():
   return environment;
 }
 
+export type KnowledgeMcpServerConfig = {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+};
+
+/**
+ * Describes the same read-only standalone knowledge MCP server this process consumes,
+ * shaped for embedding into a worker harness's own native MCP configuration (Slice 8).
+ * Returns null when no knowledge MCP command is configured, so harnesses can skip
+ * granting retrieval capability entirely rather than pointing workers at nothing.
+ */
+export function getKnowledgeMcpServerConfig(): KnowledgeMcpServerConfig | null {
+  const command = env.KNOWLEDGE_MCP_COMMAND;
+
+  if (!command) {
+    return null;
+  }
+
+  const workerEnv: Record<string, string> = {};
+
+  for (const [name, value] of Object.entries(process.env)) {
+    if (name.startsWith("KNOWLEDGE_VAULT_") && typeof value === "string") {
+      workerEnv[name] = value;
+    }
+  }
+
+  return { command, args: [], env: workerEnv };
+}
+
 /**
  * Adds a hard consumer-side timeout around MCP connection and tool promises.
  */

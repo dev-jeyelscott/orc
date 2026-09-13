@@ -14,6 +14,10 @@ import type {
   StartWorkerInput,
 } from "./contracts.js";
 
+import {
+  getKnowledgeMcpServerConfig,
+} from "../services/knowledge-mcp-client.js";
+
 export const RESULT_BLOCK_START = "<orc-result>";
 export const RESULT_BLOCK_END = "</orc-result>";
 
@@ -27,6 +31,15 @@ const RESULT_CONTRACT = [
   "Do not report Project Document references that were not supplied in the worker context. Omit `projectDocumentRefs` when no supplied Project Document reference materially informed the execution.",
   "`knowledgeRequirements` is optional. Only populate it when planning or handoff work makes it clear the next worker in this workflow must use specific durable knowledge before proceeding. Each entry names a Knowledge Category slug, a search query, a short reason, and whether it is strictly `required`. Omit it entirely when this execution is not declaring knowledge requirements for a downstream worker.",
   `Do not include code fences or commentary inside ${RESULT_BLOCK_START} and ${RESULT_BLOCK_END}. Do not emit a second result block.`,
+].join("\n");
+
+const KNOWLEDGE_RETRIEVAL_GUIDANCE = [
+  "You have a read-only durable knowledge retrieval tool available. Use it to search and read exact vault sections beyond whatever pre-resolved context you were already given, when the task genuinely needs it.",
+  "This retrieval capability is strictly read-only. You cannot write, create, or delete anything in the vault through it, and it never grants you commit access to the vault.",
+  "A durable knowledge category assigned to your Department is a discovery hint, not a restriction: you may search any approved category when relevant, not only that one.",
+  "If a previous agent declared required knowledge for this execution, satisfy it using this retrieval tool with the given category and query before completing dependent work.",
+  "When an approved, project-specific design system or guidance conflicts with generic global durable knowledge, follow the project-specific guidance and note the conflict in your result.",
+  "If a retrieved note materially informed this execution, report it in the structured result's `knowledgeRefs` with source, path, and optional heading. A failed or unavailable retrieval is not evidence that no such knowledge exists; do not claim otherwise in your result.",
 ].join("\n");
 
 const SAFE_COMMAND_GUIDANCE = [
@@ -163,6 +176,10 @@ export function composeInitialInstruction(
       : "Strictly do not create Git commits. Leave the result's `commit` field null.",
   ].join(" ");
 
+  const knowledgeRetrievalNote = getKnowledgeMcpServerConfig()
+    ? ["", "Durable knowledge retrieval guidance (prompt-enforced):", KNOWLEDGE_RETRIEVAL_GUIDANCE]
+    : [];
+
   return [
     "You are a configured engineering worker operating directly in the selected repository.",
     `Selected repository: ${projectPath}`,
@@ -175,6 +192,7 @@ export function composeInitialInstruction(
     "",
     "Capability guidance (prompt-enforced):",
     capabilityGuidance,
+    ...knowledgeRetrievalNote,
     "",
     "Safe command guidance (prompt-enforced):",
     SAFE_COMMAND_GUIDANCE,

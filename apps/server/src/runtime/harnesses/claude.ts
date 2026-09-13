@@ -4,6 +4,15 @@ import type {
   UnsequencedRuntimeEvent,
 } from "../contracts.js";
 
+import { getKnowledgeMcpServerConfig } from "../../services/knowledge-mcp-client.js";
+
+/** Namespaced tool names Claude exposes for one MCP server registered under this key. */
+const KNOWLEDGE_MCP_SERVER_NAME = "knowledge_vault";
+const KNOWLEDGE_MCP_ALLOWED_TOOLS = [
+  `mcp__${KNOWLEDGE_MCP_SERVER_NAME}__search_knowledge`,
+  `mcp__${KNOWLEDGE_MCP_SERVER_NAME}__get_note_section`,
+];
+
 const CLAUDE_EFFORT_LEVELS = new Set([
   "low",
   "medium",
@@ -78,9 +87,16 @@ export const claudeHarness: HarnessAdapter = {
       );
     }
 
+    // Read-only durable knowledge retrieval (Slice 8): the same standalone MCP server
+    // consumed server-side is offered to the worker itself, restricted to the two
+    // approved read-only tools regardless of write/command capability. Absent when the
+    // knowledge MCP command is not configured, so workers never point at nothing.
+    const knowledgeServer = getKnowledgeMcpServerConfig();
+
     const allowedTools = [
       ...(input.agent.canWrite ? ["Edit", "Write", "NotebookEdit"] : []),
       ...(input.agent.canRunCommands ? ["Bash"] : []),
+      ...(knowledgeServer ? KNOWLEDGE_MCP_ALLOWED_TOOLS : []),
     ];
 
     return {
@@ -100,6 +116,24 @@ export const claudeHarness: HarnessAdapter = {
         // auto-denied instead of stalling the session waiting for approval.
         "--permission-prompts",
         "none",
+        ...(knowledgeServer
+          ? [
+              "--mcp-config",
+              JSON.stringify({
+                mcpServers: {
+                  [KNOWLEDGE_MCP_SERVER_NAME]: {
+                    type: "stdio",
+                    command: knowledgeServer.command,
+                    args: knowledgeServer.args,
+                    env: knowledgeServer.env,
+                  },
+                },
+              }),
+              // Ignore any ambient/project MCP configuration so a worker only ever
+              // gets the one knowledge server ORC explicitly grants it here.
+              "--strict-mcp-config",
+            ]
+          : []),
         // Passed as a single "--flag=value" token: --allowedTools takes a
         // variadic list, so a separate argv element would swallow the
         // trailing prompt argument as an additional tool name.
