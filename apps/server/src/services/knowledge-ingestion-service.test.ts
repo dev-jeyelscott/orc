@@ -30,9 +30,11 @@ const {
 const { createKnowledgeCategory } = await import("./knowledge-category-service.js");
 const {
   KnowledgeIngestionServiceError,
+  computeBatchReadiness,
   createIngestionBatch,
   getIngestionBatch,
   listIngestionBatches,
+  reviewProposal,
   startIngestionAnalysis,
 } = await import("./knowledge-ingestion-service.js");
 
@@ -504,5 +506,152 @@ describe("knowledge-ingestion-service", () => {
     delete process.env.KNOWLEDGE_VAULT_ROOT;
 
     await expect(startIngestionAnalysis(batch.id)).rejects.toBeInstanceOf(KnowledgeIngestionServiceError);
+  });
+});
+
+describe("knowledge-ingestion-service review queue", () => {
+  /** Analyzes a batch to review_ready with one CREATE, one CONFLICT, and one NO_CHANGE proposal. */
+  async function reviewReadyBatch(label: string) {
+    const { category } = await configuredCategory(label);
+    const finalizer = captureFinalizer();
+
+    const batch = await createIngestionBatch(category.id, {
+      sourceFileName: "knowledge.md",
+      sourceMediaType: "text/markdown",
+      sourceContent: "# Notes\n\nDurable guidance.",
+    });
+
+    await startIngestionAnalysis(batch.id);
+
+    await finalizer.invoke({
+      executionId: crypto.randomUUID(),
+      status: "completed",
+      resultStatus: "completed",
+      failureReason: null,
+      result: completedResult([
+        validDraftProposal(category.vaultRootPath, { targetPath: `${category.vaultRootPath}/new.md` }),
+        validDraftProposal(category.vaultRootPath, {
+          operation: "CONFLICT",
+          targetPath: `${category.vaultRootPath}/conflicting.md`,
+          conflictDetails: "Contradicts existing canonical guidance.",
+        }),
+        validDraftProposal(category.vaultRootPath, {
+          operation: "NO_CHANGE",
+          targetPath: `${category.vaultRootPath}/existing.md`,
+        }),
+      ]),
+    });
+
+    const detail = await getIngestionBatch(batch.id);
+    if (!detail) throw new Error("Batch detail unexpectedly missing");
+
+    return { category, batch: detail.batch, proposals: detail.proposals };
+  }
+
+  it("blocks readiness while any actionable proposal is pending", async () => {
+    const { batch, proposals } = await reviewReadyBatch("pending-blocks");
+
+    const readiness = computeBatchReadiness(batch, proposals);
+    expect(readiness.ready).toBe(false);
+    expect(readiness.pendingCount).toBe(2);
+    expect(readiness.blockingReasons.some((reason) => reason.includes("awaiting a decision"))).toBe(true);
+  });
+
+  it("does not let NO_CHANGE proposals block readiness even while pending", async () => {
+    const { batch, proposals } = await reviewReadyBatch("no-change-nonblocking");
+    const create = proposals.find((p) => p.operation === "CREATE")!;
+    const conflict = proposals.find((p) => p.operation === "CONFLICT")!;
+
+    await reviewProposal(batch.id, create.id, { reviewStatus: "approved" });
+    await reviewProposal(batch.id, conflict.id, { reviewStatus: "denied" });
+
+    const detail = await getIngestionBatch(batch.id);
+    expect(detail?.readiness.ready).toBe(true);
+    expect(detail?.readiness.noChangeCount).toBe(1);
+    expect(detail?.proposals.find((p) => p.operation === "NO_CHANGE")?.reviewStatus).toBe("pending");
+  });
+
+  it("blocks readiness until a CONFLICT is explicitly approved or denied", async () => {
+    const { batch, proposals } = await reviewReadyBatch("conflict-blocks");
+    const create = proposals.find((p) => p.operation === "CREATE")!;
+    const conflict = proposals.find((p) => p.operation === "CONFLICT")!;
+
+    await reviewProposal(batch.id, create.id, { reviewStatus: "approved" });
+
+    let detail = await getIngestionBatch(batch.id);
+    expect(detail?.readiness.ready).toBe(false);
+    expect(detail?.readiness.unresolvedConflictCount).toBe(1);
+
+    await reviewProposal(batch.id, conflict.id, { reviewStatus: "denied" });
+
+    detail = await getIngestionBatch(batch.id);
+    expect(detail?.readiness.ready).toBe(true);
+    expect(detail?.readiness.unresolvedConflictCount).toBe(0);
+  });
+
+  it("blocks readiness while a proposal remains needs_changes", async () => {
+    const { batch, proposals } = await reviewReadyBatch("needs-changes-blocks");
+    const create = proposals.find((p) => p.operation === "CREATE")!;
+    const conflict = proposals.find((p) => p.operation === "CONFLICT")!;
+
+    await reviewProposal(batch.id, create.id, { reviewStatus: "needs_changes", reviewerNote: "Tighten the wording." });
+    await reviewProposal(batch.id, conflict.id, { reviewStatus: "denied" });
+
+    const detail = await getIngestionBatch(batch.id);
+    expect(detail?.readiness.ready).toBe(false);
+    expect(detail?.readiness.needsChangesCount).toBe(1);
+  });
+
+  it("persists a reviewer note and retains it across a later decision change", async () => {
+    const { batch, proposals } = await reviewReadyBatch("note-persists");
+    const create = proposals.find((p) => p.operation === "CREATE")!;
+
+    const first = await reviewProposal(batch.id, create.id, {
+      reviewStatus: "needs_changes",
+      reviewerNote: "Please cite a source.",
+    });
+    expect(first.reviewerNote).toBe("Please cite a source.");
+
+    const second = await reviewProposal(batch.id, create.id, { reviewStatus: "approved" });
+    expect(second.reviewerNote).toBe("Please cite a source.");
+
+    const third = await reviewProposal(batch.id, create.id, { reviewStatus: "denied", reviewerNote: null });
+    expect(third.reviewerNote).toBeNull();
+  });
+
+  it("retains a denied proposal permanently rather than deleting it", async () => {
+    const { batch, proposals } = await reviewReadyBatch("denied-retained");
+    const create = proposals.find((p) => p.operation === "CREATE")!;
+
+    await reviewProposal(batch.id, create.id, { reviewStatus: "denied" });
+
+    const detail = await getIngestionBatch(batch.id);
+    const denied = detail?.proposals.find((p) => p.id === create.id);
+    expect(denied?.reviewStatus).toBe("denied");
+    expect(denied).toBeDefined();
+  });
+
+  it("rejects an unknown proposal id for a real batch", async () => {
+    const { batch } = await reviewReadyBatch("unknown-proposal");
+
+    await expect(
+      reviewProposal(batch.id, crypto.randomUUID(), { reviewStatus: "approved" }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("rejects reviewing a proposal once its batch is no longer review_ready or failed", async () => {
+    const { category } = await configuredCategory("not-reviewable");
+    captureFinalizer();
+
+    const batch = await createIngestionBatch(category.id, {
+      sourceFileName: "knowledge.md",
+      sourceMediaType: "text/markdown",
+      sourceContent: "# Notes\n\nDurable guidance.",
+    });
+
+    // Still "uploaded" — analysis has not produced any proposal yet.
+    await expect(
+      reviewProposal(batch.id, crypto.randomUUID(), { reviewStatus: "approved" }),
+    ).rejects.toMatchObject({ statusCode: 409 });
   });
 });

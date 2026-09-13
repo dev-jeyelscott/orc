@@ -44,6 +44,7 @@ import {
 } from "@/lib/knowledge";
 import { getAgents } from "@/lib/agents";
 import { getSkills } from "@/lib/skills";
+import { ReviewQueueTab } from "@/components/knowledge-review-queue";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unable to load Knowledge Category";
@@ -143,12 +144,16 @@ export function KnowledgeCategoryWorkspace({ categoryId }: { categoryId: string 
         <TabsList>
           <TabsTrigger value="vault-files">Vault Files</TabsTrigger>
           <TabsTrigger value="ingest">Ingest</TabsTrigger>
+          <TabsTrigger value="review-queue">Review Queue</TabsTrigger>
         </TabsList>
         <TabsContent value="vault-files">
           <VaultFilesTab category={category} />
         </TabsContent>
         <TabsContent value="ingest">
           <IngestTab category={category} />
+        </TabsContent>
+        <TabsContent value="review-queue">
+          <ReviewQueueTab category={category} />
         </TabsContent>
       </Tabs>
     </Workspace>

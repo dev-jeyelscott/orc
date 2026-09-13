@@ -6,6 +6,8 @@ import {
   knowledgeIngestionBatchDetailResponseSchema,
   knowledgeIngestionBatchListResponseSchema,
   knowledgeIngestionBatchSchema,
+  knowledgeProposalSchema,
+  submitKnowledgeIngestionBatchResponseSchema,
   type CreateKnowledgeCategory,
   type CreateKnowledgeIngestionBatch,
   type KnowledgeCategory,
@@ -13,6 +15,9 @@ import {
   type KnowledgeCategoryFileListResponse,
   type KnowledgeIngestionBatch,
   type KnowledgeIngestionBatchDetailResponse,
+  type KnowledgeProposal,
+  type ReviewKnowledgeProposal,
+  type SubmitKnowledgeIngestionBatchResponse,
   type UpdateKnowledgeCategory,
 } from "@orc/shared";
 
@@ -255,4 +260,36 @@ export async function startKnowledgeIngestionAnalysis(batchId: string): Promise<
   }
 
   return knowledgeIngestionBatchSchema.parse(await response.json());
+}
+
+/** Records an operator's explicit decision (approve/deny/needs changes) on one proposal. */
+export async function reviewKnowledgeProposal(
+  batchId: string,
+  proposalId: string,
+  input: ReviewKnowledgeProposal,
+): Promise<KnowledgeProposal> {
+  const response = await fetch(`${SERVER_URL}/api/knowledge/ingestions/${batchId}/proposals/${proposalId}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return knowledgeProposalSchema.parse(await response.json());
+}
+
+/** Submits one review-ready batch: applies approved proposals and creates one Git commit. */
+export async function submitKnowledgeIngestionBatch(batchId: string): Promise<SubmitKnowledgeIngestionBatchResponse> {
+  const response = await fetch(`${SERVER_URL}/api/knowledge/ingestions/${batchId}/submit`, {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return submitKnowledgeIngestionBatchResponseSchema.parse(await response.json());
 }

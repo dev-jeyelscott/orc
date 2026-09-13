@@ -14,6 +14,8 @@ export const MAX_KNOWLEDGE_PROPOSAL_EVIDENCE_CHARS = 500;
 
 export const MAX_KNOWLEDGE_PROPOSALS_PER_BATCH = 50;
 
+export const MAX_KNOWLEDGE_REVIEWER_NOTE_CHARS = 2_000;
+
 export const knowledgeContentHashSchema = z
   .string()
   .regex(/^[0-9a-f]{64}$/, "Content hashes must be lowercase SHA-256 hex values");
@@ -145,18 +147,63 @@ export const knowledgeIngestionBatchListResponseSchema = z.object({
   batches: z.array(knowledgeIngestionBatchSchema),
 });
 
+/**
+ * Decision an operator may explicitly set on one proposal. `pending` is the initial
+ * server-assigned state and is never an accepted client input.
+ */
+export const knowledgeProposalReviewDecisionSchema = z.enum(["approved", "denied", "needs_changes"]);
+
+export const reviewKnowledgeProposalSchema = z
+  .object({
+    reviewStatus: knowledgeProposalReviewDecisionSchema,
+    reviewerNote: z.string().trim().max(MAX_KNOWLEDGE_REVIEWER_NOTE_CHARS).nullable().optional(),
+  })
+  .strict();
+
+/**
+ * Deterministic computation of whether a batch's proposals are all in a submittable state.
+ * `NO_CHANGE` proposals are never actionable and never block submission.
+ */
+export const knowledgeIngestionBatchReadinessSchema = z
+  .object({
+    ready: z.boolean(),
+    totalProposals: z.number().int().nonnegative(),
+    actionableProposals: z.number().int().nonnegative(),
+    pendingCount: z.number().int().nonnegative(),
+    needsChangesCount: z.number().int().nonnegative(),
+    unresolvedConflictCount: z.number().int().nonnegative(),
+    approvedCount: z.number().int().nonnegative(),
+    deniedCount: z.number().int().nonnegative(),
+    noChangeCount: z.number().int().nonnegative(),
+    blockingReasons: z.array(z.string()),
+  })
+  .strict();
+
 export const knowledgeIngestionBatchDetailResponseSchema = z.object({
   batch: knowledgeIngestionBatchSchema,
   proposals: z.array(knowledgeProposalSchema),
+  readiness: knowledgeIngestionBatchReadinessSchema,
+});
+
+export const submitKnowledgeIngestionBatchResponseSchema = z.object({
+  batch: knowledgeIngestionBatchSchema,
+  appliedCount: z.number().int().nonnegative(),
+  deniedCount: z.number().int().nonnegative(),
+  noChangeCount: z.number().int().nonnegative(),
+  commitSha: z.string().nullable(),
 });
 
 export type KnowledgeIngestionBatchStatus = z.infer<typeof knowledgeIngestionBatchStatusSchema>;
 export type KnowledgeProposalOperation = z.infer<typeof knowledgeProposalOperationSchema>;
 export type KnowledgeProposalConfidenceLevel = z.infer<typeof knowledgeProposalConfidenceLevelSchema>;
 export type KnowledgeProposalReviewStatus = z.infer<typeof knowledgeProposalReviewStatusSchema>;
+export type KnowledgeProposalReviewDecision = z.infer<typeof knowledgeProposalReviewDecisionSchema>;
+export type ReviewKnowledgeProposal = z.infer<typeof reviewKnowledgeProposalSchema>;
 export type CreateKnowledgeIngestionBatch = z.infer<typeof createKnowledgeIngestionBatchSchema>;
 export type KnowledgeProposalDraft = z.infer<typeof knowledgeProposalDraftSchema>;
 export type KnowledgeIngestionBatch = z.infer<typeof knowledgeIngestionBatchSchema>;
 export type KnowledgeProposal = z.infer<typeof knowledgeProposalSchema>;
 export type KnowledgeIngestionBatchListResponse = z.infer<typeof knowledgeIngestionBatchListResponseSchema>;
+export type KnowledgeIngestionBatchReadiness = z.infer<typeof knowledgeIngestionBatchReadinessSchema>;
 export type KnowledgeIngestionBatchDetailResponse = z.infer<typeof knowledgeIngestionBatchDetailResponseSchema>;
+export type SubmitKnowledgeIngestionBatchResponse = z.infer<typeof submitKnowledgeIngestionBatchResponseSchema>;

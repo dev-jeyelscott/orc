@@ -1,5 +1,4 @@
 import crypto from "node:crypto";
-import { execFile } from "node:child_process";
 
 import { asc, eq } from "drizzle-orm";
 
@@ -9,8 +8,10 @@ import {
   type CreateKnowledgeIngestionBatch,
   type KnowledgeIngestionBatch,
   type KnowledgeIngestionBatchDetailResponse,
+  type KnowledgeIngestionBatchReadiness,
   type KnowledgeProposal,
   type KnowledgeProposalDraft,
+  type ReviewKnowledgeProposal,
 } from "@orc/shared";
 
 import { db } from "../db/client.js";
@@ -29,16 +30,17 @@ import {
   type SnapshotAgent,
 } from "./agent-execution-service.js";
 import { assertKnowledgeCategoryReadyForAnalysis, getKnowledgeCategory } from "./knowledge-category-service.js";
+import { getVaultHeadCommit, getVaultRoot, getVaultWorkingTreeStatus } from "./knowledge-vault-git.js";
 import { listCategoryVaultFiles, readCategoryVaultFile } from "./knowledge-vault-fs.js";
-
-const GIT_TIMEOUT_MS = 5_000;
-const GIT_MAX_BUFFER = 1024 * 1024;
 
 /** Maximum aggregate characters of existing vault context embedded per ingestion prompt. */
 const MAX_EXISTING_VAULT_CONTEXT_CHARS = 20_000;
 
 /** Statuses that already started or finished analysis; retrying is a safe no-op. */
 const NON_RESTARTABLE_STATUSES = new Set(["analyzing", "review_ready", "submitting", "committed"]);
+
+/** Statuses whose proposals may still receive operator review decisions. */
+const REVIEWABLE_BATCH_STATUSES = new Set(["review_ready", "failed"]);
 
 export class KnowledgeIngestionServiceError extends Error {
   constructor(
@@ -72,42 +74,10 @@ function hashContent(content: string): string {
   return crypto.createHash("sha256").update(content, "utf8").digest("hex");
 }
 
-/** Runs one bounded read-only `git` command against the configured vault root. */
-function runVaultGitCommand(vaultRoot: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      "git",
-      ["-C", vaultRoot, ...args],
-      { encoding: "utf8", timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER },
-      (error, stdout) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        resolve(stdout.trim());
-      },
-    );
-  });
-}
-
-/** Resolves the configured Knowledge vault root, or null when knowledge is not configured. */
-function getVaultRoot(): string | null {
-  const root = process.env.KNOWLEDGE_VAULT_ROOT;
-
-  return typeof root === "string" && root.trim().length > 0 ? root : null;
-}
-
-/** Reads the current Git HEAD commit of the configured vault. */
-async function getVaultHeadCommit(vaultRoot: string): Promise<string> {
+/** Reads the current Git HEAD commit of the configured vault, translated into a stable API error. */
+async function requireVaultHeadCommit(vaultRoot: string): Promise<string> {
   try {
-    const sha = await runVaultGitCommand(vaultRoot, ["rev-parse", "HEAD"]);
-
-    if (!/^[0-9a-f]{40}$/i.test(sha)) {
-      throw new Error("Unexpected rev-parse output");
-    }
-
-    return sha.toLowerCase();
+    return await getVaultHeadCommit(vaultRoot);
   } catch {
     throw new KnowledgeIngestionServiceError(
       "The knowledge vault is not a readable Git repository",
@@ -116,17 +86,17 @@ async function getVaultHeadCommit(vaultRoot: string): Promise<string> {
   }
 }
 
-/** Reads the vault's current working-tree status line count, used as a coarse mutation guard. */
-async function getVaultWorkingTreeStatus(vaultRoot: string): Promise<string> {
+/** Reads the vault's current working-tree status, used as a coarse mutation guard. Never throws. */
+async function readVaultWorkingTreeStatus(vaultRoot: string): Promise<string> {
   try {
-    return await runVaultGitCommand(vaultRoot, ["status", "--porcelain"]);
+    return await getVaultWorkingTreeStatus(vaultRoot);
   } catch {
     return "";
   }
 }
 
 /** Returns true only when targetPath names a Markdown file directly inside the category's vault directory. */
-function isTargetPathWithinCategory(vaultRootPath: string, targetPath: string): boolean {
+export function isTargetPathWithinCategory(vaultRootPath: string, targetPath: string): boolean {
   const prefix = `${vaultRootPath}/`;
 
   if (!targetPath.startsWith(prefix)) {
@@ -144,7 +114,7 @@ function isTargetPathWithinCategory(vaultRootPath: string, targetPath: string): 
   );
 }
 
-function serializeBatch(row: typeof knowledgeIngestionBatches.$inferSelect): KnowledgeIngestionBatch {
+export function serializeBatch(row: typeof knowledgeIngestionBatches.$inferSelect): KnowledgeIngestionBatch {
   return {
     id: row.id,
     knowledgeCategoryId: row.knowledgeCategoryId,
@@ -165,7 +135,7 @@ function serializeBatch(row: typeof knowledgeIngestionBatches.$inferSelect): Kno
   };
 }
 
-function serializeProposal(row: typeof knowledgeProposals.$inferSelect): KnowledgeProposal {
+export function serializeProposal(row: typeof knowledgeProposals.$inferSelect): KnowledgeProposal {
   return {
     id: row.id,
     batchId: row.batchId,
@@ -188,7 +158,7 @@ function serializeProposal(row: typeof knowledgeProposals.$inferSelect): Knowled
   };
 }
 
-async function requireBatch(id: string): Promise<typeof knowledgeIngestionBatches.$inferSelect> {
+export async function requireBatch(id: string): Promise<typeof knowledgeIngestionBatches.$inferSelect> {
   const [batch] = await db.select().from(knowledgeIngestionBatches).where(eq(knowledgeIngestionBatches.id, id));
 
   if (!batch) {
@@ -198,7 +168,7 @@ async function requireBatch(id: string): Promise<typeof knowledgeIngestionBatche
   return batch;
 }
 
-async function markBatchFailed(batchId: string, failureReason: string): Promise<void> {
+export async function markBatchFailed(batchId: string, failureReason: string): Promise<void> {
   await db
     .update(knowledgeIngestionBatches)
     .set({ status: "failed", failureReason, updatedAt: new Date() })
@@ -275,7 +245,109 @@ export async function getIngestionBatch(id: string): Promise<KnowledgeIngestionB
     .where(eq(knowledgeProposals.batchId, id))
     .orderBy(asc(knowledgeProposals.createdAt));
 
-  return { batch: serializeBatch(batch), proposals: proposalRows.map(serializeProposal) };
+  const proposals = proposalRows.map(serializeProposal);
+
+  return { batch: serializeBatch(batch), proposals, readiness: computeBatchReadiness(batch, proposals) };
+}
+
+/**
+ * Deterministically computes whether a batch is safe to submit. `NO_CHANGE` proposals are
+ * never actionable and never block submission or count toward pending/needs-changes totals.
+ */
+export function computeBatchReadiness(
+  batch: Pick<typeof knowledgeIngestionBatches.$inferSelect, "status">,
+  proposals: KnowledgeProposal[],
+): KnowledgeIngestionBatchReadiness {
+  const actionable = proposals.filter((proposal) => proposal.operation !== "NO_CHANGE");
+  const pendingCount = actionable.filter((proposal) => proposal.reviewStatus === "pending").length;
+  const needsChangesCount = actionable.filter((proposal) => proposal.reviewStatus === "needs_changes").length;
+  const unresolvedConflictCount = actionable.filter(
+    (proposal) =>
+      proposal.operation === "CONFLICT" &&
+      proposal.reviewStatus !== "approved" &&
+      proposal.reviewStatus !== "denied",
+  ).length;
+  const approvedCount = proposals.filter((proposal) => proposal.reviewStatus === "approved").length;
+  const deniedCount = proposals.filter((proposal) => proposal.reviewStatus === "denied").length;
+  const noChangeCount = proposals.length - actionable.length;
+
+  const blockingReasons: string[] = [];
+
+  if (batch.status === "uploaded" || batch.status === "analyzing") {
+    blockingReasons.push("Specialist analysis has not completed yet.");
+  } else if (batch.status === "submitting") {
+    blockingReasons.push("A submission is already in progress.");
+  } else if (batch.status === "committed") {
+    blockingReasons.push("This batch has already been committed.");
+  } else if (proposals.length === 0) {
+    blockingReasons.push("No proposals were generated for this batch.");
+  }
+
+  if (pendingCount > 0) {
+    blockingReasons.push(`${pendingCount} proposal(s) awaiting a decision.`);
+  }
+
+  if (needsChangesCount > 0) {
+    blockingReasons.push(`${needsChangesCount} proposal(s) marked needs changes.`);
+  }
+
+  if (unresolvedConflictCount > 0) {
+    blockingReasons.push(`${unresolvedConflictCount} conflict(s) unresolved.`);
+  }
+
+  return {
+    ready: blockingReasons.length === 0 && (batch.status === "review_ready" || batch.status === "failed"),
+    totalProposals: proposals.length,
+    actionableProposals: actionable.length,
+    pendingCount,
+    needsChangesCount,
+    unresolvedConflictCount,
+    approvedCount,
+    deniedCount,
+    noChangeCount,
+    blockingReasons,
+  };
+}
+
+/**
+ * Records an operator's explicit decision on one proposal. Proposals may only be reviewed
+ * while their batch is `review_ready` (or `failed`, so decisions can be revised after a
+ * failed submit attempt) — never after a submission is already applying or committed.
+ * Denied proposals are never deleted; only their `reviewStatus` changes.
+ */
+export async function reviewProposal(
+  batchId: string,
+  proposalId: string,
+  input: ReviewKnowledgeProposal,
+): Promise<KnowledgeProposal> {
+  const batch = await requireBatch(batchId);
+
+  if (!REVIEWABLE_BATCH_STATUSES.has(batch.status)) {
+    throw new KnowledgeIngestionServiceError(
+      "Proposals can only be reviewed once analysis has produced a review-ready batch",
+      409,
+    );
+  }
+
+  const [proposalRow] = await db.select().from(knowledgeProposals).where(eq(knowledgeProposals.id, proposalId));
+
+  if (!proposalRow || proposalRow.batchId !== batchId) {
+    throw new KnowledgeIngestionServiceError("The Knowledge proposal does not exist", 404);
+  }
+
+  if (proposalRow.appliedAt) {
+    throw new KnowledgeIngestionServiceError("This proposal has already been applied to the vault", 409);
+  }
+
+  const reviewerNote = input.reviewerNote === undefined ? proposalRow.reviewerNote : input.reviewerNote;
+
+  const [updated] = await db
+    .update(knowledgeProposals)
+    .set({ reviewStatus: input.reviewStatus, reviewerNote, updatedAt: new Date() })
+    .where(eq(knowledgeProposals.id, proposalId))
+    .returning();
+
+  return serializeProposal(updated);
 }
 
 /**
@@ -393,7 +465,7 @@ export async function startIngestionAnalysis(batchId: string): Promise<Knowledge
     throw new KnowledgeIngestionServiceError("The knowledge vault is not currently configured or reachable", 409);
   }
 
-  const baseVaultCommitSha = await getVaultHeadCommit(vaultRoot);
+  const baseVaultCommitSha = await requireVaultHeadCommit(vaultRoot);
 
   const [specialistRow] = await db
     .select()
@@ -465,10 +537,10 @@ export async function startIngestionAnalysis(batchId: string): Promise<Knowledge
 
   const [run] = await db.insert(runs).values({ projectPath: vaultRoot }).returning();
 
-  const vaultStatusBeforeExecution = await getVaultWorkingTreeStatus(vaultRoot);
+  const vaultStatusBeforeExecution = await readVaultWorkingTreeStatus(vaultRoot);
 
   const execution = await startSnapshotAgentExecution(run, snapshotAgent, instruction, async (finalization) => {
-    const vaultStatusAfterExecution = await getVaultWorkingTreeStatus(vaultRoot);
+    const vaultStatusAfterExecution = await readVaultWorkingTreeStatus(vaultRoot);
 
     await finalizeAnalysis(
       batchId,

@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   createKnowledgeCategorySchema,
   createKnowledgeIngestionBatchSchema,
+  reviewKnowledgeProposalSchema,
   updateKnowledgeCategorySchema,
 } from "@orc/shared";
 
@@ -22,12 +23,16 @@ import {
   createIngestionBatch,
   getIngestionBatch,
   listIngestionBatches,
+  reviewProposal,
   startIngestionAnalysis,
 } from "../services/knowledge-ingestion-service.js";
+import { submitIngestionBatch } from "../services/knowledge-vault-publisher.js";
 
 const idParams = z.object({ categoryId: z.string().uuid() });
 
 const batchIdParams = z.object({ batchId: z.string().uuid() });
+
+const proposalReviewParams = z.object({ batchId: z.string().uuid(), proposalId: z.string().uuid() });
 
 const fileContentQuery = z.object({
   path: z.string().trim().min(1).max(1_024),
@@ -170,6 +175,27 @@ export async function knowledgeRoutes(app: FastifyInstance) {
       const { batchId } = parse(batchIdParams, request.params);
 
       return await startIngestionAnalysis(batchId);
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
+  app.patch("/api/knowledge/ingestions/:batchId/proposals/:proposalId", async (request, reply) => {
+    try {
+      const { batchId, proposalId } = parse(proposalReviewParams, request.params);
+      const input = parse(reviewKnowledgeProposalSchema, request.body);
+
+      return await reviewProposal(batchId, proposalId, input);
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
+  app.post("/api/knowledge/ingestions/:batchId/submit", async (request, reply) => {
+    try {
+      const { batchId } = parse(batchIdParams, request.params);
+
+      return await submitIngestionBatch(batchId);
     } catch (error) {
       return sendError(error, reply);
     }
