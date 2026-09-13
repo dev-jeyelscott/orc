@@ -3,6 +3,7 @@ export * from "./project.js";
 export * from "./agent.js";
 export * from "./team.js";
 export * from "./department.js";
+export * from "./department-knowledge.js";
 export * from "./team-workflow.js";
 export * from "./run.js";
 export * from "./task.js";

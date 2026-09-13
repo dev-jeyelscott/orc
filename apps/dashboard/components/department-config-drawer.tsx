@@ -1,9 +1,9 @@
 "use client";
 
 import { SaveIcon, Trash2Icon, XIcon } from "lucide-react";
-import { useState, type CSSProperties, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from "react";
 
-import type { CreateDepartment, Department, SandboxMode } from "@orc/shared";
+import type { CreateDepartment, Department, KnowledgeCategory, SandboxMode } from "@orc/shared";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
@@ -11,7 +11,14 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { createDepartment, deleteDepartment, updateDepartment } from "@/lib/departments";
+import {
+  createDepartment,
+  deleteDepartment,
+  getDepartmentKnowledge,
+  updateDepartment,
+  updateDepartmentKnowledge,
+} from "@/lib/departments";
+import { getKnowledgeCategories } from "@/lib/knowledge";
 import { harnessOptions } from "@/lib/harness-options";
 
 const drawerStyle = { "--drawer-content-width": "min(46rem, 96vw)" } as CSSProperties;
@@ -54,6 +61,36 @@ export function DepartmentConfigDrawer({ open, mode, department, onOpenChange, o
   const [error, setError] = useState<string | null>(null);
   const options = harnessOptions[draft.harness ?? "codex"];
 
+  const [knowledgeCategories, setKnowledgeCategories] = useState<KnowledgeCategory[]>([]);
+  const [primaryKnowledgeIds, setPrimaryKnowledgeIds] = useState<Set<string>>(new Set());
+
+  const loadKnowledge = useCallback(async () => {
+    if (mode !== "edit" || !department) return;
+    try {
+      const [categories, associations] = await Promise.all([
+        getKnowledgeCategories(),
+        getDepartmentKnowledge(department.id),
+      ]);
+      setKnowledgeCategories(categories);
+      setPrimaryKnowledgeIds(new Set(associations.map((row) => row.knowledgeCategoryId)));
+    } catch {
+      // Primary Knowledge is a recommendation-only affordance; a load failure here
+      // must not block the rest of the Department configuration drawer.
+    }
+  }, [mode, department]);
+
+  useEffect(() => {
+    void loadKnowledge();
+  }, [loadKnowledge]);
+
+  function toggleKnowledgeCategory(categoryId: string, checked: boolean) {
+    setPrimaryKnowledgeIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(categoryId); else next.delete(categoryId);
+      return next;
+    });
+  }
+
   function update<K extends keyof CreateDepartment>(key: K, value: CreateDepartment[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
   }
@@ -72,7 +109,9 @@ export function DepartmentConfigDrawer({ open, mode, department, onOpenChange, o
       const saved = mode === "create"
         ? await createDepartment(draft)
         : await updateDepartment(department!.id, draft);
-      void saved;
+      if (mode === "edit") {
+        await updateDepartmentKnowledge(saved.id, Array.from(primaryKnowledgeIds));
+      }
       await onRefresh();
       onOpenChange(false);
     } catch (caught) {
@@ -109,6 +148,42 @@ export function DepartmentConfigDrawer({ open, mode, department, onOpenChange, o
             <Field label="System prompt" className="md:col-span-3"><Textarea value={draft.systemPrompt} onChange={(e) => update("systemPrompt", e.target.value)} required disabled={saving} className="min-h-36 font-mono text-xs" /></Field>
           </section>
           <section className="grid gap-4 border-t border-divider pt-5"><h3 className="font-medium text-text-primary">Permissions</h3><div className="grid gap-4 sm:grid-cols-2"><Toggle label="Can write files" checked={draft.canWrite ?? false} onCheckedChange={(checked) => update("canWrite", checked)} disabled={saving} /><Toggle label="Can run commands" checked={draft.canRunCommands ?? false} onCheckedChange={(checked) => update("canRunCommands", checked)} disabled={saving} /><Toggle label="Can commit" checked={draft.canCommit ?? false} onCheckedChange={(checked) => update("canCommit", checked)} disabled={saving} /><Field label="Sandbox mode"><NativeSelect value={draft.sandboxMode ?? ""} onChange={(e) => update("sandboxMode", (e.target.value || null) as SandboxMode | null)} disabled={saving}><NativeSelectOption value="">No sandbox default</NativeSelectOption><NativeSelectOption value="read-only">Read only</NativeSelectOption><NativeSelectOption value="workspace-write">Workspace write</NativeSelectOption><NativeSelectOption value="danger-full-access">Full host access</NativeSelectOption></NativeSelect></Field></div></section>
+          {mode === "edit" ? (
+            <section className="grid gap-3 border-t border-divider pt-5">
+              <div>
+                <h3 className="font-medium text-text-primary">Primary Knowledge</h3>
+                <p className="text-xs text-text-muted">
+                  Recommended Knowledge Categories for discoverability only. This never
+                  restricts retrieval of other categories or injects context automatically.
+                </p>
+              </div>
+              {knowledgeCategories.length === 0 ? (
+                <p className="text-sm text-text-muted">No Knowledge Categories configured yet.</p>
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {knowledgeCategories.map((category) => (
+                    <label
+                      key={category.id}
+                      className="flex items-center justify-between gap-3 rounded-md border border-border-default p-3 text-sm"
+                    >
+                      <span className="flex flex-col">
+                        <span className="font-medium text-text-secondary">{category.name}</span>
+                        {!category.enabled ? (
+                          <span className="text-xs text-text-muted">Disabled</span>
+                        ) : null}
+                      </span>
+                      <Switch
+                        checked={primaryKnowledgeIds.has(category.id)}
+                        onCheckedChange={(checked) => toggleKnowledgeCategory(category.id, checked)}
+                        disabled={saving}
+                        aria-label={`Mark ${category.name} as primary knowledge`}
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
+            </section>
+          ) : null}
           {error ? <p role="alert" className="rounded-md border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">{error}</p> : null}
         </div></div>
         <DrawerFooter className="border-t border-divider p-4"><div className="flex items-center justify-between gap-3">{mode === "edit" ? <Button type="button" variant="destructive" onClick={() => void remove()} disabled={saving}><Trash2Icon />Delete</Button> : <span />}{<Button type="submit" disabled={saving}><SaveIcon />{saving ? "Saving..." : "Save Department"}</Button>}</div></DrawerFooter>

@@ -50,6 +50,13 @@ function translateDatabaseError(error: unknown): never {
         409,
       );
     }
+
+    if (code === "23503" || code === "23001") {
+      throw new KnowledgeCategoryServiceError(
+        "Knowledge Category cannot be deleted while a Department still declares it as primary",
+        409,
+      );
+    }
   }
 
   throw error;

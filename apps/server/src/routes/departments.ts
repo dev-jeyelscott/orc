@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   createDepartmentSchema,
+  putDepartmentKnowledgeSchema,
   updateDepartmentSchema,
 } from "@orc/shared";
 
@@ -14,6 +15,11 @@ import {
   listDepartments,
   updateDepartment,
 } from "../services/department-service.js";
+import {
+  DepartmentKnowledgeServiceError,
+  listDepartmentKnowledge,
+  replaceDepartmentKnowledge,
+} from "../services/department-knowledge-service.js";
 
 const idParams = z.object({ departmentId: z.string().uuid() });
 
@@ -34,7 +40,10 @@ function sendError(
   error: unknown,
   reply: { status: (code: number) => { send: (body: unknown) => unknown } },
 ) {
-  if (error instanceof DepartmentServiceError) {
+  if (
+    error instanceof DepartmentServiceError
+    || error instanceof DepartmentKnowledgeServiceError
+  ) {
     return reply.status(error.statusCode).send({ error: error.message });
   }
 
@@ -80,6 +89,33 @@ export async function departmentRoutes(app: FastifyInstance) {
       );
 
       return department ?? reply.status(404).send({ error: "department_not_found" });
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
+  app.get("/api/departments/:departmentId/knowledge", async (request, reply) => {
+    try {
+      const { departmentId } = parse(idParams, request.params);
+
+      if (!(await getDepartment(departmentId))) {
+        return reply.status(404).send({ error: "department_not_found" });
+      }
+
+      return { knowledge: await listDepartmentKnowledge(departmentId) };
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
+  app.put("/api/departments/:departmentId/knowledge", async (request, reply) => {
+    try {
+      const { departmentId } = parse(idParams, request.params);
+      const { knowledgeCategoryIds } = parse(putDepartmentKnowledgeSchema, request.body);
+
+      return {
+        knowledge: await replaceDepartmentKnowledge(departmentId, knowledgeCategoryIds),
+      };
     } catch (error) {
       return sendError(error, reply);
     }

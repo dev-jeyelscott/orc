@@ -6,11 +6,22 @@ const mocks = vi.hoisted(() => ({
   listDepartments: vi.fn(), updateDepartment: vi.fn(),
 }));
 
+const knowledgeMocks = vi.hoisted(() => ({
+  listDepartmentKnowledge: vi.fn(), replaceDepartmentKnowledge: vi.fn(),
+}));
+
 vi.mock("../services/department-service.js", () => ({
   DepartmentServiceError: class DepartmentServiceError extends Error {
     constructor(message: string, readonly statusCode: number) { super(message); }
   },
   ...mocks,
+}));
+
+vi.mock("../services/department-knowledge-service.js", () => ({
+  DepartmentKnowledgeServiceError: class DepartmentKnowledgeServiceError extends Error {
+    constructor(message: string, readonly statusCode: number) { super(message); }
+  },
+  ...knowledgeMocks,
 }));
 
 const { DepartmentServiceError } = await import("../services/department-service.js");
@@ -26,7 +37,12 @@ const department = {
 };
 
 let app: ReturnType<typeof Fastify>;
-beforeEach(async () => { Object.values(mocks).forEach((mock) => mock.mockReset()); app = Fastify(); await app.register(departmentRoutes); });
+beforeEach(async () => {
+  Object.values(mocks).forEach((mock) => mock.mockReset());
+  Object.values(knowledgeMocks).forEach((mock) => mock.mockReset());
+  app = Fastify();
+  await app.register(departmentRoutes);
+});
 afterEach(async () => { await app.close(); });
 
 describe("Department routes", () => {
@@ -59,5 +75,46 @@ describe("Department routes", () => {
     const response = await app.inject({ method: "DELETE", url: `/api/departments/${DEPARTMENT_ID}` });
     expect(response.statusCode).toBe(409);
     expect(response.json()).toEqual({ error: "Department cannot be deleted because agents still reference it" });
+  });
+
+  it("supports reading and replacing primary Knowledge Category associations", async () => {
+    const association = {
+      knowledgeCategoryId: "00000000-0000-4000-9000-000000000099",
+      slug: "ui-ux", name: "UI/UX Guidelines", enabled: true, isPrimary: true,
+    };
+    mocks.getDepartment.mockResolvedValue(department);
+    knowledgeMocks.listDepartmentKnowledge.mockResolvedValue([association]);
+    knowledgeMocks.replaceDepartmentKnowledge.mockResolvedValue([association]);
+
+    const getResponse = await app.inject({ method: "GET", url: `/api/departments/${DEPARTMENT_ID}/knowledge` });
+    expect(getResponse.json()).toEqual({ knowledge: [association] });
+
+    const putResponse = await app.inject({
+      method: "PUT",
+      url: `/api/departments/${DEPARTMENT_ID}/knowledge`,
+      payload: { knowledgeCategoryIds: [association.knowledgeCategoryId] },
+    });
+    expect(putResponse.json()).toEqual({ knowledge: [association] });
+    expect(knowledgeMocks.replaceDepartmentKnowledge).toHaveBeenCalledWith(
+      DEPARTMENT_ID,
+      [association.knowledgeCategoryId],
+    );
+  });
+
+  it("returns department_not_found for knowledge association reads on an absent Department", async () => {
+    mocks.getDepartment.mockResolvedValue(null);
+    const response = await app.inject({ method: "GET", url: `/api/departments/${DEPARTMENT_ID}/knowledge` });
+    expect(response.json()).toEqual({ error: "department_not_found" });
+    expect(knowledgeMocks.listDepartmentKnowledge).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid Knowledge Category id in a replace request", async () => {
+    const response = await app.inject({
+      method: "PUT",
+      url: `/api/departments/${DEPARTMENT_ID}/knowledge`,
+      payload: { knowledgeCategoryIds: ["not-a-uuid"] },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(knowledgeMocks.replaceDepartmentKnowledge).not.toHaveBeenCalled();
   });
 });

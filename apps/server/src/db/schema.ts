@@ -314,6 +314,23 @@ export const agentSkills = pgTable("agent_skills", {
 }, (table) => [unique("agent_skills_agent_id_skill_id_unique").on(table.agentId, table.skillId), index("agent_skills_skill_id_idx").on(table.skillId)]);
 
 /**
+ * Department-declared primary Knowledge Categories. Recommendation/discovery metadata
+ * only — never an access-control boundary and never wired into automatic Run context.
+ */
+export const departmentKnowledgeCategories = pgTable("department_knowledge_categories", {
+  departmentId: uuid("department_id").notNull().references(() => departments.id, { onDelete: "cascade" }),
+  knowledgeCategoryId: uuid("knowledge_category_id").notNull().references(() => knowledgeCategories.id, { onDelete: "restrict" }),
+  isPrimary: boolean("is_primary").notNull().default(true),
+  ...timestamps,
+}, (table) => [
+  unique("department_knowledge_categories_department_id_knowledge_category_id_unique").on(
+    table.departmentId,
+    table.knowledgeCategoryId,
+  ),
+  index("department_knowledge_categories_knowledge_category_id_idx").on(table.knowledgeCategoryId),
+]);
+
+/**
  * One uploaded knowledge source produces one reviewable ingestion batch. Specialist,
  * skill, source hash, and base vault commit are snapshotted immutably once analysis
  * starts so later publishing (Slice 5) can detect a stale or concurrently edited vault.

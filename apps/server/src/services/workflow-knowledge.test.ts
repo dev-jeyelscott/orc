@@ -70,6 +70,7 @@ const {
   agents,
   departments,
   domainEvents,
+  knowledgeCategories,
   runs,
   tasks,
   teamMembers,
@@ -84,6 +85,13 @@ const {
 } =
   await import(
     "./workflow-service.js"
+  );
+
+const {
+  replaceDepartmentKnowledge,
+} =
+  await import(
+    "./department-knowledge-service.js"
   );
 
 const project = {
@@ -641,6 +649,110 @@ describe(
         ).not.toContain(
           "Durable vault knowledge:",
         );
+      },
+    );
+
+    it(
+      "does not inject a Department's primary Knowledge Category into the Run automatically",
+      async () => {
+        const [category] =
+          await db
+            .insert(knowledgeCategories)
+            .values({
+              slug:
+                `phase8-department-primary-${crypto.randomUUID()}`,
+              name:
+                "Department Primary Category",
+              vaultRootPath:
+                "wiki/department-primary",
+            })
+            .returning();
+
+        await replaceDepartmentKnowledge(
+          departmentId as string,
+          [category.id],
+        );
+
+        const task =
+          await createTask({
+            projectId:
+              project.id,
+            teamId:
+              RESOLUTION_TEAM_ID,
+            title:
+              "Department-associated task",
+            instruction:
+              "Run the unchanged generic workflow.",
+          });
+
+        taskId =
+          task.id;
+
+        const started =
+          await startTask(
+            task.id,
+          );
+
+        if (
+          !started
+        ) {
+          throw new Error(
+            "Expected workflow to start",
+          );
+        }
+
+        runId =
+          started.run.id;
+
+        const [persistedRun] =
+          await db
+            .select()
+            .from(runs)
+            .where(
+              eq(
+                runs.id,
+                runId,
+              ),
+            );
+
+        const snapshot =
+          persistedRun.workflowSnapshot as {
+            knowledgeContext:
+              unknown[];
+          };
+
+        // A Department declaring primary knowledge is a discovery hint only; it must
+        // never be auto-injected into a Run's knowledge context by itself.
+        expect(
+          snapshot
+            .knowledgeContext,
+        ).toEqual(
+          [],
+        );
+
+        await waitForTerminalRun(
+          runId,
+        );
+
+        expect(
+          mocks.instructions[0],
+        ).not.toContain(
+          "Durable vault knowledge:",
+        );
+
+        await replaceDepartmentKnowledge(
+          departmentId as string,
+          [],
+        );
+
+        await db
+          .delete(knowledgeCategories)
+          .where(
+            eq(
+              knowledgeCategories.id,
+              category.id,
+            ),
+          );
       },
     );
   },

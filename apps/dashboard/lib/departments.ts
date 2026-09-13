@@ -1,8 +1,10 @@
 import {
+  departmentKnowledgeResponseSchema,
   departmentListResponseSchema,
   departmentSchema,
   type CreateDepartment,
   type Department,
+  type DepartmentKnowledgeCategory,
   type UpdateDepartment,
 } from "@orc/shared";
 
@@ -67,4 +69,37 @@ export async function deleteDepartment(departmentId: string): Promise<void> {
   if (!response.ok) {
     throw new Error(await readErrorMessage(response));
   }
+}
+
+/** Loads the primary Knowledge Categories a Department has declared. Discovery metadata only. */
+export async function getDepartmentKnowledge(
+  departmentId: string,
+): Promise<DepartmentKnowledgeCategory[]> {
+  const response = await fetch(`${SERVER_URL}/api/departments/${departmentId}/knowledge`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return departmentKnowledgeResponseSchema.parse(await response.json()).knowledge;
+}
+
+/** Replaces the full set of primary Knowledge Categories declared by a Department. */
+export async function updateDepartmentKnowledge(
+  departmentId: string,
+  knowledgeCategoryIds: string[],
+): Promise<DepartmentKnowledgeCategory[]> {
+  const response = await fetch(`${SERVER_URL}/api/departments/${departmentId}/knowledge`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ knowledgeCategoryIds }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return departmentKnowledgeResponseSchema.parse(await response.json()).knowledge;
 }
