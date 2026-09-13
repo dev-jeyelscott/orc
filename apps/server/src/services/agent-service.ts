@@ -10,6 +10,7 @@ import type {
   Agent,
   CreateAgent,
   Department,
+  Skill,
   UpdateAgent,
 } from "@orc/shared";
 
@@ -18,10 +19,12 @@ import {
 } from "../db/client.js";
 import {
   agents,
+  agentSkills,
   departments,
   runs,
   teamMembers,
 } from "../db/schema.js";
+import { getSkillsByIds } from "./skill-service.js";
 import {
   resolveEffectiveAgentConfig,
 } from "./agent-config-resolver.js";
@@ -66,6 +69,7 @@ export function serializeAgent(
     typeof departments.$inferSelect,
   currentTeamId:
     string | null = null,
+  skills: Skill[] = [],
 ): Agent {
   const department =
     serializeDepartment(
@@ -110,6 +114,7 @@ export function serializeAgent(
     department,
     effective,
     currentTeamId,
+    skills,
     hasModelOverride:
       row.modelOverride !==
         null &&
@@ -125,6 +130,38 @@ export function serializeAgent(
     updatedAt:
       row.updatedAt.toISOString(),
   };
+}
+
+/** Loads assigned Skills without duplicating Agent rows in read-model queries. */
+async function loadSkillsByAgentId(agentIds: string[]): Promise<Map<string, Skill[]>> {
+  const result = new Map<string, Skill[]>();
+  if (!agentIds.length) return result;
+  const assignments = await db.select().from(agentSkills).where(inArray(agentSkills.agentId, agentIds));
+  const skillsById = new Map((await getSkillsByIds(assignments.map((assignment) => assignment.skillId))).map((skill) => [skill.id, skill]));
+  for (const assignment of assignments) {
+    const skill = skillsById.get(assignment.skillId);
+    if (skill) result.set(assignment.agentId, [...(result.get(assignment.agentId) ?? []), skill]);
+  }
+  for (const assigned of result.values()) assigned.sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
+  return result;
+}
+
+/** Replaces an Agent's Skill assignments after ensuring every referenced Skill exists. */
+export async function replaceAgentSkills(agentId: string, skillIds: string[]): Promise<Agent | null> {
+  try {
+    if (new Set(skillIds).size !== skillIds.length) throw new AgentServiceError("Each Skill may only be assigned once", 400);
+    return await db.transaction(async (tx) => {
+      const [existing] = await tx.select().from(agents).where(eq(agents.id, agentId));
+      if (!existing) return null;
+      const assignedSkills = await getSkillsByIds(skillIds);
+      if (assignedSkills.length !== skillIds.length) throw new AgentServiceError("One or more selected Skills do not exist", 400);
+      await tx.delete(agentSkills).where(eq(agentSkills.agentId, agentId));
+      if (skillIds.length) await tx.insert(agentSkills).values(skillIds.map((skillId) => ({ agentId, skillId })));
+      const [department] = await tx.select().from(departments).where(eq(departments.id, existing.departmentId));
+      if (!department) throw new AgentServiceError("The selected Department does not exist", 400);
+      return serializeAgent(existing, department, (await tx.select({ teamId: teamMembers.teamId }).from(teamMembers).where(eq(teamMembers.agentId, agentId)))[0]?.teamId ?? null, assignedSkills);
+    });
+  } catch (error) { return translateDatabaseError(error); }
 }
 
 /**
@@ -304,6 +341,8 @@ export async function listAgents(): Promise<
         ),
       );
 
+  const skillsByAgentId = await loadSkillsByAgentId(rows.map((row) => row.agents.id));
+
   return rows.map(
     (row) =>
       serializeAgent(
@@ -311,6 +350,7 @@ export async function listAgents(): Promise<
         row.departments,
         row.team_members?.teamId ??
           null,
+        skillsByAgentId.get(row.agents.id) ?? [],
       ),
   );
 }
@@ -355,11 +395,14 @@ export async function getAgent(
     return null;
   }
 
+  const skillsByAgentId = await loadSkillsByAgentId([id]);
+
   return serializeAgent(
     row.agents,
     row.departments,
     row.team_members?.teamId ??
       null,
+    skillsByAgentId.get(id) ?? [],
   );
 }
 
@@ -408,6 +451,8 @@ export async function createAgent(
     return serializeAgent(
       agent,
       department,
+      null,
+      [],
     );
   } catch (error) {
     return translateDatabaseError(
@@ -449,7 +494,8 @@ export async function updateAgent(id: string, input: UpdateAgent): Promise<Agent
       };
       // Drizzle omits undefined values on update and preserves explicit null and false.
       const [agent] = await tx.update(agents).set({ ...patch, updatedAt: new Date() }).where(eq(agents.id, id)).returning();
-      return serializeAgent(agent, department, member?.teamId ?? null);
+      const skillsByAgentId = await loadSkillsByAgentId([id]);
+      return serializeAgent(agent, department, member?.teamId ?? null, skillsByAgentId.get(id) ?? []);
     });
   } catch (error) { return translateDatabaseError(error); }
 }
@@ -628,6 +674,8 @@ export async function listEnabledAgentsForFutureRuns(): Promise<
         ),
       );
 
+  const skillsByAgentId = await loadSkillsByAgentId(rows.map((row) => row.agents.id));
+
   return rows.map(
     (row) =>
       serializeAgent(
@@ -635,6 +683,7 @@ export async function listEnabledAgentsForFutureRuns(): Promise<
         row.departments,
         row.team_members?.teamId ??
           null,
+        skillsByAgentId.get(row.agents.id) ?? [],
       ),
   );
 }

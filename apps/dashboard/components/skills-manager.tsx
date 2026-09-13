@@ -1,0 +1,20 @@
+"use client";
+
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import type { CreateSkill, Skill } from "@orc/shared";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { createSkill, getSkills, updateSkill } from "@/lib/skills";
+
+const blank: CreateSkill = { name: "", slug: "", description: "", enabled: true };
+/** Small generic registry for reusable Agent capabilities. */
+export function SkillsManager() {
+  const [skills, setSkills] = useState<Skill[]>([]); const [editing, setEditing] = useState<Skill | null>(null); const [draft, setDraft] = useState<CreateSkill>(blank); const [error, setError] = useState<string | null>(null); const [saving, setSaving] = useState(false);
+  const load = useCallback(async () => { try { setSkills(await getSkills()); } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load Skills"); } }, []);
+  useEffect(() => { let disposed = false; queueMicrotask(() => { if (!disposed) void load(); }); return () => { disposed = true; }; }, [load]);
+  function edit(skill: Skill | null) { setEditing(skill); setDraft(skill ? { name: skill.name, slug: skill.slug, description: skill.description, enabled: skill.enabled } : blank); setError(null); }
+  async function submit(event: FormEvent) { event.preventDefault(); setSaving(true); setError(null); try { if (editing) await updateSkill(editing.id, draft); else await createSkill(draft); await load(); edit(null); } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to save Skill"); } finally { setSaving(false); } }
+  return <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_24rem]"><section className="overflow-hidden rounded-lg border border-border-default bg-surface-elevated"><div className="flex items-center justify-between border-b border-divider p-4"><div><h1 className="font-heading text-2xl font-semibold">Skills</h1><p className="mt-1 text-sm text-text-muted">Reusable capabilities assigned to Agents.</p></div><Button onClick={() => edit(null)}>Create Skill</Button></div><div className="divide-y divide-divider">{skills.length ? skills.map((skill) => <button key={skill.id} type="button" onClick={() => edit(skill)} className="flex w-full items-center justify-between gap-3 p-4 text-left hover:bg-surface-interactive/45"><span><span className="block font-medium">{skill.name}</span><span className="font-mono text-xs text-text-muted">{skill.slug}</span></span><span className="text-xs text-text-muted">{skill.enabled ? "Enabled" : "Disabled"}</span></button>) : <p className="p-4 text-sm text-text-muted">No Skills configured.</p>}</div></section><form onSubmit={submit} className="grid content-start gap-4 rounded-lg border border-border-default bg-surface-elevated p-4"><h2 className="font-medium">{editing ? `Edit ${editing.name}` : "Create Skill"}</h2><label className="grid gap-1 text-sm">Name<Input required maxLength={160} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} disabled={saving} /></label><label className="grid gap-1 text-sm">Slug<Input required maxLength={100} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={draft.slug} onChange={(event) => setDraft({ ...draft, slug: event.target.value })} disabled={saving} /></label><label className="grid gap-1 text-sm">Description<Textarea maxLength={2000} value={draft.description ?? ""} onChange={(event) => setDraft({ ...draft, description: event.target.value })} disabled={saving} /></label><label className="flex items-center justify-between text-sm">Enabled<Switch checked={draft.enabled ?? true} onCheckedChange={(enabled) => setDraft({ ...draft, enabled })} disabled={saving} /></label>{error ? <p role="alert" className="text-sm text-status-error">{error}</p> : null}<Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Skill"}</Button></form></div>;
+}

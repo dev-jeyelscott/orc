@@ -17,8 +17,10 @@ import {
   db,
 } from "../db/client.js";
 import {
+  agentSkills,
   agents,
   departments,
+  skills,
   teamMemberRoutes,
   teamMembers,
   teams,
@@ -89,6 +91,17 @@ async function loadTeamWorkflow(
       ]),
     );
 
+  const memberAgentIds = memberRows.map((row) => row.agents.id);
+  const skillRows = memberAgentIds.length
+    ? await tx.select({ agentId: agentSkills.agentId, skill: skills }).from(agentSkills).innerJoin(skills, eq(agentSkills.skillId, skills.id)).where(inArray(agentSkills.agentId, memberAgentIds))
+    : [];
+  const skillsByAgentId = new Map<string, import("@orc/shared").Skill[]>();
+  for (const row of skillRows) {
+    const skill = { ...row.skill, createdAt: row.skill.createdAt.toISOString(), updatedAt: row.skill.updatedAt.toISOString() };
+    skillsByAgentId.set(row.agentId, [...(skillsByAgentId.get(row.agentId) ?? []), skill]);
+  }
+  for (const assigned of skillsByAgentId.values()) assigned.sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
+
   const routeRows =
     memberIds.length
       ? await tx
@@ -127,6 +140,7 @@ async function loadTeamWorkflow(
         row.agents,
         row.departments,
         row.team_members.teamId,
+        skillsByAgentId.get(row.agents.id) ?? [],
       ),
       layer: row.team_members.layer,
       executionOrder: row.team_members.executionOrder,

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BookOpenIcon,
+  SparklesIcon,
   BotIcon,
   Building2Icon,
   FolderKanbanIcon,
@@ -59,6 +60,7 @@ const navigation = [
     url: "/agents",
     icon: BotIcon,
   },
+  { title: "Skills", url: "/skills", icon: SparklesIcon },
   {
     title: "Departments",
     url: "/departments",

@@ -3,7 +3,7 @@
 import { SaveIcon, Trash2Icon, XIcon } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 
-import type { CreateKnowledgeCategory, KnowledgeCategory } from "@orc/shared";
+import type { Agent, CreateKnowledgeCategory, KnowledgeCategory, Skill } from "@orc/shared";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -16,6 +16,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -30,6 +31,8 @@ const blankCategory: CreateKnowledgeCategory = {
   description: "",
   vaultRootPath: "",
   enabled: true,
+  specialistAgentId: null,
+  ingestionSkillId: null,
 };
 
 function draftFrom(category: KnowledgeCategory | null): CreateKnowledgeCategory {
@@ -40,6 +43,8 @@ function draftFrom(category: KnowledgeCategory | null): CreateKnowledgeCategory 
     description: category.description,
     vaultRootPath: category.vaultRootPath,
     enabled: category.enabled,
+    specialistAgentId: category.specialistAgentId,
+    ingestionSkillId: category.ingestionSkillId,
   };
 }
 
@@ -53,6 +58,8 @@ type Props = {
   open: boolean;
   mode: "create" | "edit";
   category: KnowledgeCategory | null;
+  agents: Agent[];
+  skills: Skill[];
   onOpenChange: (open: boolean) => void;
   onRefresh: () => Promise<void>;
 };
@@ -62,6 +69,8 @@ export function KnowledgeConfigDrawer({
   open,
   mode,
   category,
+  agents,
+  skills,
   onOpenChange,
   onRefresh,
 }: Props) {
@@ -197,6 +206,21 @@ export function KnowledgeConfigDrawer({
                   disabled={saving}
                   aria-label="Knowledge Category enabled"
                 />
+              </Field>
+
+              <Field label="Specialist Agent">
+                <NativeSelect value={draft.specialistAgentId ?? ""} onChange={(event) => { const specialistAgentId = event.target.value || null; update("specialistAgentId", specialistAgentId); if (specialistAgentId !== draft.specialistAgentId) update("ingestionSkillId", null); }} disabled={saving}>
+                  <NativeSelectOption value="">Not configured</NativeSelectOption>
+                  {agents.map((agent) => <NativeSelectOption key={agent.id} value={agent.id}>{agent.name}{agent.effective.enabled ? "" : " (disabled)"}</NativeSelectOption>)}
+                </NativeSelect>
+              </Field>
+
+              <Field label="Ingestion Skill">
+                <NativeSelect value={draft.ingestionSkillId ?? ""} onChange={(event) => update("ingestionSkillId", event.target.value || null)} disabled={saving || !draft.specialistAgentId}>
+                  <NativeSelectOption value="">Not configured</NativeSelectOption>
+                  {skills.filter((skill) => agents.find((agent) => agent.id === draft.specialistAgentId)?.skills.some((assigned) => assigned.id === skill.id)).map((skill) => <NativeSelectOption key={skill.id} value={skill.id}>{skill.name}{skill.enabled ? "" : " (disabled)"}</NativeSelectOption>)}
+                </NativeSelect>
+                <span className="text-xs text-text-muted">The selected Agent must own this reusable Skill. Disabled entries can be retained but cannot start analysis.</span>
               </Field>
 
               <Field label="Description">

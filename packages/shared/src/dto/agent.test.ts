@@ -61,7 +61,7 @@ describe("createAgentSchema", () => {
 });
 
 it("preserves false, null and omitted overrides and rejects invalid enums", async () => {
-  const { updateAgentSchema, previewAgentSchema } = await import("./agent.js");
+  const { updateAgentSchema, updateAgentSkillsSchema, previewAgentSchema } = await import("./agent.js");
   for (const key of ["canWriteOverride", "canRunCommandsOverride", "canCommitOverride"]) {
     for (const value of [true, false, null]) expect(updateAgentSchema.parse({ [key]: value })).toEqual({ [key]: value });
   }
@@ -71,4 +71,7 @@ it("preserves false, null and omitted overrides and rejects invalid enums", asyn
   expect(createAgentSchema.parse({ ...baseAgent, harnessOverride: null, sandboxModeOverride: null })).toMatchObject({ harnessOverride: null, sandboxModeOverride: null });
   expect(previewAgentSchema.parse({ departmentId: baseAgent.departmentId }).enabled).toBe(true);
   expect(createAgentSchema.parse(baseAgent)).not.toHaveProperty("teamId");
+  const skillId = "00000000-0000-4000-9000-000000000002";
+  expect(updateAgentSkillsSchema.parse({ skillIds: [skillId] }).skillIds).toEqual([skillId]);
+  expect(updateAgentSkillsSchema.safeParse({ skillIds: [skillId, skillId] }).success).toBe(false);
 });

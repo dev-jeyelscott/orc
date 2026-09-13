@@ -259,9 +259,28 @@ export const knowledgeCategories =
         boolean("enabled")
           .notNull()
           .default(true),
+      specialistAgentId: uuid("specialist_agent_id").references(() => agents.id, { onDelete: "restrict" }),
+      ingestionSkillId: uuid("ingestion_skill_id").references(() => skills.id, { onDelete: "restrict" }),
       ...timestamps,
     },
   );
+
+/** Generic reusable capabilities. Their meaning is configuration, never runtime role branches. */
+export const skills = pgTable("skills", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  enabled: boolean("enabled").notNull().default(true),
+  ...timestamps,
+});
+
+/** Many-to-many Agent capability assignments. */
+export const agentSkills = pgTable("agent_skills", {
+  agentId: uuid("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  skillId: uuid("skill_id").notNull().references(() => skills.id, { onDelete: "restrict" }),
+  ...timestamps,
+}, (table) => [unique("agent_skills_agent_id_skill_id_unique").on(table.agentId, table.skillId), index("agent_skills_skill_id_idx").on(table.skillId)]);
 
 /**
  * Project existence remains filesystem-backed. This table stores only optional

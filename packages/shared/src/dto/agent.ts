@@ -11,6 +11,7 @@ import {
 import {
   departmentSchema,
 } from "./department.js";
+import { skillSchema } from "./skill.js";
 
 const overridableTextSchema =
   z.string()
@@ -70,6 +71,13 @@ export const previewAgentSchema = agentFieldsSchema.omit({ name: true, slug: tru
 export const updateAgentSchema =
   agentFieldsSchema.partial();
 
+export const updateAgentSkillsSchema = z.object({
+  skillIds: z.array(z.string().uuid()).max(100).refine(
+    (ids) => new Set(ids).size === ids.length,
+    "Each Skill may only be assigned once",
+  ),
+});
+
 export const effectiveAgentConfigSchema =
   z.object({
     role:
@@ -121,6 +129,7 @@ export const agentSchema =
       z.string()
         .uuid()
         .nullable(),
+    skills: z.array(skillSchema),
     createdAt:
       z.string().datetime(),
     updatedAt:

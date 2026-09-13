@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "../db/client.js";
-import { knowledgeCategories } from "../db/schema.js";
+import { agentSkills, agents, departments, knowledgeCategories, skills } from "../db/schema.js";
 import {
   createKnowledgeCategory,
   deleteKnowledgeCategory,
@@ -15,9 +15,13 @@ import {
   listKnowledgeCategories,
   listKnowledgeCategoryFiles,
   updateKnowledgeCategory,
+  assertKnowledgeCategoryReadyForAnalysis,
 } from "./knowledge-category-service.js";
 
 const createdIds = new Set<string>();
+const createdAgentIds = new Set<string>();
+const createdDepartmentIds = new Set<string>();
+const createdSkillIds = new Set<string>();
 const originalVaultRoot = process.env.KNOWLEDGE_VAULT_ROOT;
 let vaultRoot: string;
 
@@ -40,6 +44,11 @@ afterEach(async () => {
   }
   createdIds.clear();
 
+  for (const agentId of createdAgentIds) await db.delete(agents).where(eq(agents.id, agentId));
+  for (const skillId of createdSkillIds) await db.delete(skills).where(eq(skills.id, skillId));
+  for (const departmentId of createdDepartmentIds) await db.delete(departments).where(eq(departments.id, departmentId));
+  createdAgentIds.clear(); createdSkillIds.clear(); createdDepartmentIds.clear();
+
   await rm(vaultRoot, { recursive: true, force: true });
 
   if (originalVaultRoot === undefined) {
@@ -48,6 +57,18 @@ afterEach(async () => {
     process.env.KNOWLEDGE_VAULT_ROOT = originalVaultRoot;
   }
 });
+
+async function configuredSpecialist(options: { agentEnabled?: boolean; skillEnabled?: boolean } = {}) {
+  const suffix = crypto.randomUUID();
+  const [department] = await db.insert(departments).values({ slug: `knowledge-test-department-${suffix}`, name: "Knowledge Test Department", role: "specialist", harness: "codex", defaultModel: "default", defaultReasoning: "high", systemPrompt: "Test", canWrite: false, canRunCommands: false, canCommit: false }).returning();
+  createdDepartmentIds.add(department.id);
+  const [agent] = await db.insert(agents).values({ departmentId: department.id, slug: `knowledge-test-agent-${suffix}`, name: "Knowledge Test Agent", enabled: options.agentEnabled ?? true }).returning();
+  createdAgentIds.add(agent.id);
+  const [skill] = await db.insert(skills).values({ slug: `knowledge-test-skill-${suffix}`, name: "Knowledge Test Skill", enabled: options.skillEnabled ?? true }).returning();
+  createdSkillIds.add(skill.id);
+  await db.insert(agentSkills).values({ agentId: agent.id, skillId: skill.id });
+  return { agent, skill };
+}
 
 describe("knowledge-category-service", () => {
   it("persists create, list, get, update, and deletion", async () => {
@@ -153,5 +174,19 @@ describe("knowledge-category-service", () => {
     expect(
       await getKnowledgeCategoryFileContent(unknownId, "wiki/x/a.md"),
     ).toBeNull();
+  });
+
+  it("requires a configured specialist to own the category ingestion Skill", async () => {
+    const { agent, skill } = await configuredSpecialist();
+    const category = await createKnowledgeCategory({ ...input("assigned"), specialistAgentId: agent.id, ingestionSkillId: skill.id });
+    createdIds.add(category.id);
+    await expect(createKnowledgeCategory({ ...input("unassigned"), specialistAgentId: agent.id, ingestionSkillId: crypto.randomUUID() })).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("rejects disabled specialists and Skills at the reusable analysis-start gate", async () => {
+    const disabledAgent = await configuredSpecialist({ agentEnabled: false });
+    await expect(assertKnowledgeCategoryReadyForAnalysis({ specialistAgentId: disabledAgent.agent.id, ingestionSkillId: disabledAgent.skill.id })).rejects.toMatchObject({ statusCode: 400, message: "The selected specialist is not enabled for analysis" });
+    const disabledSkill = await configuredSpecialist({ skillEnabled: false });
+    await expect(assertKnowledgeCategoryReadyForAnalysis({ specialistAgentId: disabledSkill.agent.id, ingestionSkillId: disabledSkill.skill.id })).rejects.toMatchObject({ statusCode: 400, message: "The selected ingestion Skill is not enabled for analysis" });
   });
 });

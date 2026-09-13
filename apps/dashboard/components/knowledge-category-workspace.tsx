@@ -10,10 +10,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type {
+  Agent,
   KnowledgeCategory,
   KnowledgeCategoryFile,
   KnowledgeCategoryFileContentResponse,
 } from "@orc/shared";
+import type { Skill } from "@orc/shared";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,6 +34,8 @@ import {
   getKnowledgeCategoryFileContent,
   getKnowledgeCategoryFiles,
 } from "@/lib/knowledge";
+import { getAgents } from "@/lib/agents";
+import { getSkills } from "@/lib/skills";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unable to load Knowledge Category";
@@ -46,6 +50,8 @@ export function KnowledgeCategoryWorkspace({ categoryId }: { categoryId: string 
   const [category, setCategory] = useState<KnowledgeCategory | null>(null);
   const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [skills, setSkills] = useState<Skill[]>([]);
   const requestRef = useRef<AbortController | null>(null);
 
   const loadCategory = useCallback(async () => {
@@ -59,6 +65,9 @@ export function KnowledgeCategoryWorkspace({ categoryId }: { categoryId: string 
       const next = await getKnowledgeCategory(categoryId, controller.signal);
       if (controller.signal.aborted) return;
       setCategory(next);
+      const [nextAgents, nextSkills] = await Promise.all([getAgents(), getSkills()]);
+      if (controller.signal.aborted) return;
+      setAgents(nextAgents); setSkills(nextSkills);
       setStatus("loaded");
     } catch (caught) {
       if (isAbortError(caught)) return;
@@ -119,6 +128,7 @@ export function KnowledgeCategoryWorkspace({ categoryId }: { categoryId: string 
           {category.description || "No description."} Vault directory:{" "}
           <span className="font-mono text-text-secondary">{category.vaultRootPath}</span>
         </p>
+        <p className="text-sm text-text-muted">Specialist: <span className="text-text-secondary">{agents.find((agent) => agent.id === category.specialistAgentId)?.name ?? "Not configured"}</span> · Ingestion Skill: <span className="text-text-secondary">{skills.find((skill) => skill.id === category.ingestionSkillId)?.name ?? "Not configured"}</span></p>
       </header>
 
       <Tabs defaultValue="vault-files">

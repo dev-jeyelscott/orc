@@ -163,6 +163,11 @@ export function updateAgent(
   );
 }
 
+/** Replaces all reusable Skill assignments for one Agent. */
+export async function replaceAgentSkills(id: string, skillIds: string[]): Promise<Agent> {
+  return request(`/api/agents/${id}/skills`, { method: "PUT", body: JSON.stringify({ skillIds }) }, agentSchema);
+}
+
 /**
  * Permanently deletes an agent when the backend determines deletion is safe.
  */

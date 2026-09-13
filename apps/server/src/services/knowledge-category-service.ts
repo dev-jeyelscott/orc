@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 
 import type {
   CreateKnowledgeCategory,
@@ -9,7 +9,7 @@ import type {
 } from "@orc/shared";
 
 import { db } from "../db/client.js";
-import { knowledgeCategories } from "../db/schema.js";
+import { agentSkills, agents, departments, knowledgeCategories, skills } from "../db/schema.js";
 import {
   listCategoryVaultFiles,
   readCategoryVaultFile,
@@ -55,6 +55,37 @@ function translateDatabaseError(error: unknown): never {
   throw error;
 }
 
+type CategorySkillConfiguration = {
+  specialistAgentId?: string | null;
+  ingestionSkillId?: string | null;
+};
+
+/** Ensures a configured specialist owns its configured reusable ingestion Skill. */
+async function validateCategorySkillConfiguration(configuration: CategorySkillConfiguration): Promise<void> {
+  const { specialistAgentId, ingestionSkillId } = configuration;
+  if (specialistAgentId == null && ingestionSkillId == null) return;
+  if (specialistAgentId == null || ingestionSkillId == null) {
+    throw new KnowledgeCategoryServiceError("Specialist and ingestion Skill must be configured together", 400);
+  }
+  const [assignment] = await db.select({ agentId: agentSkills.agentId }).from(agentSkills).where(and(eq(agentSkills.agentId, specialistAgentId), eq(agentSkills.skillId, ingestionSkillId)));
+  if (!assignment) throw new KnowledgeCategoryServiceError("The selected specialist does not own the selected ingestion Skill", 400);
+}
+
+/**
+ * Future ingestion entrypoints call this immediately before starting analysis.
+ * It deliberately checks effective Agent availability, not just Agent rows.
+ */
+export async function assertKnowledgeCategoryReadyForAnalysis(category: CategorySkillConfiguration): Promise<void> {
+  await validateCategorySkillConfiguration(category);
+  if (category.specialistAgentId == null || category.ingestionSkillId == null) {
+    throw new KnowledgeCategoryServiceError("Knowledge Category requires a specialist and ingestion Skill before analysis", 400);
+  }
+  const [specialist] = await db.select({ enabled: agents.enabled, departmentEnabled: departments.enabled }).from(agents).innerJoin(departments, eq(agents.departmentId, departments.id)).where(eq(agents.id, category.specialistAgentId));
+  const [skill] = await db.select({ enabled: skills.enabled }).from(skills).where(eq(skills.id, category.ingestionSkillId));
+  if (!specialist || !specialist.enabled || !specialist.departmentEnabled) throw new KnowledgeCategoryServiceError("The selected specialist is not enabled for analysis", 400);
+  if (!skill || !skill.enabled) throw new KnowledgeCategoryServiceError("The selected ingestion Skill is not enabled for analysis", 400);
+}
+
 /** Lists Knowledge Categories in deterministic operator-facing order. */
 export async function listKnowledgeCategories(): Promise<KnowledgeCategory[]> {
   const rows = await db
@@ -82,6 +113,7 @@ export async function createKnowledgeCategory(
   input: CreateKnowledgeCategory,
 ): Promise<KnowledgeCategory> {
   try {
+    await validateCategorySkillConfiguration(input);
     const [category] = await db
       .insert(knowledgeCategories)
       .values(input)
@@ -99,6 +131,12 @@ export async function updateKnowledgeCategory(
   input: UpdateKnowledgeCategory,
 ): Promise<KnowledgeCategory | null> {
   try {
+    const [existing] = await db.select().from(knowledgeCategories).where(eq(knowledgeCategories.id, id));
+    if (!existing) return null;
+    await validateCategorySkillConfiguration({
+      specialistAgentId: input.specialistAgentId === undefined ? existing.specialistAgentId : input.specialistAgentId,
+      ingestionSkillId: input.ingestionSkillId === undefined ? existing.ingestionSkillId : input.ingestionSkillId,
+    });
     const [category] = await db
       .update(knowledgeCategories)
       .set({ ...input, updatedAt: new Date() })

@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   createAgentSchema,
   previewAgentSchema,
+  updateAgentSkillsSchema,
   updateAgentSchema,
 } from "@orc/shared";
 
@@ -14,6 +15,7 @@ import {
   getAgent,
   listAgents,
   updateAgent,
+  replaceAgentSkills,
 } from "../services/agent-service.js";
 
 const idParams = z.object({ agentId: z.string().uuid() });
@@ -114,6 +116,14 @@ export async function agentRoutes(app: FastifyInstance) {
     } catch (error) {
       return sendError(error, reply);
     }
+  });
+
+  app.put("/api/agents/:agentId/skills", async (request, reply) => {
+    try {
+      const { agentId } = parse(idParams, request.params);
+      const agent = await replaceAgentSkills(agentId, parse(updateAgentSkillsSchema, request.body).skillIds);
+      return agent ?? reply.status(404).send({ error: "agent_not_found" });
+    } catch (error) { return sendError(error, reply); }
   });
 
   app.delete("/api/agents/:agentId", async (request, reply) => {

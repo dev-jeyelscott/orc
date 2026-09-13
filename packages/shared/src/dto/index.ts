@@ -11,6 +11,7 @@ export * from "./agent-result.js";
 export * from "./conversation.js";
 export * from "./knowledge.js";
 export * from "./knowledge-category.js";
+export * from "./skill.js";
 export * from "./project-document.js";
 export * from "./event.js";
 export * from "./dashboard.js";

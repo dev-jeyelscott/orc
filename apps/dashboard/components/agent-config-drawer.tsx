@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { SaveIcon, Trash2Icon, XIcon } from "lucide-react";
 import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import type { Agent, CreateAgent, Department, Team, EffectiveAgentConfig, Harness, SandboxMode } from "@orc/shared";
+import type { Agent, CreateAgent, Department, Skill, Team, EffectiveAgentConfig, Harness, SandboxMode } from "@orc/shared";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
-import { createAgent, deleteAgent, updateAgent, previewAgent } from "@/lib/agents";
+import { createAgent, deleteAgent, replaceAgentSkills, updateAgent, previewAgent } from "@/lib/agents";
 
 import { Textarea } from "@/components/ui/textarea";
 import { harnessOptions } from "@/lib/harness-options";
@@ -21,8 +21,8 @@ function draftFrom(agent: Agent | null, departments: Department[]): CreateAgent 
 }
 
 /** Edits Agent identity independently of Team membership. */
-export function AgentConfigDrawer({ agent, departments, teams, onOpenChange, onRefresh }: {
-  agent: Agent | null; departments: Department[]; teams: Team[];
+export function AgentConfigDrawer({ agent, departments, teams, skills, onOpenChange, onRefresh }: {
+  agent: Agent | null; departments: Department[]; teams: Team[]; skills: Skill[];
   onOpenChange: (open: boolean) => void; onRefresh: () => Promise<void>;
 }) {
   const [draft, setDraft] = useState(() => draftFrom(agent, departments));
@@ -33,6 +33,7 @@ export function AgentConfigDrawer({ agent, departments, teams, onOpenChange, onR
   const [preview, setPreview] = useState<EffectiveAgentConfig | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(true);
+  const [skillIds, setSkillIds] = useState<string[]>(() => agent?.skills.map((skill) => skill.id) ?? []);
   useEffect(() => {
     let disposed = false;
     const timer = setTimeout(() => {
@@ -52,7 +53,8 @@ export function AgentConfigDrawer({ agent, departments, teams, onOpenChange, onR
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSaving(true); setError(null);
     try {
-      if (agent) await updateAgent(agent.id, draft); else await createAgent(draft);
+      const saved = agent ? await updateAgent(agent.id, draft) : await createAgent(draft);
+      await replaceAgentSkills(saved.id, skillIds);
       await onRefresh(); onOpenChange(false);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to save Agent"); }
     finally { setSaving(false); }
@@ -75,6 +77,7 @@ export function AgentConfigDrawer({ agent, departments, teams, onOpenChange, onR
           <Field label="Enabled"><Switch checked={draft.enabled} onCheckedChange={(value) => update("enabled", value)} disabled={saving} aria-label="Agent enabled" /></Field>
         </section>
         <p className="text-sm text-text-muted">Current Team: {team?.name ?? (agent?.currentTeamId ? "Assigned Team" : "Unassigned")}. <Link href="/teams" className="underline">Manage Teams</Link></p>
+        <section className="grid gap-2 border-t border-divider pt-4"><h3 className="font-medium">Assigned Skills</h3><p className="text-xs text-text-muted">Reusable capabilities available to this Agent. Disabled Skills remain assigned but cannot start knowledge analysis.</p>{skills.length ? <div className="grid gap-2">{skills.map((skill) => <label key={skill.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={skillIds.includes(skill.id)} disabled={saving} onChange={(event) => setSkillIds((current) => event.target.checked ? [...current, skill.id] : current.filter((id) => id !== skill.id))} />{skill.name} <span className="font-mono text-xs text-text-muted">{skill.slug}</span>{!skill.enabled ? <span className="text-xs text-status-warning">disabled</span> : null}</label>)}</div> : <p className="text-sm text-text-muted">No Skills exist yet. Create one from the Skills page.</p>}</section>
         {assigned ? <p className="text-sm text-text-muted">Remove this Agent from its Team before changing Department or deleting it. <Link href={`/teams/${agent.currentTeamId}`} className="underline">Open Team workflow</Link></p> : null}
         {department ? <section className="grid gap-3 border-t border-divider pt-4"><h3 className="font-medium">Department defaults</h3><dl className="grid grid-cols-2 gap-3 text-sm">{Object.entries({ Role: department.role, Harness: department.harness, Model: department.defaultModel, Reasoning: department.defaultReasoning, "Can write": department.canWrite, "Can run commands": department.canRunCommands, "Can commit": department.canCommit, Sandbox: department.sandboxMode ?? "Unavailable" }).map(([label, value]) => <div key={label}><dt className="text-text-muted">{label}</dt><dd className="break-words">{String(value)}</dd></div>)}</dl><h4 className="text-sm font-medium">Department base prompt</h4><pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-surface-interactive p-3 text-xs">{department.systemPrompt}</pre>{!department.enabled ? <p className="text-sm text-status-warning">This Department is disabled; this Agent will be unavailable for future Runs.</p> : null}</section> : null}
         {department ? <>

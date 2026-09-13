@@ -64,6 +64,8 @@ describe("Knowledge Category DTO contracts", () => {
         ...valid,
         description: "",
         enabled: true,
+        specialistAgentId: null,
+        ingestionSkillId: null,
         id: "00000000-0000-4000-9000-000000000099",
         createdAt: "2026-09-12T00:00:00.000Z",
         updatedAt: "2026-09-12T00:00:00.000Z",

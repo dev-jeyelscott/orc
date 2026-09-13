@@ -73,6 +73,8 @@ export async function knowledgeRoutes(app: FastifyInstance) {
           ...input,
           description: input.description ?? "",
           enabled: input.enabled ?? true,
+          specialistAgentId: input.specialistAgentId ?? null,
+          ingestionSkillId: input.ingestionSkillId ?? null,
         }),
       );
     } catch (error) {

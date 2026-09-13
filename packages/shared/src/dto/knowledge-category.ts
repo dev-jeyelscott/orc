@@ -22,6 +22,8 @@ const knowledgeCategoryFieldsSchema = z.object({
   description: z.string().trim().max(2000).default(""),
   vaultRootPath: knowledgePathSchema,
   enabled: z.boolean().default(true),
+  specialistAgentId: z.string().uuid().nullable().optional(),
+  ingestionSkillId: z.string().uuid().nullable().optional(),
 });
 
 export const createKnowledgeCategorySchema = knowledgeCategoryFieldsSchema;
@@ -31,6 +33,8 @@ export const updateKnowledgeCategorySchema =
 
 export const knowledgeCategorySchema = knowledgeCategoryFieldsSchema.extend({
   id: z.string().uuid(),
+  specialistAgentId: z.string().uuid().nullable(),
+  ingestionSkillId: z.string().uuid().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

@@ -31,6 +31,7 @@ import {
 import {
   knowledgeRoutes,
 } from "./routes/knowledge.js";
+import { skillRoutes } from "./routes/skills.js";
 import {
   projectDocumentRoutes,
 } from "./routes/project-documents.js";
@@ -95,6 +96,8 @@ export async function buildApp() {
   await app.register(
     knowledgeRoutes,
   );
+
+  await app.register(skillRoutes);
 
   await app.register(
     agentRoutes,

@@ -12,7 +12,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import type { KnowledgeCategory } from "@orc/shared";
+import type { Agent, KnowledgeCategory, Skill } from "@orc/shared";
 
 import { KnowledgeConfigDrawer } from "@/components/knowledge-config-drawer";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +35,8 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getKnowledgeCategories } from "@/lib/knowledge";
+import { getAgents } from "@/lib/agents";
+import { getSkills } from "@/lib/skills";
 import { cn } from "@/lib/utils";
 
 function formatUpdatedAt(value: string): string {
@@ -48,6 +50,8 @@ function errorMessage(error: unknown): string {
 /** Renders the Knowledge Category catalog: browse, create, and edit configured categories. */
 export function KnowledgeManager() {
   const [categories, setCategories] = useState<KnowledgeCategory[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [skills, setSkills] = useState<Skill[]>([]);
   const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -58,8 +62,8 @@ export function KnowledgeManager() {
 
   const load = useCallback(async () => {
     try {
-      const next = await getKnowledgeCategories();
-      setCategories(next);
+      const [next, nextAgents, nextSkills] = await Promise.all([getKnowledgeCategories(), getAgents(), getSkills()]);
+      setCategories(next); setAgents(nextAgents); setSkills(nextSkills);
       setStatus("loaded");
       setError(null);
     } catch (caught) {
@@ -90,6 +94,8 @@ export function KnowledgeManager() {
   }, [categories, query]);
 
   const category = categories.find((item) => item.id === categoryId) ?? null;
+  const specialistName = (item: KnowledgeCategory) => agents.find((agent) => agent.id === item.specialistAgentId)?.name ?? "Not configured";
+  const skillName = (item: KnowledgeCategory) => skills.find((skill) => skill.id === item.ingestionSkillId)?.name ?? "Not configured";
 
   function openCreate() {
     setCategoryId(null);
@@ -206,6 +212,7 @@ export function KnowledgeManager() {
               <TableRow className="hover:bg-transparent">
                 <TableHead>Category</TableHead>
                 <TableHead>Vault directory</TableHead>
+                <TableHead>Ingestion</TableHead>
                 <TableHead>Updated</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>
@@ -228,6 +235,7 @@ export function KnowledgeManager() {
                     </Link>
                   </TableCell>
                   <TableCell className="font-mono text-sm text-text-secondary">{item.vaultRootPath}</TableCell>
+                  <TableCell className="text-sm"><div>{specialistName(item)}</div><div className="text-xs text-text-muted">{skillName(item)}</div></TableCell>
                   <TableCell className="text-xs text-text-muted">{formatUpdatedAt(item.updatedAt)}</TableCell>
                   <TableCell>
                     <Badge variant={item.enabled ? "success" : "disabled"}>
@@ -268,6 +276,8 @@ export function KnowledgeManager() {
         open={drawerOpen}
         mode={drawerMode}
         category={category}
+        agents={agents}
+        skills={skills}
         onOpenChange={setDrawerOpen}
         onRefresh={load}
       />

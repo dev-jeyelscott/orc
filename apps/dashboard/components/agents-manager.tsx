@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { PlusIcon, RefreshCwIcon, PencilIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Agent, Department, Team } from "@orc/shared";
+import type { Agent, Department, Skill, Team } from "@orc/shared";
 import { AgentConfigDrawer } from "@/components/agent-config-drawer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { getAgents } from "@/lib/agents";
 import { getDepartments } from "@/lib/departments";
 import { getTeams } from "@/lib/teams";
+import { getSkills } from "@/lib/skills";
 import { AGENT_VIEW_MODES, getVisibleAgents, type AgentViewMode, type AgentStatusFilter } from "@/lib/agent-collection";
 
 /** Browses independent Agents using persisted Department and Team relationships. */
@@ -22,6 +23,7 @@ export function AgentsManager() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [skills, setSkills] = useState<Skill[]>([]);
   const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -33,8 +35,8 @@ export function AgentsManager() {
   const [editor, setEditor] = useState<{ agent: Agent | null } | null>(null);
   const load = useCallback(async () => {
     try {
-      const [nextAgents, nextDepartments, nextTeams] = await Promise.all([getAgents(), getDepartments(), getTeams()]);
-      setAgents(nextAgents); setDepartments(nextDepartments); setTeams(nextTeams); setStatus("loaded"); setError(null);
+      const [nextAgents, nextDepartments, nextTeams, nextSkills] = await Promise.all([getAgents(), getDepartments(), getTeams(), getSkills()]);
+      setAgents(nextAgents); setDepartments(nextDepartments); setTeams(nextTeams); setSkills(nextSkills); setStatus("loaded"); setError(null);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load Agents"); setStatus("error"); }
     finally { setRefreshing(false); }
   }, []);
@@ -60,6 +62,6 @@ export function AgentsManager() {
         <div className={view === "grid" ? "grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3" : "divide-y divide-divider"}>{visible.map((agent) => <article key={agent.id} className={view === "grid" ? "min-w-0 rounded-md border border-border-default p-4" : "p-3"}><div className="flex items-center justify-between gap-3"><div className="min-w-0"><h2 className="truncate font-medium">{agent.name}</h2><p className="truncate text-xs text-text-muted">{agent.slug} · {agent.department.name}</p></div><div className="flex shrink-0 items-center gap-2">{badge(agent)}{edit(agent)}</div></div><p className="mt-2 break-words text-sm text-text-secondary">{agent.effective.harness} · {agent.effective.model} · {agent.effective.reasoning} · {teamName(agent)}</p>{view !== "list" ? <p className="mt-2 text-xs text-text-muted">Role: {agent.effective.role} · Updated {new Date(agent.updatedAt).toLocaleDateString("en")}</p> : null}{view === "details" ? <p className="mt-2 text-sm text-text-muted">Write: {String(agent.effective.canWrite)} · Commands: {String(agent.effective.canRunCommands)} · Commit: {String(agent.effective.canCommit)} · Sandbox: {agent.effective.sandboxMode ?? "Unavailable"}</p> : null}</article>)}</div>}
       {status === "loaded" ? <footer className="border-t border-divider px-4 py-3 text-xs text-text-muted">Showing {visible.length} of {agents.length} Agents</footer> : null}
     </section>
-    {editor ? <AgentConfigDrawer agent={editor.agent} departments={departments} teams={teams} onOpenChange={(open) => { if (!open) setEditor(null); }} onRefresh={load} /> : null}
+    {editor ? <AgentConfigDrawer agent={editor.agent} departments={departments} teams={teams} skills={skills} onOpenChange={(open) => { if (!open) setEditor(null); }} onRefresh={load} /> : null}
   </div>;
 }
