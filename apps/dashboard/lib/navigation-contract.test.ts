@@ -72,8 +72,49 @@ function testAgentsRegistry(): void {
   assert.match(source, /<AgentsManager/);
 }
 
+/**
+ * Verifies Knowledge is exposed as a top-level sidebar destination.
+ */
+function testKnowledgeInSidebar(): void {
+  const source =
+    readDashboardFile(
+      "components/app-sidebar.tsx",
+    );
+
+  assert.match(
+    source,
+    /title:\s*"Knowledge"/,
+  );
+
+  assert.match(
+    source,
+    /url:\s*"\/knowledge"/,
+  );
+}
+
+/**
+ * Verifies the Knowledge catalog and category workspace routes exist.
+ */
+function testKnowledgeRoutes(): void {
+  const catalog =
+    readDashboardFile(
+      "app/knowledge/page.tsx",
+    );
+
+  assert.match(catalog, /<KnowledgeManager/);
+
+  const detail =
+    readDashboardFile(
+      "app/knowledge/[categoryId]/page.tsx",
+    );
+
+  assert.match(detail, /<KnowledgeCategoryWorkspace/);
+}
+
 testAgentsInSidebar();
 testAgentsRegistry();
+testKnowledgeInSidebar();
+testKnowledgeRoutes();
 
 console.log(
   "navigation contract tests passed",

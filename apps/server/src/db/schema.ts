@@ -229,6 +229,41 @@ export const teams =
   );
 
 /**
+ * Persisted Knowledge Category configuration. `vaultRootPath` is a normalized
+ * vault-relative directory validated at the DTO boundary; the canonical Markdown
+ * files themselves remain owned by the Git-backed Obsidian vault, not PostgreSQL.
+ */
+export const knowledgeCategories =
+  pgTable(
+    "knowledge_categories",
+    {
+      id:
+        uuid("id")
+          .primaryKey()
+          .defaultRandom(),
+      slug:
+        text("slug")
+          .notNull()
+          .unique(),
+      name:
+        text("name")
+          .notNull(),
+      description:
+        text("description")
+          .notNull()
+          .default(""),
+      vaultRootPath:
+        text("vault_root_path")
+          .notNull(),
+      enabled:
+        boolean("enabled")
+          .notNull()
+          .default(true),
+      ...timestamps,
+    },
+  );
+
+/**
  * Project existence remains filesystem-backed. This table stores only optional
  * configuration for a currently discoverable canonical project path.
  */
