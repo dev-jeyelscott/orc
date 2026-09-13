@@ -316,6 +316,33 @@ describe("knowledge-ingestion-service", () => {
     expect(detail?.proposals.every((proposal) => proposal.reviewStatus === "pending")).toBe(true);
   });
 
+  it("completes the independent observability run when the specialist completes", async () => {
+    const { category } = await configuredCategory("run-completion");
+    const finalizer = captureFinalizer();
+
+    const batch = await createIngestionBatch(category.id, {
+      sourceFileName: "knowledge.md",
+      sourceMediaType: "text/markdown",
+      sourceContent: "# Notes\n\nDurable guidance.",
+    });
+
+    await startIngestionAnalysis(batch.id);
+
+    const run = mocks.startSnapshotAgentExecution.mock.calls[0]?.[0] as { id: string } | undefined;
+    expect(run).toBeDefined();
+
+    await finalizer.invoke({
+      executionId: crypto.randomUUID(),
+      status: "completed",
+      resultStatus: "completed",
+      failureReason: null,
+      result: completedResult([validDraftProposal(category.vaultRootPath)]),
+    });
+
+    const [persistedRun] = await db.select().from(runs).where(eq(runs.id, run!.id));
+    expect(persistedRun?.status).toBe("completed");
+  });
+
   it("treats a blank optional target heading as omitted", async () => {
     const { category } = await configuredCategory("blank-target-heading");
     const finalizer = captureFinalizer();

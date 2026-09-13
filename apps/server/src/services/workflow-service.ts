@@ -3368,6 +3368,17 @@ export async function recoverInterruptedWorkflows():
     const run of
     active
   ) {
+    const recovered =
+      await recoverPersistedTerminalResult(
+        run,
+      );
+
+    if (
+      recovered
+    ) {
+      continue;
+    }
+
     const transitioned =
       await updateTerminal(
         run,
@@ -3412,4 +3423,127 @@ export async function recoverInterruptedWorkflows():
         ),
       );
   }
+}
+
+/**
+ * Finalizes a durable worker result left behind by a server restart without
+ * resuming any worker process. Only terminal workflow transitions are replayed;
+ * a result that would hand off to another agent remains blocked for operator retry.
+ */
+async function recoverPersistedTerminalResult(
+  run: typeof runs.$inferSelect,
+): Promise<boolean> {
+  if (
+    !run.currentAgentId &&
+    run.workflowSnapshot ===
+      null
+  ) {
+    const [execution] =
+      await db
+        .select({
+          status: agentExecutions.status,
+          failureReason: agentExecutions.failureReason,
+        })
+        .from(agentExecutions)
+        .where(
+          eq(agentExecutions.runId, run.id),
+        )
+        .orderBy(desc(agentExecutions.createdAt))
+        .limit(1);
+
+    if (
+      execution &&
+      (
+        execution.status === "completed" ||
+        execution.status === "failed" ||
+        execution.status === "blocked" ||
+        execution.status === "cancelled"
+      )
+    ) {
+      return updateTerminal(
+        run,
+        execution.status,
+        execution.failureReason,
+      );
+    }
+
+    return false;
+  }
+
+  if (
+    !run.currentAgentId
+  ) {
+    return false;
+  }
+
+  const [execution] =
+    await db
+      .select()
+      .from(agentExecutions)
+      .where(
+        and(
+          eq(agentExecutions.runId, run.id),
+          eq(agentExecutions.agentId, run.currentAgentId),
+        ),
+      )
+      .orderBy(desc(agentExecutions.createdAt))
+      .limit(1);
+
+  if (
+    !execution ||
+    ![
+      "completed",
+      "failed",
+      "blocked",
+    ].includes(execution.status) ||
+    !execution.resultStatus
+  ) {
+    return false;
+  }
+
+  const parsed =
+    agentResultSchema.safeParse(
+      execution.resultPayload,
+    );
+
+  if (
+    !parsed.success ||
+    parsed.data.status !==
+      execution.resultStatus
+  ) {
+    return false;
+  }
+
+  let transition: WorkflowTransition;
+
+  try {
+    transition =
+      resolveWorkflowTransition(
+        snapshotOf(run),
+        run.currentAgentId,
+        execution.resultStatus,
+        execution.failureReason,
+      );
+  } catch {
+    return false;
+  }
+
+  if (
+    transition.kind !==
+    "terminal"
+  ) {
+    return false;
+  }
+
+  const applied =
+    await applyFinalizationTransition(
+      run.id,
+      run.currentAgentId,
+      execution.id,
+      execution.resultStatus,
+      execution.failureReason,
+      parsed.data,
+    );
+
+  return applied !== null;
 }

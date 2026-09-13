@@ -55,6 +55,7 @@ import type {
 } from "./agent-execution-service.js";
 import {
   orderWorkflowAgents,
+  recoverInterruptedWorkflows,
   retryLastExecution,
   skipRun,
 } from "./workflow-service.js";
@@ -554,6 +555,89 @@ describe(
       createdAgentIds.clear();
       createdDepartmentIds.clear();
     });
+
+    it(
+      "finalizes a single-agent run from a durable completed result after restart",
+      async () => {
+        const worker =
+          await createTestAgent({
+            label: "Restart Completion Worker",
+            relativeLayer: 1,
+            executionOrder: 1,
+          });
+        const snapshotAgent =
+          toSnapshotAgent(worker);
+        const projectPath =
+          `/tmp/orc-recovery-${crypto.randomUUID()}`;
+        const [task] =
+          await db
+            .insert(tasks)
+            .values({
+              projectPath,
+              title: "Persisted completion recovery",
+              instruction: "Complete the one worker workflow.",
+              status: "running",
+            })
+            .returning();
+
+        createdTaskIds.add(task.id);
+
+        const [run] =
+          await db
+            .insert(runs)
+            .values({
+              taskId: task.id,
+              projectPath,
+              status: "running",
+              currentAgentId: worker.id,
+              workflowSnapshot: {
+                agents: [snapshotAgent],
+                routes: [],
+              },
+            })
+            .returning();
+
+        createdRunIds.add(run.id);
+
+        await db
+          .insert(agentExecutions)
+          .values({
+            runId: run.id,
+            agentId: worker.id,
+            agentName: worker.name,
+            agentRole: snapshotAgent.role,
+            layer: snapshotAgent.layer,
+            executionOrder: snapshotAgent.executionOrder,
+            harness: snapshotAgent.harness,
+            model: snapshotAgent.model,
+            reasoning: snapshotAgent.reasoning,
+            status: "completed",
+            resultStatus: "completed",
+            resultPayload: createResult("completed"),
+            completedAt: new Date(),
+          });
+
+        await recoverInterruptedWorkflows();
+
+        const [persistedRun] =
+          await db
+            .select()
+            .from(runs)
+            .where(eq(runs.id, run.id));
+        const [persistedTask] =
+          await db
+            .select()
+            .from(tasks)
+            .where(eq(tasks.id, task.id));
+
+        expect(persistedRun).toMatchObject({
+          status: "completed",
+          currentAgentId: null,
+          terminalReason: null,
+        });
+        expect(persistedTask?.status).toBe("completed");
+      },
+    );
 
     it(
       "executes renamed agents sequentially by layer and same-layer execution order",

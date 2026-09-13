@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 
 import {
   knowledgeProposalDraftBatchSchema,
@@ -18,6 +18,7 @@ import { db } from "../db/client.js";
 import {
   agents,
   departments,
+  domainEvents,
   knowledgeIngestionBatches,
   knowledgeProposals,
   runs,
@@ -439,6 +440,44 @@ async function finalizeAnalysis(
 }
 
 /**
+ * Marks the independent, proposal-only run terminal after its one specialist
+ * execution has finalized. This run is observability state, not a Team workflow.
+ */
+async function finalizeAnalysisRun(
+  runId: string,
+  finalization: ExecutionFinalization,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [run] = await tx
+      .update(runs)
+      .set({
+        status: finalization.status,
+        terminalReason: finalization.failureReason,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(runs.id, runId),
+          inArray(runs.status, ["pending", "running"]),
+        ),
+      )
+      .returning();
+
+    if (!run) {
+      return;
+    }
+
+    await tx.insert(domainEvents).values({
+      type: `run.${finalization.status}`,
+      projectPath: run.projectPath,
+      taskId: run.taskId,
+      runId: run.id,
+      data: { reason: finalization.failureReason },
+    });
+  });
+}
+
+/**
  * Starts (or safely re-observes) the configured specialist's proposal-only analysis of one
  * uploaded batch. Snapshots specialist, skill, and base vault commit before launching so the
  * later publisher (Slice 5) can detect a stale or concurrently edited vault. Never mutates the
@@ -535,20 +574,33 @@ export async function startIngestionAnalysis(batchId: string): Promise<Knowledge
     })
     .where(eq(knowledgeIngestionBatches.id, batchId));
 
-  const [run] = await db.insert(runs).values({ projectPath: vaultRoot }).returning();
+  const [run] = await db
+    .insert(runs)
+    .values({ projectPath: vaultRoot, status: "running" })
+    .returning();
 
   const vaultStatusBeforeExecution = await readVaultWorkingTreeStatus(vaultRoot);
 
-  const execution = await startSnapshotAgentExecution(run, snapshotAgent, instruction, async (finalization) => {
-    const vaultStatusAfterExecution = await readVaultWorkingTreeStatus(vaultRoot);
+  const execution = await startSnapshotAgentExecution(
+    run,
+    snapshotAgent,
+    instruction,
+    async (finalization) => {
+      try {
+        const vaultStatusAfterExecution =
+          await readVaultWorkingTreeStatus(vaultRoot);
 
-    await finalizeAnalysis(
-      batchId,
-      category.vaultRootPath,
-      finalization,
-      vaultStatusAfterExecution !== vaultStatusBeforeExecution,
-    );
-  });
+        await finalizeAnalysis(
+          batchId,
+          category.vaultRootPath,
+          finalization,
+          vaultStatusAfterExecution !== vaultStatusBeforeExecution,
+        );
+      } finally {
+        await finalizeAnalysisRun(run.id, finalization);
+      }
+    },
+  );
 
   const [updated] = await db
     .update(knowledgeIngestionBatches)
