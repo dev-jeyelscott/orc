@@ -540,6 +540,12 @@ function IngestTab({ category }: { category: KnowledgeCategory }) {
                 <div className="flex min-w-0 flex-col gap-1">
                   <span className="truncate text-sm font-medium text-text-primary">{batch.sourceFileName}</span>
                   <span className="font-mono text-xs text-text-muted">{batch.sourceContentHash.slice(0, 12)}</span>
+                  {batch.status === "committed" && batch.vaultCommitSha ? (
+                    <span className="font-mono text-xs text-text-muted">
+                      Commit <span className="text-text-secondary">{batch.vaultCommitSha.slice(0, 12)}</span>
+                      {batch.committedAt ? ` · ${new Date(batch.committedAt).toLocaleString()}` : null}
+                    </span>
+                  ) : null}
                   {batch.failureReason ? (
                     <span className="text-xs text-status-error">{batch.failureReason}</span>
                   ) : null}
