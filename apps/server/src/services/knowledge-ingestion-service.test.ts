@@ -316,6 +316,34 @@ describe("knowledge-ingestion-service", () => {
     expect(detail?.proposals.every((proposal) => proposal.reviewStatus === "pending")).toBe(true);
   });
 
+  it("treats a blank optional target heading as omitted", async () => {
+    const { category } = await configuredCategory("blank-target-heading");
+    const finalizer = captureFinalizer();
+
+    const batch = await createIngestionBatch(category.id, {
+      sourceFileName: "knowledge.md",
+      sourceMediaType: "text/markdown",
+      sourceContent: "# Notes\n\nDurable guidance.",
+    });
+
+    await startIngestionAnalysis(batch.id);
+
+    await finalizer.invoke({
+      executionId: crypto.randomUUID(),
+      status: "completed",
+      resultStatus: "completed",
+      failureReason: null,
+      result: completedResult([
+        validDraftProposal(category.vaultRootPath, { targetHeading: "" }),
+      ]),
+    });
+
+    const detail = await getIngestionBatch(batch.id);
+    expect(detail?.batch.status).toBe("review_ready");
+    expect(detail?.proposals).toHaveLength(1);
+    expect(detail?.proposals[0]?.targetHeading).toBeNull();
+  });
+
   it("rejects malformed specialist output without persisting any proposal", async () => {
     const { category } = await configuredCategory("malformed");
     const finalizer = captureFinalizer();

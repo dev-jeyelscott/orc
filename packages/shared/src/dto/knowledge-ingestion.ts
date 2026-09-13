@@ -71,7 +71,10 @@ export const knowledgeProposalDraftSchema = z
   .object({
     operation: knowledgeProposalOperationSchema,
     targetPath: knowledgePathSchema,
-    targetHeading: z.string().trim().min(1).max(300).optional(),
+    targetHeading: z.preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+      z.string().trim().min(1).max(300).optional(),
+    ),
     title: z.string().trim().min(1).max(MAX_KNOWLEDGE_TITLE_CHARS),
     rationale: z.string().trim().min(1).max(MAX_KNOWLEDGE_PROPOSAL_RATIONALE_CHARS),
     confidenceScore: z.number().min(0).max(1),

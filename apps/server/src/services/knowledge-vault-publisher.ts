@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { eq, inArray } from "drizzle-orm";
@@ -257,6 +257,8 @@ export async function submitIngestionBatch(batchId: string): Promise<SubmitKnowl
 
         targets.push({ proposal, absolutePath, relativePath: proposal.targetPath });
       }
+
+      await mkdir(categoryDir, { recursive: true });
 
       for (const target of targets) {
         await writeFile(target.absolutePath, target.proposal.proposedContent, "utf8");

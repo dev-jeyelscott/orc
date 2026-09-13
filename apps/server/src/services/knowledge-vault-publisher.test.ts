@@ -225,6 +225,29 @@ describe("knowledge-vault-publisher", () => {
     expect(refreshedNoChange.appliedAt).toBeNull();
   });
 
+  it("creates a missing category directory when applying an approved proposal", async () => {
+    const { category, agent } = await configuredCategory();
+    const batch = await insertBatch(category.id, agent.id);
+    await insertProposal(batch.id, {
+      targetPath: `${categoryDirName}/loading-state-hierarchy.md`,
+      proposedContent: "# Loading state hierarchy\n\nGuidance.\n",
+      reviewStatus: "approved",
+    });
+
+    await rm(path.join(vaultRoot, categoryDirName), { recursive: true, force: true });
+
+    const result = await submitIngestionBatch(batch.id);
+
+    expect(result.batch.status).toBe("committed");
+    await expect(readFile(path.join(vaultRoot, categoryDirName, "loading-state-hierarchy.md"), "utf8")).resolves.toBe(
+      "# Loading state hierarchy\n\nGuidance.\n",
+    );
+    await expect(readFile(path.join(vaultRoot, categoryDirName, "_index.md"), "utf8")).resolves.toContain(
+      "loading-state-hierarchy.md",
+    );
+    await expect(readFile(path.join(vaultRoot, categoryDirName, "log.md"), "utf8")).resolves.toContain(batch.id);
+  });
+
   it("rejects submission when a proposal is still pending", async () => {
     const { category, agent } = await configuredCategory();
     const batch = await insertBatch(category.id, agent.id);

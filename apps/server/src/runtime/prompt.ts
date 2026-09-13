@@ -249,6 +249,7 @@ export function composeIngestionInstruction(input: {
     'In your final structured completion (the standard <orc-result>...</orc-result> JSON object), set "status" to "completed" and place your proposals as an array at `details.proposals`. Each proposal must be an object with exactly these fields:',
     '{"operation":"CREATE"|"UPDATE"|"MERGE"|"CONFLICT"|"NO_CHANGE","targetPath":"vault-relative path under this category\'s directory","targetHeading":"optional heading","title":"string","rationale":"string","confidenceScore":0..1,"confidenceLevel":"low"|"medium"|"high","evidence":["string"],"existingContentHash":"optional lowercase SHA-256 of the existing note this proposal modifies","proposedContent":"the complete proposed Markdown content for this proposal","conflictDetails":"required and populated only for operation CONFLICT"}',
     "Rules for proposals:",
+    "- Omit targetHeading when the proposal applies to the whole file; never send it as an empty string.",
     "- CREATE: targetPath does not exist yet in this category.",
     "- UPDATE: a narrow modification of one existing canonical note.",
     "- MERGE: source overlaps multiple existing notes and requires consolidation into targetPath.",
