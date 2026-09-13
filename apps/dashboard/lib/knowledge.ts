@@ -3,10 +3,16 @@ import {
   knowledgeCategoryFileListResponseSchema,
   knowledgeCategoryListResponseSchema,
   knowledgeCategorySchema,
+  knowledgeIngestionBatchDetailResponseSchema,
+  knowledgeIngestionBatchListResponseSchema,
+  knowledgeIngestionBatchSchema,
   type CreateKnowledgeCategory,
+  type CreateKnowledgeIngestionBatch,
   type KnowledgeCategory,
   type KnowledgeCategoryFileContentResponse,
   type KnowledgeCategoryFileListResponse,
+  type KnowledgeIngestionBatch,
+  type KnowledgeIngestionBatchDetailResponse,
   type UpdateKnowledgeCategory,
 } from "@orc/shared";
 
@@ -184,4 +190,69 @@ export async function getKnowledgeCategoryFileContent(
   return knowledgeCategoryFileContentResponseSchema.parse(
     await response.json(),
   );
+}
+
+/** Uploads one prepared Markdown knowledge source and persists a reviewable ingestion batch. */
+export async function createKnowledgeIngestionBatch(
+  categoryId: string,
+  input: CreateKnowledgeIngestionBatch,
+): Promise<KnowledgeIngestionBatch> {
+  const response = await fetch(`${SERVER_URL}/api/knowledge/${categoryId}/ingestions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return knowledgeIngestionBatchSchema.parse(await response.json());
+}
+
+/** Lists ingestion batches for one Knowledge Category, oldest first. */
+export async function getKnowledgeIngestionBatches(
+  categoryId: string,
+  signal?: AbortSignal,
+): Promise<KnowledgeIngestionBatch[]> {
+  const response = await fetch(`${SERVER_URL}/api/knowledge/${categoryId}/ingestions`, {
+    cache: "no-store",
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return knowledgeIngestionBatchListResponseSchema.parse(await response.json()).batches;
+}
+
+/** Gets one ingestion batch and its currently persisted proposals. */
+export async function getKnowledgeIngestionBatch(
+  batchId: string,
+  signal?: AbortSignal,
+): Promise<KnowledgeIngestionBatchDetailResponse> {
+  const response = await fetch(`${SERVER_URL}/api/knowledge/ingestions/${batchId}`, {
+    cache: "no-store",
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return knowledgeIngestionBatchDetailResponseSchema.parse(await response.json());
+}
+
+/** Starts (or safely re-observes) the configured specialist's proposal-only analysis of one batch. */
+export async function startKnowledgeIngestionAnalysis(batchId: string): Promise<KnowledgeIngestionBatch> {
+  const response = await fetch(`${SERVER_URL}/api/knowledge/ingestions/${batchId}/analyze`, {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return knowledgeIngestionBatchSchema.parse(await response.json());
 }

@@ -4,6 +4,7 @@ import {
 import {
   boolean,
   check,
+  doublePrecision,
   foreignKey,
   index,
   integer,
@@ -265,6 +266,36 @@ export const knowledgeCategories =
     },
   );
 
+export const knowledgeIngestionBatchStatusEnum = pgEnum("knowledge_ingestion_batch_status", [
+  "uploaded",
+  "analyzing",
+  "review_ready",
+  "submitting",
+  "committed",
+  "failed",
+]);
+
+export const knowledgeProposalOperationEnum = pgEnum("knowledge_proposal_operation", [
+  "CREATE",
+  "UPDATE",
+  "MERGE",
+  "CONFLICT",
+  "NO_CHANGE",
+]);
+
+export const knowledgeProposalConfidenceLevelEnum = pgEnum("knowledge_proposal_confidence_level", [
+  "low",
+  "medium",
+  "high",
+]);
+
+export const knowledgeProposalReviewStatusEnum = pgEnum("knowledge_proposal_review_status", [
+  "pending",
+  "approved",
+  "denied",
+  "needs_changes",
+]);
+
 /** Generic reusable capabilities. Their meaning is configuration, never runtime role branches. */
 export const skills = pgTable("skills", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -281,6 +312,72 @@ export const agentSkills = pgTable("agent_skills", {
   skillId: uuid("skill_id").notNull().references(() => skills.id, { onDelete: "restrict" }),
   ...timestamps,
 }, (table) => [unique("agent_skills_agent_id_skill_id_unique").on(table.agentId, table.skillId), index("agent_skills_skill_id_idx").on(table.skillId)]);
+
+/**
+ * One uploaded knowledge source produces one reviewable ingestion batch. Specialist,
+ * skill, source hash, and base vault commit are snapshotted immutably once analysis
+ * starts so later publishing (Slice 5) can detect a stale or concurrently edited vault.
+ */
+export const knowledgeIngestionBatches = pgTable("knowledge_ingestion_batches", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  knowledgeCategoryId: uuid("knowledge_category_id").notNull().references(() => knowledgeCategories.id, { onDelete: "restrict" }),
+  specialistAgentId: uuid("specialist_agent_id").references(() => agents.id, { onDelete: "restrict" }),
+  ingestionSkillId: uuid("ingestion_skill_id").references(() => skills.id, { onDelete: "restrict" }),
+  sourceFileName: text("source_file_name").notNull(),
+  sourceMediaType: text("source_media_type").notNull(),
+  sourceContent: text("source_content").notNull(),
+  sourceContentHash: text("source_content_hash").notNull(),
+  baseVaultCommitSha: text("base_vault_commit_sha"),
+  status: knowledgeIngestionBatchStatusEnum("status").notNull().default("uploaded"),
+  analysisExecutionId: uuid("analysis_execution_id").references(() => agentExecutions.id, { onDelete: "set null" }),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }),
+  committedAt: timestamp("committed_at", { withTimezone: true }),
+  vaultCommitSha: text("vault_commit_sha"),
+  failureReason: text("failure_reason"),
+  ...timestamps,
+}, (table) => [
+  index("knowledge_ingestion_batches_category_id_idx").on(table.knowledgeCategoryId),
+  check(
+    "knowledge_ingestion_batches_source_content_hash_check",
+    sql`${table.sourceContentHash} ~ '^[0-9a-f]{64}$'`,
+  ),
+  check(
+    "knowledge_ingestion_batches_source_media_type_check",
+    sql`${table.sourceMediaType} = 'text/markdown'`,
+  ),
+]);
+
+/** One specialist-authored, independently reviewable recommendation belonging to one ingestion batch. */
+export const knowledgeProposals = pgTable("knowledge_proposals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  batchId: uuid("batch_id").notNull().references(() => knowledgeIngestionBatches.id, { onDelete: "cascade" }),
+  operation: knowledgeProposalOperationEnum("operation").notNull(),
+  targetPath: text("target_path").notNull(),
+  targetHeading: text("target_heading"),
+  confidenceScore: doublePrecision("confidence_score").notNull(),
+  confidenceLevel: knowledgeProposalConfidenceLevelEnum("confidence_level").notNull(),
+  title: text("title").notNull(),
+  rationale: text("rationale").notNull(),
+  evidence: jsonb("evidence").notNull().default([]),
+  existingContentHash: text("existing_content_hash"),
+  proposedContent: text("proposed_content").notNull(),
+  proposedPatch: text("proposed_patch"),
+  conflictDetails: text("conflict_details"),
+  reviewStatus: knowledgeProposalReviewStatusEnum("review_status").notNull().default("pending"),
+  reviewerNote: text("reviewer_note"),
+  appliedAt: timestamp("applied_at", { withTimezone: true }),
+  ...timestamps,
+}, (table) => [
+  index("knowledge_proposals_batch_id_idx").on(table.batchId),
+  check(
+    "knowledge_proposals_existing_content_hash_check",
+    sql`${table.existingContentHash} is null or ${table.existingContentHash} ~ '^[0-9a-f]{64}$'`,
+  ),
+  check(
+    "knowledge_proposals_confidence_score_check",
+    sql`${table.confidenceScore} >= 0 and ${table.confidenceScore} <= 1`,
+  ),
+]);
 
 /**
  * Project existence remains filesystem-backed. This table stores only optional

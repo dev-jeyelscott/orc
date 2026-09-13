@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   createKnowledgeCategorySchema,
+  createKnowledgeIngestionBatchSchema,
   updateKnowledgeCategorySchema,
 } from "@orc/shared";
 
@@ -16,8 +17,17 @@ import {
   listKnowledgeCategoryFiles,
   updateKnowledgeCategory,
 } from "../services/knowledge-category-service.js";
+import {
+  KnowledgeIngestionServiceError,
+  createIngestionBatch,
+  getIngestionBatch,
+  listIngestionBatches,
+  startIngestionAnalysis,
+} from "../services/knowledge-ingestion-service.js";
 
 const idParams = z.object({ categoryId: z.string().uuid() });
+
+const batchIdParams = z.object({ batchId: z.string().uuid() });
 
 const fileContentQuery = z.object({
   path: z.string().trim().min(1).max(1_024),
@@ -40,7 +50,7 @@ function sendError(
   error: unknown,
   reply: { status: (code: number) => { send: (body: unknown) => unknown } },
 ) {
-  if (error instanceof KnowledgeCategoryServiceError) {
+  if (error instanceof KnowledgeCategoryServiceError || error instanceof KnowledgeIngestionServiceError) {
     return reply.status(error.statusCode).send({ error: error.message });
   }
 
@@ -126,4 +136,42 @@ export async function knowledgeRoutes(app: FastifyInstance) {
       return result ?? reply.status(404).send({ error: "knowledge_category_not_found" });
     },
   );
+
+  app.post("/api/knowledge/:categoryId/ingestions", async (request, reply) => {
+    try {
+      const { categoryId } = parse(idParams, request.params);
+      const input = parse(createKnowledgeIngestionBatchSchema, request.body);
+
+      return reply.status(201).send(await createIngestionBatch(categoryId, input));
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
+  app.get("/api/knowledge/:categoryId/ingestions", async (request, reply) => {
+    try {
+      const { categoryId } = parse(idParams, request.params);
+
+      return { batches: await listIngestionBatches(categoryId) };
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
+  app.get("/api/knowledge/ingestions/:batchId", async (request, reply) => {
+    const { batchId } = parse(batchIdParams, request.params);
+    const result = await getIngestionBatch(batchId);
+
+    return result ?? reply.status(404).send({ error: "knowledge_ingestion_batch_not_found" });
+  });
+
+  app.post("/api/knowledge/ingestions/:batchId/analyze", async (request, reply) => {
+    try {
+      const { batchId } = parse(batchIdParams, request.params);
+
+      return await startIngestionAnalysis(batchId);
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
 }

@@ -19,6 +19,7 @@ export * from "./contracts.js";
 
 export {
   composeHandoffNote,
+  composeIngestionInstruction,
   composeInitialInstruction,
   composeKnowledgeContext,
   composeTaskDocumentContext,

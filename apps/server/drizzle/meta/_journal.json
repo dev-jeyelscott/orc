@@ -169,6 +169,13 @@
       "when": 1789344000002,
       "tag": "0023_plain_harrier",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789344000003,
+      "tag": "0024_cold_azazel",
+      "breakpoints": true
     }
   ]
 }
