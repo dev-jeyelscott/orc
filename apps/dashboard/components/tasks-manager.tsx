@@ -51,6 +51,7 @@ import {
   shortId,
 } from "@/lib/task-presentation";
 import {
+  approveRun,
   cancelRun,
   getRun,
   getRuns,
@@ -805,6 +806,40 @@ export function TasksManager() {
   }
 
   /**
+   * Records an operator's manual approval of one completed run's latest result so
+   * Auto Mode intake can proceed to the next queued Notion Task, then reloads
+   * authoritative workflow state.
+   */
+  async function approveRelatedRun(
+    runId: string,
+  ): Promise<void> {
+    setBusyRunId(
+      runId,
+    );
+
+    try {
+      await approveRun(
+        runId,
+      );
+
+      await loadWork();
+    } catch (
+      error
+    ) {
+      setWorkError(
+        getErrorMessage(
+          error,
+          "Unable to approve run",
+        ),
+      );
+    } finally {
+      setBusyRunId(
+        null,
+      );
+    }
+  }
+
+  /**
    * Retries the final execution only for backend-supported failed or blocked
    * Runs and reloads authoritative workflow state.
    */
@@ -1050,6 +1085,9 @@ export function TasksManager() {
         }
         onSkipRun={
           skipRelatedRun
+        }
+        onApproveRun={
+          approveRelatedRun
         }
         onRetryRun={
           retryRelatedRun

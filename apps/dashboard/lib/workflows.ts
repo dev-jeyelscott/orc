@@ -253,6 +253,25 @@ export function skipRun(
 }
 
 /**
+ * Records an operator's manual review sign-off on one completed run's latest execution
+ * result, so Auto Mode intake (which requires an approved result) can proceed to the
+ * next queued Task.
+ */
+export function approveRun(
+  id:
+    string,
+): Promise<Run> {
+  return request(
+    `/api/runs/${id}/approve`,
+    {
+      method: "POST",
+    },
+    (value) =>
+      runDetailSchema.shape.run.parse(value),
+  );
+}
+
+/**
  * Retries the final execution of a backend-supported failed or blocked run.
  */
 export function retryRun(

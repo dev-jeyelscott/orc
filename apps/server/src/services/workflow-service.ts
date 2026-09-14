@@ -3138,6 +3138,104 @@ export async function skipRun(
 }
 
 /**
+ * Records an operator's manual review sign-off on one completed run's latest execution
+ * result. This is the only supported way to turn a `"completed"` execution result into
+ * `"approved"` when the configured workflow itself never produced that outcome, so a
+ * human can unblock automation (for example Auto Mode intake) that specifically requires
+ * an approved result before continuing. It never changes run status, workflow routing, or
+ * repository state; it only records that a human reviewed and accepted the finished work.
+ */
+export async function approveRun(
+  id: string,
+): Promise<Run | null> {
+  const [run] =
+    await db
+      .select()
+      .from(runs)
+      .where(
+        eq(
+          runs.id,
+          id,
+        ),
+      );
+
+  if (!run) {
+    return null;
+  }
+
+  if (run.status !== "completed") {
+    throw new WorkflowServiceError(
+      "Only a completed run can be approved",
+      409,
+    );
+  }
+
+  const [execution] =
+    await db
+      .select()
+      .from(agentExecutions)
+      .where(
+        eq(
+          agentExecutions.runId,
+          id,
+        ),
+      )
+      .orderBy(
+        desc(
+          agentExecutions.createdAt,
+        ),
+      )
+      .limit(1);
+
+  if (!execution) {
+    throw new WorkflowServiceError(
+      "Run has no execution to approve",
+      409,
+    );
+  }
+
+  if (execution.resultStatus === "approved") {
+    throw new WorkflowServiceError(
+      "Run result is already approved",
+      409,
+    );
+  }
+
+  if (execution.resultStatus !== "completed") {
+    throw new WorkflowServiceError(
+      "Only a `completed` execution result can be approved",
+      409,
+    );
+  }
+
+  await db
+    .update(agentExecutions)
+    .set({
+      resultStatus: "approved",
+      updatedAt: new Date(),
+    })
+    .where(
+      eq(
+        agentExecutions.id,
+        execution.id,
+      ),
+    );
+
+  await recordEvent({
+    type: "result.approved",
+    projectPath: run.projectPath,
+    taskId: run.taskId,
+    runId: run.id,
+    agentExecutionId: execution.id,
+    data: {
+      reason: "Approved by operator",
+    },
+  });
+
+  return serializeRun(run);
+}
+
+/**
  * Restarts the final snapshot agent of a failed or blocked run with optional
  * one-execution overrides while retaining the original immutable snapshot.
  */

@@ -54,6 +54,7 @@ import type {
   SnapshotAgent,
 } from "./agent-execution-service.js";
 import {
+  approveRun,
   orderWorkflowAgents,
   recoverInterruptedWorkflows,
   retryLastExecution,
@@ -1406,6 +1407,190 @@ describe(
           skipRun(run.id),
         ).rejects.toThrow(
           "Only Notion Auto Mode runs can be skipped",
+        );
+      },
+    );
+
+    it(
+      "approves a completed run's latest `completed` result so Auto Mode intake can proceed",
+      async () => {
+        const projectPath =
+          `/tmp/orc-approve-${crypto.randomUUID()}`;
+
+        const [task] =
+          await db
+            .insert(tasks)
+            .values({
+              projectPath,
+              title: "Approve this completed task",
+              instruction: "Verify the final reviewer's result.",
+              status: "completed",
+              source: "notion",
+              externalId: crypto.randomUUID(),
+              externalUrl: "https://www.notion.so/approve-task",
+            })
+            .returning();
+
+        createdTaskIds.add(task.id);
+
+        const [run] =
+          await db
+            .insert(runs)
+            .values({
+              taskId: task.id,
+              projectPath,
+              status: "completed",
+            })
+            .returning();
+
+        createdRunIds.add(run.id);
+
+        const [execution] =
+          await db
+            .insert(agentExecutions)
+            .values({
+              runId: run.id,
+              agentName: "Reviewer",
+              agentRole: "QA",
+              layer: 1,
+              executionOrder: 1,
+              harness: "codex",
+              model: "default",
+              reasoning: "medium",
+              status: "completed",
+              resultStatus: "completed",
+              completedAt: new Date(),
+            })
+            .returning();
+
+        const approved =
+          await approveRun(run.id);
+
+        expect(approved?.status).toBe("completed");
+
+        const [persistedExecution] =
+          await db
+            .select()
+            .from(agentExecutions)
+            .where(eq(agentExecutions.id, execution.id));
+
+        expect(persistedExecution?.resultStatus).toBe("approved");
+
+        const events =
+          await db
+            .select()
+            .from(domainEvents)
+            .where(
+              eq(
+                domainEvents.runId,
+                run.id,
+              ),
+            );
+
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "result.approved",
+          }),
+        );
+      },
+    );
+
+    it(
+      "rejects approving a run whose latest result is already approved",
+      async () => {
+        const projectPath =
+          `/tmp/orc-approve-twice-${crypto.randomUUID()}`;
+
+        const [task] =
+          await db
+            .insert(tasks)
+            .values({
+              projectPath,
+              title: "Already approved task",
+              instruction: "Should not be approvable again.",
+              status: "completed",
+              source: "notion",
+              externalId: crypto.randomUUID(),
+              externalUrl: "https://www.notion.so/already-approved",
+            })
+            .returning();
+
+        createdTaskIds.add(task.id);
+
+        const [run] =
+          await db
+            .insert(runs)
+            .values({
+              taskId: task.id,
+              projectPath,
+              status: "completed",
+            })
+            .returning();
+
+        createdRunIds.add(run.id);
+
+        await db
+          .insert(agentExecutions)
+          .values({
+            runId: run.id,
+            agentName: "Reviewer",
+            agentRole: "QA",
+            layer: 1,
+            executionOrder: 1,
+            harness: "codex",
+            model: "default",
+            reasoning: "medium",
+            status: "completed",
+            resultStatus: "approved",
+            completedAt: new Date(),
+          });
+
+        await expect(
+          approveRun(run.id),
+        ).rejects.toThrow(
+          "Run result is already approved",
+        );
+      },
+    );
+
+    it(
+      "rejects approving a run that has not completed",
+      async () => {
+        const projectPath =
+          `/tmp/orc-approve-active-${crypto.randomUUID()}`;
+
+        const [task] =
+          await db
+            .insert(tasks)
+            .values({
+              projectPath,
+              title: "Still running task",
+              instruction: "Cannot be approved yet.",
+              status: "running",
+              source: "notion",
+              externalId: crypto.randomUUID(),
+              externalUrl: "https://www.notion.so/still-running",
+            })
+            .returning();
+
+        createdTaskIds.add(task.id);
+
+        const [run] =
+          await db
+            .insert(runs)
+            .values({
+              taskId: task.id,
+              projectPath,
+              status: "running",
+            })
+            .returning();
+
+        createdRunIds.add(run.id);
+
+        await expect(
+          approveRun(run.id),
+        ).rejects.toThrow(
+          "Only a completed run can be approved",
         );
       },
     );

@@ -61,6 +61,10 @@ type TaskDetailDrawerProps = {
     (
       runId: string,
     ) => Promise<void> | void;
+  onApproveRun:
+    (
+      runId: string,
+    ) => Promise<void> | void;
   onRetryRun:
     (
       runId: string,
@@ -83,6 +87,7 @@ export function TaskDetailDrawer({
   busyRunId,
   onCancelRun,
   onSkipRun,
+  onApproveRun,
   onRetryRun,
 }: TaskDetailDrawerProps) {
   return (
@@ -161,6 +166,9 @@ export function TaskDetailDrawer({
               }
               onSkipRun={
                 onSkipRun
+              }
+              onApproveRun={
+                onApproveRun
               }
               onRetryRun={
                 onRetryRun

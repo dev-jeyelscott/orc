@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   BanIcon,
+  CheckIcon,
   CopyIcon,
   ExternalLinkIcon,
   ForwardIcon,
@@ -67,6 +68,10 @@ type TaskDetailPanelProps = {
     (
       runId: string,
     ) => Promise<void> | void;
+  onApproveRun:
+    (
+      runId: string,
+    ) => Promise<void> | void;
   onRetryRun:
     (
       runId: string,
@@ -111,6 +116,7 @@ export function TaskDetailPanel({
   busyRunId,
   onCancelRun,
   onSkipRun,
+  onApproveRun,
   onRetryRun,
 }: TaskDetailPanelProps) {
   if (!task) {
@@ -399,6 +405,9 @@ export function TaskDetailPanel({
                           canSkip={
                             task.source === "notion"
                           }
+                          onApproveRun={
+                            onApproveRun
+                          }
                           onRetryRun={
                             onRetryRun
                           }
@@ -447,6 +456,9 @@ export function TaskDetailPanel({
                     }
                     canSkip={
                       task.source === "notion"
+                    }
+                    onApproveRun={
+                      onApproveRun
                     }
                     onRetryRun={
                       onRetryRun
@@ -561,6 +573,7 @@ function RelatedRunCard({
   onCancelRun,
   onSkipRun,
   canSkip,
+  onApproveRun,
   onRetryRun,
 }: {
   run: Run;
@@ -578,6 +591,10 @@ function RelatedRunCard({
       runId: string,
     ) => Promise<void> | void;
   canSkip: boolean;
+  onApproveRun:
+    (
+      runId: string,
+    ) => Promise<void> | void;
   onRetryRun:
     (
       runId: string,
@@ -586,6 +603,15 @@ function RelatedRunCard({
   const detailMatches =
     latestRunDetail?.run.id ===
     run.id;
+
+  const latestExecutionResultStatus =
+    detailMatches
+      ? (latestRunDetail?.executions.at(-1)?.resultStatus ?? null)
+      : null;
+
+  const canApprove =
+    run.status === "completed" &&
+    latestExecutionResultStatus === "completed";
 
   return (
     <div className="neon-surface rounded-lg border border-border-default bg-surface-card p-3">
@@ -742,6 +768,23 @@ function RelatedRunCard({
           >
             <ForwardIcon />
             Skip Task
+          </Button>
+        ) : null}
+
+        {canApprove ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            onClick={() =>
+              void onApproveRun(
+                run.id,
+              )
+            }
+            disabled={busy}
+          >
+            <CheckIcon />
+            Approve Result
           </Button>
         ) : null}
       </div>

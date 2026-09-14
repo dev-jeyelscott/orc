@@ -11,6 +11,7 @@ import {
 } from "../services/run-monitoring-service.js";
 import {
   WorkflowServiceError,
+  approveRun,
   cancelRun,
   createAndStartTask,
   getRunDetail,
@@ -265,6 +266,48 @@ export async function workflowRoutes(
       try {
         const run =
           await skipRun(
+            parsed.data.id,
+          );
+
+        return (
+          run ??
+          reply
+            .status(404)
+            .send({
+              error: "run_not_found",
+            })
+        );
+      } catch (error) {
+        return sendError(
+          error,
+          reply,
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/runs/:id/approve",
+    async (
+      request,
+      reply,
+    ) => {
+      const parsed =
+        idParams.safeParse(
+          request.params,
+        );
+
+      if (!parsed.success) {
+        return reply
+          .status(400)
+          .send({
+            error: "invalid_run_id",
+          });
+      }
+
+      try {
+        const run =
+          await approveRun(
             parsed.data.id,
           );
 
