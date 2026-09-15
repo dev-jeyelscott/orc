@@ -399,7 +399,18 @@ function BuilderInner({ team }: { team: Team }) {
         return;
       }
 
-      setNodes((current) => applyNodeChanges(changes, current));
+      // "dimensions" changes are React Flow's own internal measurement
+      // bookkeeping, not domain state. `activeNodes` is rebuilt fresh from
+      // `nodes` on every render (via flowToGraph -> graphNodeToFlowNode),
+      // which never carries that measurement forward -- so feeding
+      // dimension changes into `setNodes` here would hand React Flow a
+      // "still unmeasured" node array again on the very next render,
+      // forever, and every node would stay permanently
+      // `visibility: hidden`. Only domain-relevant changes update state.
+      const domainChanges = changes.filter((change) => change.type !== "dimensions");
+      if (domainChanges.length > 0) {
+        setNodes((current) => applyNodeChanges(domainChanges, current));
+      }
 
       if (changes.some((change) => change.type === "position" && change.dragging === false)) {
         setDirty(true);
@@ -408,7 +419,6 @@ function BuilderInner({ team }: { team: Team }) {
       if (changes.some((change) => change.type === "remove")) {
         setDirty(true);
       }
-
     },
     [readOnly, isDesktopLayout],
   );
