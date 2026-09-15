@@ -108,7 +108,7 @@ test("findStartEdge returns the Start node's single outgoing edge", () => {
   assert.equal(findStartEdge({ nodes: [startNode("s1")], edges: [] }), undefined);
 });
 
-test("autoLayoutGraph ranks connected nodes left-to-right and positions every node", () => {
+test("autoLayoutGraph ranks connected nodes top-to-bottom and positions every node", () => {
   const start = startNode("s1");
   const a = agentNode("n1", "a");
   const b = agentNode("n2", "b");
@@ -127,9 +127,9 @@ test("autoLayoutGraph ranks connected nodes left-to-right and positions every no
   const laidOut = autoLayoutGraph(graph);
   const positionById = new Map(laidOut.nodes.map((node) => [node.id, node.position]));
 
-  assert.ok(positionById.get("s1").x < positionById.get("n1").x);
-  assert.ok(positionById.get("n1").x < positionById.get("n2").x);
-  assert.ok(positionById.get("n2").x < positionById.get("t1").x);
-  assert.ok(Number.isFinite(positionById.get("n3").x));
+  assert.ok(positionById.get("s1").y < positionById.get("n1").y);
+  assert.ok(positionById.get("n1").y < positionById.get("n2").y);
+  assert.ok(positionById.get("n2").y < positionById.get("t1").y);
+  assert.ok(Number.isFinite(positionById.get("n3").y));
   assert.equal(laidOut.edges, graph.edges);
 });

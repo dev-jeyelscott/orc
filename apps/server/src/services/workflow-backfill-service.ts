@@ -86,7 +86,7 @@ export async function backfillTeamWorkflow(teamId: string): Promise<BackfillTeam
     id: crypto.randomUUID(),
     kind: "agent",
     agentId: member.agentId,
-    position: { x: 240 * (index + 1), y: 0 },
+    position: { x: 0, y: 240 * (index + 1) },
   }));
   const agentNodeByAgentId = new Map(agentNodes.map((node) => [node.agentId, node]));
 

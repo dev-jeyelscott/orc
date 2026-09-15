@@ -146,25 +146,26 @@ export function findStartEdge(graph: WorkflowGraph): WorkflowGraphEdge | undefin
   return graph.edges.find((edge) => edge.sourceNodeId === start.id);
 }
 
-const AGENT_NODE_WIDTH = 220;
-const AGENT_NODE_HEIGHT = 88;
+const AGENT_NODE_WIDTH = 240;
+const AGENT_NODE_HEIGHT = 108;
 const TERMINAL_NODE_WIDTH = 160;
 const TERMINAL_NODE_HEIGHT = 56;
-const RANK_SEPARATION = 96;
-const NODE_SEPARATION = 48;
+const RANK_SEPARATION = 120;
+const NODE_SEPARATION = 64;
 
 /**
- * Applies a left-to-right Dagre layered layout (Start on the left, ranked
- * by edge distance, terminals on the right). Only invoked as an explicit
- * "Auto arrange" action -- never automatically on every render -- since
- * the operator's own manual positioning must never be silently
- * overwritten. Reuses the repository's existing `@dagrejs/dagre`
- * dependency rather than a hand-rolled layout.
+ * Applies a top-to-bottom Dagre layered layout (Start at the top, ranked
+ * by edge distance, terminals at the bottom) -- matching each node's
+ * top-in/bottom-out handle layout. Only invoked as an explicit "Auto
+ * arrange" action -- never automatically on every render -- since the
+ * operator's own manual positioning must never be silently overwritten.
+ * Reuses the repository's existing `@dagrejs/dagre` dependency rather
+ * than a hand-rolled layout.
  */
 export function autoLayoutGraph(graph: WorkflowGraph): WorkflowGraph {
   const layoutGraph = new dagre.graphlib.Graph();
   layoutGraph.setGraph({
-    rankdir: "LR",
+    rankdir: "TB",
     ranksep: RANK_SEPARATION,
     nodesep: NODE_SEPARATION,
   });

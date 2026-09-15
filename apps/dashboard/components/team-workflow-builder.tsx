@@ -87,7 +87,6 @@ import {
 
 import { AgentNode, type AgentNodeData } from "@/components/workflow-builder/agent-node";
 import { AgentPalette } from "@/components/workflow-builder/agent-palette";
-import { EdgeOutcomePicker } from "@/components/workflow-builder/edge-outcome-picker";
 import { NodeInspector } from "@/components/workflow-builder/node-inspector";
 import { OutcomeEdge, type OutcomeEdgeData } from "@/components/workflow-builder/outcome-edge";
 import { RevisionHistory } from "@/components/workflow-builder/revision-history";
@@ -137,6 +136,7 @@ function graphEdgeToFlowEdge(edge: WorkflowGraphEdge): Edge {
   return {
     id: edge.id,
     source: edge.sourceNodeId,
+    sourceHandle: edge.outcome ?? undefined,
     target: edge.targetNodeId,
     type: "outcome",
     data,
@@ -210,7 +210,6 @@ function BuilderInner({ team }: { team: Team }) {
   const [readOnlyLoading, setReadOnlyLoading] = useState(false);
 
   const [selection, setSelection] = useState<{ kind: "node" | "edge"; id: string } | null>(null);
-  const [pendingConnection, setPendingConnection] = useState<Connection | null>(null);
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
 
   const [paletteSheetOpen, setPaletteSheetOpen] = useState(false);
@@ -408,9 +407,19 @@ function BuilderInner({ team }: { team: Team }) {
       if (sourceNode.type === "terminal") return false;
       if (sourceNode.type === "start" && targetNode.type !== "agent") return false;
 
+      if (sourceNode.type === "agent") {
+        // Each bottom port on an Agent node *is* a fixed outcome -- reject
+        // dragging from a port whose outcome already has an edge, since a
+        // second edge from the same (source, outcome) pair is invalid.
+        const available = availableOutcomesForNewEdge(connection.source, flowToGraph(nodes, edges));
+        if (!connection.sourceHandle || !available.includes(connection.sourceHandle as AgentRouteOutcome)) {
+          return false;
+        }
+      }
+
       return true;
     },
-    [nodes],
+    [nodes, edges],
   );
 
   const onConnect = useCallback(
@@ -429,33 +438,30 @@ function BuilderInner({ team }: { team: Team }) {
         return;
       }
 
-      setPendingConnection(connection);
+      // The source handle a connection was dragged from *is* the outcome --
+      // no separate picker step is needed. `isValidConnection` above already
+      // rejected outcomes that already have an edge from this Agent.
+      const outcome = connection.sourceHandle as AgentRouteOutcome | null;
+      if (!outcome) return;
+
+      setEdges((current) => {
+        const withoutSameOutcomeEdge = current.filter(
+          (edge) => !(edge.source === connection.source && edge.sourceHandle === connection.sourceHandle),
+        );
+        const data: OutcomeEdgeData = { outcome };
+        return addEdge({ ...connection, id: crypto.randomUUID(), type: "outcome", data }, withoutSameOutcomeEdge);
+      });
+      setDirty(true);
     },
     [nodes, readOnly],
   );
-
-  const pendingOutcomeChoices = useMemo(() => {
-    if (!pendingConnection?.source) return [];
-    return availableOutcomesForNewEdge(pendingConnection.source, flowToGraph(nodes, edges));
-  }, [pendingConnection, nodes, edges]);
-
-  function pickPendingOutcome(outcome: AgentRouteOutcome) {
-    if (!pendingConnection) return;
-
-    setEdges((current) => {
-      const data: OutcomeEdgeData = { outcome };
-      return addEdge({ ...pendingConnection, id: crypto.randomUUID(), type: "outcome", data }, current);
-    });
-    setDirty(true);
-    setPendingConnection(null);
-  }
 
   function insertAgentNode(agentId: string, position?: { x: number; y: number }) {
     if (readOnly) return;
     if (!canAddAgentNode(agentId, flowToGraph(nodes, edges))) return;
 
     const agentNodeCount = nodes.filter((node) => node.type === "agent").length;
-    const fallbackPosition = { x: 240 + agentNodeCount * 240, y: 0 };
+    const fallbackPosition = { x: 0, y: 240 + agentNodeCount * 220 };
     const resolved = boundedPosition(
       (position ?? fallbackPosition).x,
       (position ?? fallbackPosition).y,
@@ -802,13 +808,6 @@ function BuilderInner({ team }: { team: Team }) {
           </div>
         </SheetContent>
       </Sheet>
-
-      <EdgeOutcomePicker
-        open={pendingConnection !== null}
-        availableOutcomes={pendingOutcomeChoices}
-        onPick={pickPendingOutcome}
-        onCancel={() => setPendingConnection(null)}
-      />
 
       <AlertDialog open={confirmPublishOpen} onOpenChange={setConfirmPublishOpen}>
         <AlertDialogContent>

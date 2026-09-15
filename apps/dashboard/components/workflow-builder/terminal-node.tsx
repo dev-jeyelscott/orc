@@ -33,7 +33,7 @@ export function TerminalNode({ data, selected }: NodeProps & { data: TerminalNod
         selected ? "workflow-node--selected" : ""
       }`}
     >
-      <Handle type="target" position={Position.Left} className="!size-2.5" />
+      <Handle type="target" position={Position.Top} className="!size-2.5" />
       <Icon className={`size-4 ${TERMINAL_COLOR[data.terminalAction]}`} />
       <span className="workflow-node-title text-sm font-medium">
         {TERMINAL_LABELS[data.terminalAction]}

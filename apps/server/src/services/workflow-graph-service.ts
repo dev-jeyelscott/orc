@@ -98,9 +98,9 @@ async function loadGraph(tx: Tx, revisionId: string): Promise<WorkflowGraph> {
 async function seedSystemNodes(tx: Tx, revisionId: string) {
   await tx.insert(workflowNodes).values([
     { revisionId, kind: "start", positionX: 0, positionY: 0 },
-    { revisionId, kind: "terminal", terminalAction: "complete_run", positionX: 640, positionY: -120 },
-    { revisionId, kind: "terminal", terminalAction: "block_run", positionX: 640, positionY: 0 },
-    { revisionId, kind: "terminal", terminalAction: "fail_run", positionX: 640, positionY: 120 },
+    { revisionId, kind: "terminal", terminalAction: "complete_run", positionX: -200, positionY: 400 },
+    { revisionId, kind: "terminal", terminalAction: "block_run", positionX: 0, positionY: 400 },
+    { revisionId, kind: "terminal", terminalAction: "fail_run", positionX: 200, positionY: 400 },
   ]);
 }
 
