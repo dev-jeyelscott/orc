@@ -793,7 +793,10 @@ function TeamMemberPicker({
         _value,
         eventDetails,
       ) => {
-        if (eventDetails.isItemPress) {
+        if (
+          eventDetails.reason === "input-clear" &&
+          eventDetails.isItemPress
+        ) {
           eventDetails.cancel();
         }
       }}
@@ -1077,28 +1080,38 @@ export function TeamMembersManager({
     [agents, draftAgentIds],
   );
 
-  const visibleAgents = useMemo(
-    () =>
-      getVisibleTeamMemberAgents(
-        agents,
-        draftAgentIds,
-        query,
-        departmentFilter,
-      ),
-    [
-      agents,
-      draftAgentIds,
-      query,
-      departmentFilter,
-    ],
-  );
-
   const departmentOptions = useMemo(
     () =>
       getTeamMemberDepartmentOptions(
         draftAgents,
       ),
     [draftAgents],
+  );
+
+  const effectiveDepartmentFilter =
+    departmentFilter === "all" ||
+    draftAgents.some(
+      (agent) =>
+        agent.departmentId ===
+        departmentFilter,
+    )
+      ? departmentFilter
+      : "all";
+
+  const visibleAgents = useMemo(
+    () =>
+      getVisibleTeamMemberAgents(
+        agents,
+        draftAgentIds,
+        query,
+        effectiveDepartmentFilter,
+      ),
+    [
+      agents,
+      draftAgentIds,
+      query,
+      effectiveDepartmentFilter,
+    ],
   );
 
   const membershipChangeCount = useMemo(
@@ -1115,22 +1128,6 @@ export function TeamMembersManager({
 
   const dirty =
     membershipChangeCount > 0;
-
-  useEffect(() => {
-    if (
-      departmentFilter !== "all" &&
-      !departmentOptions.some(
-        (department) =>
-          department.id ===
-          departmentFilter,
-      )
-    ) {
-      setDepartmentFilter("all");
-    }
-  }, [
-    departmentFilter,
-    departmentOptions,
-  ]);
 
   /**
    * Adds valid picker selections to the local draft without persisting them yet.
@@ -1372,7 +1369,7 @@ export function TeamMembersManager({
 
             <NativeSelect
               aria-label="Filter Team members by Department"
-              value={departmentFilter}
+              value={effectiveDepartmentFilter}
               onChange={(event) =>
                 setDepartmentFilter(
                   event.target.value,
