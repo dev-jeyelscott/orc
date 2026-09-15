@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /home/john-leward-escote/workspace/orc && (git diff --quiet && git diff --cached --quiet) || git commit -am \"wip: checkpoint $(date -Iseconds)\" 2>&1 | tail -5",
+            "timeout": 30,
+            "statusMessage": "Checkpointing uncommitted work..."
+          }
+        ]
+      }
+    ]
+  }
+}

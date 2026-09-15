@@ -160,6 +160,8 @@ Do not report a check as passed unless it was actually run successfully. If a re
 - Worker commit behavior is capability-driven. Only an agent configured with commit permission may commit during orchestration.
 - Agents without commit permission must not commit even if they can modify or inspect files.
 - Never force-push unless the user explicitly requests and approves it.
+- A session can end unexpectedly (closed terminal, crash, disconnect) before reaching a natural stopping point. Do not save every change for one final commit at the end of a task: commit each verified, working increment as it lands, so an interrupted session never leaves more than a small amount of uncommitted work behind. A project-level `Stop` hook (`.claude/settings.json`) auto-commits any dirty tree after every turn as a `wip: checkpoint ...` safety net, but that is a backstop, not a substitute for deliberate commits.
+- When a task is genuinely complete and verified, its final step is `git push` (to the branch already in use) unless the user says otherwise. Do not leave finished, verified work sitting only in local commits.
 
 ## Safety
 
