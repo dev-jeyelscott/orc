@@ -4,7 +4,6 @@ import {
   Background,
   BackgroundVariant,
   Controls,
-  MiniMap,
   ReactFlow,
   ReactFlowProvider,
   applyNodeChanges,
@@ -347,10 +346,10 @@ function BuilderInner({ team }: { team: Team }) {
     () => activeGraph?.nodes.map((node) => node.id).join("|") ?? "",
     [activeGraph],
   );
-  const activeNodeIds = useMemo(() => activeGraph?.nodes.map((node) => node.id) ?? [], [activeGraph]);
-
   useEffect(() => {
-    if (activeNodeIds.length === 0) return;
+    if (!activeGraphViewportKey) return;
+
+    const activeNodeIds = activeGraphViewportKey.split("|");
 
     const frame = requestAnimationFrame(() => {
       updateNodeInternals(activeNodeIds);
@@ -358,7 +357,7 @@ function BuilderInner({ team }: { team: Team }) {
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [activeGraphViewportKey, activeNodeIds, fitView, updateNodeInternals]);
+  }, [activeGraphViewportKey, fitView, updateNodeInternals]);
 
   const placedAgentIds = useMemo(
     () => new Set(nodes.filter((node) => node.type === "agent").map((node) => (node.data as AgentNodeData).agentId)),
@@ -791,7 +790,6 @@ function BuilderInner({ team }: { team: Team }) {
           >
             <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
             <Controls />
-            <MiniMap pannable zoomable className="!bg-surface-elevated" />
           </ReactFlow>
         </div>
 
