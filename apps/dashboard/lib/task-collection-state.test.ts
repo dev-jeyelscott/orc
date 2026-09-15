@@ -74,6 +74,10 @@ function createRun(
       "pending",
     currentAgentId:
       null,
+    workflowRevisionId:
+      null,
+    currentWorkflowNodeId:
+      null,
     executionCount:
       0,
     terminalReason:

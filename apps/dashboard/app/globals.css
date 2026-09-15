@@ -383,4 +383,63 @@
       transition: none !important;
     }
   }
+
+  .workflow-node {
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    background: var(--surface-elevated);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-xs);
+    transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  }
+
+  .workflow-node--selected {
+    border-color: var(--neon-border-strong);
+    box-shadow: var(--neon-glow-active);
+  }
+
+  .workflow-node--system {
+    background: var(--surface-card);
+    border-style: dashed;
+  }
+
+  .workflow-node--invalid {
+    border-color: var(--status-error);
+  }
+
+  .workflow-node-title {
+    color: var(--text-primary);
+  }
+
+  .workflow-node-subtitle {
+    color: var(--text-secondary);
+  }
+
+  .workflow-node-meta {
+    color: var(--text-muted);
+  }
+
+  .workflow-edge-label {
+    background: var(--surface-elevated);
+    border: 1px solid var(--divider);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+  }
+
+  .workflow-edge-label--selected {
+    border-color: var(--neon-border-strong);
+    color: var(--text-primary);
+    box-shadow: var(--neon-glow);
+  }
+
+  .workflow-palette-item[data-disabled="true"] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .workflow-node {
+      transition: none !important;
+    }
+  }
 }

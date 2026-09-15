@@ -36,6 +36,10 @@ function createRun(
       "completed",
     currentAgentId:
       null,
+    workflowRevisionId:
+      null,
+    currentWorkflowNodeId:
+      null,
     executionCount:
       1,
     terminalReason:

@@ -114,6 +114,10 @@ function createDetail(
             1
         ]?.agentId ??
         null,
+      workflowRevisionId:
+        null,
+      currentWorkflowNodeId:
+        null,
       executionCount:
         executions.length,
       terminalReason:

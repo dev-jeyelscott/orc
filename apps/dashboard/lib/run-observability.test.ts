@@ -40,6 +40,10 @@ function createRun(
       "completed",
     currentAgentId:
       null,
+    workflowRevisionId:
+      null,
+    currentWorkflowNodeId:
+      null,
     executionCount:
       1,
     terminalReason:
@@ -408,6 +412,10 @@ function testWorkflowPlan(): void {
             "running",
           currentAgentId:
             second.id,
+          workflowRevisionId:
+            null,
+          currentWorkflowNodeId:
+            null,
           executionCount:
             2,
           terminalReason:

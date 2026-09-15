@@ -55,6 +55,10 @@ function createRunSummary(
     status,
     currentAgentId:
       null,
+    workflowRevisionId:
+      null,
+    currentWorkflowNodeId:
+      null,
     executionCount:
       0,
     terminalReason:
@@ -167,6 +171,10 @@ function createDetail(
           executions.length -
             1
         ]?.agentId ??
+        null,
+      workflowRevisionId:
+        null,
+      currentWorkflowNodeId:
         null,
       executionCount:
         executions.length,

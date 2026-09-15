@@ -143,6 +143,10 @@ function createDetail(
       status,
       currentAgentId:
         null,
+      workflowRevisionId:
+        null,
+      currentWorkflowNodeId:
+        null,
       executionCount:
         executions.length,
       terminalReason:
