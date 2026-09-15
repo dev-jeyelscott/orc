@@ -344,7 +344,7 @@ function BuilderInner({ team }: { team: Team }) {
   )), [focusedEdgeId, presentationEdges]);
 
   const activeGraphViewportKey = useMemo(
-    () => activeGraph?.nodes.map((node) => `${node.id}:${node.position.x}:${node.position.y}`).join("|") ?? "",
+    () => activeGraph?.nodes.map((node) => node.id).join("|") ?? "",
     [activeGraph],
   );
   const activeNodeIds = useMemo(() => activeGraph?.nodes.map((node) => node.id) ?? [], [activeGraph]);
