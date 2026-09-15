@@ -13,7 +13,7 @@ export function StartNode({ selected }: NodeProps) {
     >
       <PlayIcon className="size-4 text-status-success" />
       <span className="workflow-node-title text-sm font-medium">Start</span>
-      <Handle type="source" position={Position.Bottom} className="!size-2.5" />
+      <Handle type="source" id="route" position={Position.Bottom} className="!size-2.5" />
     </div>
   );
 }

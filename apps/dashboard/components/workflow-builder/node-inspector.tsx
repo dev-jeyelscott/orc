@@ -2,7 +2,7 @@
 
 import { AlertTriangleIcon, SettingsIcon } from "lucide-react";
 
-import type { Agent, WorkflowGraph } from "@orc/shared";
+import type { Agent, AgentRouteOutcome, WorkflowGraph } from "@orc/shared";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,8 @@ export function NodeInspector({
   labelForNode,
   readOnly,
   onEditAgent,
-  onSelectOutcomeRow,
+  onSetOutcomeRoute,
+  highlightedOutcomes = [],
 }: {
   node: AgentGraphNode;
   agent: Agent | null;
@@ -28,9 +29,12 @@ export function NodeInspector({
   labelForNode: (nodeId: string) => string;
   readOnly: boolean;
   onEditAgent: () => void;
-  onSelectOutcomeRow: (edgeId: string | null, outcome: string) => void;
+  onSetOutcomeRoute: (outcome: AgentRouteOutcome, targetNodeId: string | null) => void;
+  highlightedOutcomes?: readonly AgentRouteOutcome[];
 }) {
   const rows = outcomesForSourceNode(node.id, graph, labelForNode);
+  const destinations = graph.nodes.filter((candidate) => candidate.kind !== "start");
+  const highlighted = new Set(highlightedOutcomes);
 
   return (
     <div className="flex flex-col gap-3">
@@ -57,25 +61,31 @@ export function NodeInspector({
       <div className="flex flex-col gap-1.5">
         <h4 className="text-xs font-medium text-text-secondary">Outcome routing</h4>
         {rows.map((row) => (
-          <button
+          <label
             key={row.outcome}
-            type="button"
-            onClick={() => onSelectOutcomeRow(row.edgeId, row.outcome)}
-            disabled={!row.edgeId}
-            className="flex items-center justify-between gap-2 rounded-md border border-border-subtle px-2.5 py-1.5 text-left text-xs disabled:cursor-default"
+            className={`flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-xs ${
+              highlighted.has(row.outcome) ? "border-primary/50 bg-primary/5" : "border-border-subtle"
+            }`}
           >
             <span className="font-medium text-text-primary">{OUTCOME_LABELS[row.outcome]}</span>
-            <span
-              className={
-                row.configured
-                  ? "text-text-secondary"
-                  : "flex items-center gap-1 text-status-warning"
-              }
+            <select
+              aria-label={`${OUTCOME_LABELS[row.outcome]} destination`}
+              value={row.targetNodeId ?? ""}
+              disabled={readOnly}
+              onChange={(event) => onSetOutcomeRoute(row.outcome, event.target.value || null)}
+              className={`min-w-0 rounded border border-border-subtle bg-surface px-1.5 py-1 text-xs ${
+                row.configured ? "text-text-secondary" : "text-status-warning"
+              }`}
             >
-              {!row.configured ? <AlertTriangleIcon className="size-3" /> : null}
-              {row.targetLabel}
-            </span>
-          </button>
+              <option value="">Not configured</option>
+              {destinations.map((destination) => (
+                <option key={destination.id} value={destination.id}>
+                  {labelForNode(destination.id)}
+                </option>
+              ))}
+            </select>
+            {!row.configured ? <AlertTriangleIcon className="size-3 shrink-0 text-status-warning" /> : null}
+          </label>
         ))}
       </div>
 

@@ -10,6 +10,7 @@ import {
   findStartEdge,
   focusTargetForIssue,
   outcomesForSourceNode,
+  setOutcomeRoute,
 } from "./workflow-graph-draft.ts";
 
 function agent(id, name = id) {
@@ -80,6 +81,21 @@ test("availableOutcomesForNewEdge excludes already-assigned outcomes", () => {
   ]);
 });
 
+test("setOutcomeRoute adds, retargets, and clears only the selected canonical outcome", () => {
+  const graph = {
+    nodes: [agentNode("n1", "a"), agentNode("n2", "b"), agentNode("n3", "c")],
+    edges: [edge("e1", "n1", "n2", "completed"), edge("e2", "n1", "n2", "approved")],
+  };
+  const retargeted = setOutcomeRoute(graph, "n1", "completed", "n3", () => "new");
+  assert.equal(retargeted.edges.find((item) => item.id === "e1").targetNodeId, "n3");
+  assert.equal(retargeted.edges.find((item) => item.id === "e2").targetNodeId, "n2");
+  const added = setOutcomeRoute(retargeted, "n1", "blocked", "n2", () => "new");
+  assert.equal(added.edges.find((item) => item.id === "new").outcome, "blocked");
+  const cleared = setOutcomeRoute(added, "n1", "completed", null, () => "ignored");
+  assert.equal(cleared.edges.some((item) => item.id === "e1"), false);
+  assert.equal(cleared.edges.some((item) => item.id === "e2"), true);
+});
+
 test("boundedPosition clamps and rounds coordinates", () => {
   assert.deepEqual(boundedPosition(12.6, -7.2), { x: 13, y: -7 });
   assert.deepEqual(boundedPosition(1_000_000, -1_000_000), { x: 100_000, y: -100_000 });
@@ -132,4 +148,46 @@ test("autoLayoutGraph ranks connected nodes top-to-bottom and positions every no
   assert.ok(positionById.get("n2").y < positionById.get("t1").y);
   assert.ok(Number.isFinite(positionById.get("n3").y));
   assert.equal(laidOut.edges, graph.edges);
+});
+
+test("autoLayoutGraph keeps loops out of ranking constraints and places terminals below agents", () => {
+  const graph = {
+    nodes: [startNode("s1"), agentNode("n1", "a"), agentNode("n2", "b"), terminalNode("t1", "fail_run")],
+    edges: [
+      edge("e1", "s1", "n1", null),
+      edge("e2", "n1", "n2", "completed"),
+      edge("e3", "n2", "n1", "changes_requested"),
+      edge("e4", "n1", "t1", "failed"),
+    ],
+  };
+  const laidOut = autoLayoutGraph(graph);
+  const byId = new Map(laidOut.nodes.map((item) => [item.id, item.position]));
+  assert.ok(byId.get("n1").y < byId.get("n2").y);
+  assert.ok(byId.get("t1").y > byId.get("n2").y);
+  assert.deepEqual(autoLayoutGraph(graph).nodes, laidOut.nodes);
+});
+
+test("autoLayoutGraph remains bounded and stable for a larger arbitrary Team", () => {
+  const agents = Array.from({ length: 20 }, (_, index) => agentNode(`n${index}`, `a${index}`));
+  const graph = {
+    nodes: [startNode("s1"), ...agents, terminalNode("t1", "complete_run")],
+    edges: [
+      edge("start", "s1", "n0", null),
+      ...agents.slice(0, -1).map((_, index) => edge(`e${index}`, `n${index}`, `n${index + 1}`, "completed")),
+      edge("complete", "n19", "t1", "completed"),
+      edge("review-loop", "n12", "n5", "changes_requested"),
+    ],
+  };
+  const first = autoLayoutGraph(graph);
+  const second = autoLayoutGraph(graph);
+  assert.deepEqual(second.nodes, first.nodes);
+  for (const item of first.nodes) {
+    assert.ok(Number.isFinite(item.position.x));
+    assert.ok(Number.isFinite(item.position.y));
+    assert.ok(Math.abs(item.position.x) <= 100_000);
+    assert.ok(Math.abs(item.position.y) <= 100_000);
+  }
+  const positions = new Map(first.nodes.map((item) => [item.id, item.position]));
+  assert.ok(positions.get("n5").y < positions.get("n12").y);
+  assert.ok(positions.get("n19").y < positions.get("t1").y);
 });

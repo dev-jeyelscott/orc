@@ -71,6 +71,46 @@ export type OutcomeRow = {
   configured: boolean;
 };
 
+/**
+ * Sets exactly one explicit Agent outcome route. A missing destination removes
+ * that route; it never creates a null-target placeholder edge.
+ */
+export function setOutcomeRoute(
+  graph: WorkflowGraph,
+  sourceNodeId: string,
+  outcome: AgentRouteOutcome,
+  targetNodeId: string | null,
+  createEdgeId: () => string,
+): WorkflowGraph {
+  const existing = graph.edges.find(
+    (edge) => edge.sourceNodeId === sourceNodeId && edge.outcome === outcome,
+  );
+
+  if (!targetNodeId) {
+    return {
+      ...graph,
+      edges: graph.edges.filter((edge) => edge !== existing),
+    };
+  }
+
+  if (existing) {
+    return {
+      ...graph,
+      edges: graph.edges.map((edge) =>
+        edge === existing ? { ...edge, targetNodeId } : edge,
+      ),
+    };
+  }
+
+  return {
+    ...graph,
+    edges: [
+      ...graph.edges,
+      { id: createEdgeId(), sourceNodeId, targetNodeId, outcome },
+    ],
+  };
+}
+
 export function outcomesForSourceNode(
   sourceNodeId: string,
   graph: WorkflowGraph,
@@ -154,13 +194,11 @@ const RANK_SEPARATION = 120;
 const NODE_SEPARATION = 64;
 
 /**
- * Applies a top-to-bottom Dagre layered layout (Start at the top, ranked
- * by edge distance, terminals at the bottom) -- matching each node's
- * top-in/bottom-out handle layout. Only invoked as an explicit "Auto
- * arrange" action -- never automatically on every render -- since the
- * operator's own manual positioning must never be silently overwritten.
- * Reuses the repository's existing `@dagrejs/dagre` dependency rather
- * than a hand-rolled layout.
+ * Applies a top-to-bottom Dagre layout using the deterministic, acyclic
+ * success-first backbone. Secondary routes still exist in the persisted
+ * graph but do not become equal ranking constraints. This is only invoked as
+ * an explicit "Auto arrange" action, so manual positions are never silently
+ * overwritten. Reuses the repository's existing `@dagrejs/dagre` dependency.
  */
 export function autoLayoutGraph(graph: WorkflowGraph): WorkflowGraph {
   const layoutGraph = new dagre.graphlib.Graph();
@@ -180,11 +218,18 @@ export function autoLayoutGraph(graph: WorkflowGraph): WorkflowGraph {
     layoutGraph.setNode(node.id, dimensions);
   }
 
-  for (const edge of graph.edges) {
+  for (const edge of layoutBackboneEdges(graph)) {
     layoutGraph.setEdge(edge.sourceNodeId, edge.targetNodeId);
   }
 
   dagre.layout(layoutGraph);
+
+  const nonTerminalBottom = Math.max(
+    0,
+    ...graph.nodes
+      .filter((node) => node.kind !== "terminal")
+      .map((node) => ((layoutGraph.node(node.id) as { y: number } | undefined)?.y ?? 0)),
+  );
 
   return {
     nodes: graph.nodes.map((node) => {
@@ -196,12 +241,62 @@ export function autoLayoutGraph(graph: WorkflowGraph): WorkflowGraph {
 
       const width = node.kind === "terminal" ? TERMINAL_NODE_WIDTH : AGENT_NODE_WIDTH;
       const height = node.kind === "terminal" ? TERMINAL_NODE_HEIGHT : AGENT_NODE_HEIGHT;
+      const centerY = node.kind === "terminal"
+        ? Math.max(positioned.y, nonTerminalBottom + RANK_SEPARATION)
+        : positioned.y;
 
       return {
         ...node,
-        position: boundedPosition(positioned.x - width / 2, positioned.y - height / 2),
+        position: boundedPosition(positioned.x - width / 2, centerY - height / 2),
       };
     }),
     edges: graph.edges,
   };
+}
+
+/**
+ * Builds deterministic, acyclic ranking constraints for Dagre. Actual routes
+ * remain untouched: this only prevents loops and secondary routes from
+ * distorting the success-oriented visual spine.
+ */
+export function layoutBackboneEdges(graph: WorkflowGraph): WorkflowGraphEdge[] {
+  const nodeIds = new Set(graph.nodes.map((node) => node.id));
+  const start = graph.nodes.find((node): node is StartGraphNode => node.kind === "start");
+  if (!start) return [];
+
+  const bySource = new Map<string, WorkflowGraphEdge[]>();
+  for (const edge of graph.edges) {
+    if (!nodeIds.has(edge.sourceNodeId) || !nodeIds.has(edge.targetNodeId)) continue;
+    const sourceEdges = bySource.get(edge.sourceNodeId) ?? [];
+    sourceEdges.push(edge);
+    bySource.set(edge.sourceNodeId, sourceEdges);
+  }
+
+  const priority = new Map<AgentRouteOutcome | null, number>([
+    [null, 0],
+    ["completed", 1],
+    ["approved", 2],
+    ["changes_requested", 3],
+    ["blocked", 4],
+    ["failed", 5],
+  ]);
+  const compareEdges = (a: WorkflowGraphEdge, b: WorkflowGraphEdge) =>
+    (priority.get(a.outcome) ?? 99) - (priority.get(b.outcome) ?? 99) ||
+    a.targetNodeId.localeCompare(b.targetNodeId) ||
+    a.id.localeCompare(b.id);
+
+  const visited = new Set<string>([start.id]);
+  const queue = [start.id];
+  const backbone: WorkflowGraphEdge[] = [];
+  while (queue.length > 0) {
+    const sourceNodeId = queue.shift()!;
+    for (const edge of (bySource.get(sourceNodeId) ?? []).sort(compareEdges)) {
+      if (visited.has(edge.targetNodeId)) continue;
+      visited.add(edge.targetNodeId);
+      queue.push(edge.targetNodeId);
+      backbone.push(edge);
+    }
+  }
+
+  return backbone;
 }

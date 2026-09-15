@@ -7,10 +7,9 @@ import {
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
-  addEdge,
-  applyEdgeChanges,
   applyNodeChanges,
   useReactFlow,
+  useUpdateNodeInternals,
   type Connection,
   type Edge,
   type EdgeChange,
@@ -24,20 +23,17 @@ import {
   PanelRightIcon,
   RefreshCwIcon,
   SendIcon,
-  Trash2Icon,
   WandSparklesIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type {
   Agent,
-  AgentRouteOutcome,
   Department,
   Skill,
   Team,
   WorkflowAggregate,
   WorkflowGraph,
-  WorkflowGraphEdge,
   WorkflowGraphNode,
   WorkflowValidationResult,
 } from "@orc/shared";
@@ -78,12 +74,18 @@ import {
 } from "@/lib/workflow-graph";
 import {
   autoLayoutGraph,
-  availableOutcomesForNewEdge,
   boundedPosition,
   buildPaletteAgents,
   canAddAgentNode,
+  setOutcomeRoute,
   type AgentGraphNode,
 } from "@/lib/workflow-graph-draft";
+import {
+  deriveWorkflowPresentation,
+  routeCountForNode,
+  type WorkflowPresentationEdge,
+  type WorkflowPresentationMode,
+} from "@/lib/workflow-graph-presentation";
 
 import { AgentNode, type AgentNodeData } from "@/components/workflow-builder/agent-node";
 import { AgentPalette } from "@/components/workflow-builder/agent-palette";
@@ -111,36 +113,44 @@ function errorMessage(error: unknown): string {
 function graphNodeToFlowNode(
   node: WorkflowGraphNode,
   agentsById: ReadonlyMap<string, Agent>,
+  routeCount = 0,
+  selected = false,
 ): Node {
   if (node.kind === "start") {
-    return { id: node.id, type: "start", position: node.position, data: {}, deletable: false };
+    return { id: node.id, type: "start", position: node.position, data: {}, deletable: false, selected };
   }
 
   if (node.kind === "terminal") {
     const data: TerminalNodeData = { terminalAction: node.terminalAction };
-    return { id: node.id, type: "terminal", position: node.position, data, deletable: false };
+    return { id: node.id, type: "terminal", position: node.position, data, deletable: false, selected };
   }
 
   const data: AgentNodeData = {
     agentId: node.agentId,
     agent: agentsById.get(node.agentId) ?? null,
     invalid: !agentsById.has(node.agentId),
+    routeCount,
   };
 
-  return { id: node.id, type: "agent", position: node.position, data };
+  return { id: node.id, type: "agent", position: node.position, data, selected };
 }
 
-function graphEdgeToFlowEdge(edge: WorkflowGraphEdge): Edge {
-  const data: OutcomeEdgeData = { outcome: edge.outcome };
+function presentationEdgeToFlowEdge(edge: WorkflowPresentationEdge, selected: boolean): Edge {
+  const data: OutcomeEdgeData = {
+    outcomes: edge.outcomes,
+    underlyingEdgeIds: edge.underlyingEdgeIds,
+    backward: edge.backward,
+  };
 
   return {
     id: edge.id,
     source: edge.sourceNodeId,
-    sourceHandle: edge.outcome ?? undefined,
+    sourceHandle: "route",
     target: edge.targetNodeId,
     type: "outcome",
     data,
-    deletable: true,
+    deletable: false,
+    selected,
   };
 }
 
@@ -173,13 +183,14 @@ function flowToGraph(nodes: readonly Node[], edges: readonly Edge[]): WorkflowGr
       id: edge.id,
       sourceNodeId: edge.source,
       targetNodeId: edge.target,
-      outcome: (edge.data as OutcomeEdgeData | undefined)?.outcome ?? null,
+      outcome: (edge.data as OutcomeEdgeData | undefined)?.outcomes[0] ?? null,
     })),
   };
 }
 
 function BuilderInner({ team }: { team: Team }) {
-  const { screenToFlowPosition } = useReactFlow();
+  const { fitView, screenToFlowPosition } = useReactFlow();
+  const updateNodeInternals = useUpdateNodeInternals();
 
   const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
@@ -210,7 +221,9 @@ function BuilderInner({ team }: { team: Team }) {
   const [readOnlyLoading, setReadOnlyLoading] = useState(false);
 
   const [selection, setSelection] = useState<{ kind: "node" | "edge"; id: string } | null>(null);
+  const [focusedEdgeId, setFocusedEdgeId] = useState<string | null>(null);
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
+  const [presentationMode, setPresentationMode] = useState<WorkflowPresentationMode>("simplified");
 
   const [paletteSheetOpen, setPaletteSheetOpen] = useState(false);
   const [inspectorSheetOpen, setInspectorSheetOpen] = useState(false);
@@ -254,7 +267,12 @@ function BuilderInner({ team }: { team: Team }) {
 
       const agentsMap = new Map(nextAgents.map((agent) => [agent.id, agent]));
       setNodes(nextAggregate.draft.graph.nodes.map((node) => graphNodeToFlowNode(node, agentsMap)));
-      setEdges(nextAggregate.draft.graph.edges.map(graphEdgeToFlowEdge));
+      setEdges(nextAggregate.draft.graph.edges.map((edge) => ({
+        id: edge.id,
+        source: edge.sourceNodeId,
+        target: edge.targetNodeId,
+        data: { outcomes: edge.outcome ? [edge.outcome] : [], underlyingEdgeIds: [edge.id], backward: false },
+      })));
       setDirty(false);
       setStatus("loaded");
     } catch (caught) {
@@ -303,17 +321,44 @@ function BuilderInner({ team }: { team: Team }) {
     };
   }, [selectedRevision, team.id]);
 
+  const canonicalGraph = useMemo(() => flowToGraph(nodes, edges), [nodes, edges]);
+  const activeGraph = readOnly ? readOnlyGraph : canonicalGraph;
   const activeNodes = useMemo(() => {
-    if (!readOnly) return nodes;
-    if (!readOnlyGraph) return [];
-    return readOnlyGraph.nodes.map((node) => graphNodeToFlowNode(node, agentsById));
-  }, [readOnly, readOnlyGraph, nodes, agentsById]);
+    if (!activeGraph) return [];
+    return activeGraph.nodes.map((node) => graphNodeToFlowNode(
+      node,
+      agentsById,
+      node.kind === "agent" ? routeCountForNode(activeGraph, node.id) : 0,
+      selection?.kind === "node" && selection.id === node.id,
+    ));
+  }, [activeGraph, agentsById, selection]);
+  const presentationEdges = useMemo(() => activeGraph ? deriveWorkflowPresentation({
+    graph: activeGraph,
+    mode: presentationMode,
+    selectedNodeId: selection?.kind === "node" ? selection.id : null,
+    focusedEdgeId,
+  }) : [], [activeGraph, focusedEdgeId, presentationMode, selection]);
+  const activeEdges = useMemo(() => presentationEdges.map((edge) => presentationEdgeToFlowEdge(
+    edge,
+    edge.underlyingEdgeIds.includes(focusedEdgeId ?? ""),
+  )), [focusedEdgeId, presentationEdges]);
 
-  const activeEdges = useMemo(() => {
-    if (!readOnly) return edges;
-    if (!readOnlyGraph) return [];
-    return readOnlyGraph.edges.map(graphEdgeToFlowEdge);
-  }, [readOnly, readOnlyGraph, edges]);
+  const activeGraphViewportKey = useMemo(
+    () => activeGraph?.nodes.map((node) => `${node.id}:${node.position.x}:${node.position.y}`).join("|") ?? "",
+    [activeGraph],
+  );
+  const activeNodeIds = useMemo(() => activeGraph?.nodes.map((node) => node.id) ?? [], [activeGraph]);
+
+  useEffect(() => {
+    if (activeNodeIds.length === 0) return;
+
+    const frame = requestAnimationFrame(() => {
+      updateNodeInternals(activeNodeIds);
+      void fitView({ padding: 0.2, duration: 0 });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [activeGraphViewportKey, activeNodeIds, fitView, updateNodeInternals]);
 
   const placedAgentIds = useMemo(
     () => new Set(nodes.filter((node) => node.type === "agent").map((node) => (node.data as AgentNodeData).agentId)),
@@ -321,8 +366,8 @@ function BuilderInner({ team }: { team: Team }) {
   );
 
   const paletteAgents = useMemo(
-    () => buildPaletteAgents(teamAgents, flowToGraph(nodes, edges)),
-    [teamAgents, nodes, edges],
+    () => buildPaletteAgents(teamAgents, canonicalGraph),
+    [teamAgents, canonicalGraph],
   );
 
   const labelForNode = useCallback(
@@ -341,13 +386,16 @@ function BuilderInner({ team }: { team: Team }) {
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      const selectChange = changes.find((change) => change.type === "select" && change.selected);
+      if (selectChange && selectChange.type === "select") {
+        setFocusedEdgeId(null);
+        setSelection({ kind: "node", id: selectChange.id });
+        if (!isDesktopLayout) setInspectorSheetOpen(true);
+      } else if (changes.some((change) => change.type === "select" && !change.selected)) {
+        setFocusedEdgeId(null);
+        setSelection(null);
+      }
       if (readOnly) {
-        setNodes((current) =>
-          applyNodeChanges(
-            changes.filter((change) => change.type === "select"),
-            current,
-          ),
-        );
         return;
       }
 
@@ -361,40 +409,28 @@ function BuilderInner({ team }: { team: Team }) {
         setDirty(true);
       }
 
-      const selectChange = changes.find((change) => change.type === "select" && change.selected);
-      if (selectChange && selectChange.type === "select") {
-        setSelection({ kind: "node", id: selectChange.id });
-        if (!isDesktopLayout) setInspectorSheetOpen(true);
-      }
     },
     [readOnly, isDesktopLayout],
   );
 
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
-      if (readOnly) {
-        setEdges((current) =>
-          applyEdgeChanges(
-            changes.filter((change) => change.type === "select"),
-            current,
-          ),
-        );
-        return;
-      }
-
-      setEdges((current) => applyEdgeChanges(changes, current));
-
-      if (changes.some((change) => change.type === "remove")) {
-        setDirty(true);
-      }
-
       const selectChange = changes.find((change) => change.type === "select" && change.selected);
       if (selectChange && selectChange.type === "select") {
-        setSelection({ kind: "edge", id: selectChange.id });
+        const presentation = presentationEdges.find((edge) => edge.id === selectChange.id);
+        const underlyingEdgeId = presentation?.underlyingEdgeIds[0];
+        if (underlyingEdgeId) {
+          const canonical = activeGraph?.edges.find((edge) => edge.id === underlyingEdgeId);
+          setFocusedEdgeId(underlyingEdgeId);
+          setSelection(canonical ? { kind: "node", id: canonical.sourceNodeId } : { kind: "edge", id: underlyingEdgeId });
+        }
         if (!isDesktopLayout) setInspectorSheetOpen(true);
+      } else if (changes.some((change) => change.type === "select" && !change.selected)) {
+        setFocusedEdgeId(null);
+        setSelection(null);
       }
     },
-    [readOnly, isDesktopLayout],
+    [activeGraph, isDesktopLayout, presentationEdges],
   );
 
   const isValidConnection = useCallback(
@@ -407,19 +443,9 @@ function BuilderInner({ team }: { team: Team }) {
       if (sourceNode.type === "terminal") return false;
       if (sourceNode.type === "start" && targetNode.type !== "agent") return false;
 
-      if (sourceNode.type === "agent") {
-        // Each bottom port on an Agent node *is* a fixed outcome -- reject
-        // dragging from a port whose outcome already has an edge, since a
-        // second edge from the same (source, outcome) pair is invalid.
-        const available = availableOutcomesForNewEdge(connection.source, flowToGraph(nodes, edges));
-        if (!connection.sourceHandle || !available.includes(connection.sourceHandle as AgentRouteOutcome)) {
-          return false;
-        }
-      }
-
-      return true;
+      return sourceNode.type === "start";
     },
-    [nodes, edges],
+    [nodes],
   );
 
   const onConnect = useCallback(
@@ -431,27 +457,18 @@ function BuilderInner({ team }: { team: Team }) {
       if (sourceNode?.type === "start") {
         setEdges((current) => {
           const withoutOldStartEdge = current.filter((edge) => edge.source !== connection.source);
-          const data: OutcomeEdgeData = { outcome: null };
-          return addEdge({ ...connection, id: crypto.randomUUID(), type: "outcome", data }, withoutOldStartEdge);
+          return [...withoutOldStartEdge, {
+            id: crypto.randomUUID(),
+            source: connection.source,
+            target: connection.target,
+            data: { outcomes: [], underlyingEdgeIds: [], backward: false } satisfies OutcomeEdgeData,
+          }];
         });
         setDirty(true);
         return;
       }
 
-      // The source handle a connection was dragged from *is* the outcome --
-      // no separate picker step is needed. `isValidConnection` above already
-      // rejected outcomes that already have an edge from this Agent.
-      const outcome = connection.sourceHandle as AgentRouteOutcome | null;
-      if (!outcome) return;
-
-      setEdges((current) => {
-        const withoutSameOutcomeEdge = current.filter(
-          (edge) => !(edge.source === connection.source && edge.sourceHandle === connection.sourceHandle),
-        );
-        const data: OutcomeEdgeData = { outcome };
-        return addEdge({ ...connection, id: crypto.randomUUID(), type: "outcome", data }, withoutSameOutcomeEdge);
-      });
-      setDirty(true);
+      return;
     },
     [nodes, readOnly],
   );
@@ -471,6 +488,7 @@ function BuilderInner({ team }: { team: Team }) {
       agentId,
       agent: agentsById.get(agentId) ?? null,
       invalid: false,
+      routeCount: 0,
     };
 
     setNodes((current) => [
@@ -480,23 +498,19 @@ function BuilderInner({ team }: { team: Team }) {
     setDirty(true);
   }
 
-  function deleteSelectedEdge() {
-    if (!selection || selection.kind !== "edge" || readOnly) return;
-    setEdges((current) => current.filter((edge) => edge.id !== selection.id));
-    setSelection(null);
-    setDirty(true);
-  }
-
   function focusTarget(target: { kind: "node"; id: string } | { kind: "edge"; id: string }) {
-    setSelection(target);
+    if (target.kind === "edge") {
+      const edge = activeGraph?.edges.find((candidate) => candidate.id === target.id);
+      setFocusedEdgeId(target.id);
+      setSelection(edge ? { kind: "node", id: edge.sourceNodeId } : target);
+    } else {
+      setFocusedEdgeId(null);
+      setSelection(target);
+    }
     if (!isDesktopLayout) setInspectorSheetOpen(true);
 
     if (target.kind === "node") {
       setNodes((current) => current.map((node) => ({ ...node, selected: node.id === target.id })));
-      setEdges((current) => current.map((edge) => ({ ...edge, selected: false })));
-    } else {
-      setEdges((current) => current.map((edge) => ({ ...edge, selected: edge.id === target.id })));
-      setNodes((current) => current.map((node) => ({ ...node, selected: false })));
     }
   }
 
@@ -515,7 +529,12 @@ function BuilderInner({ team }: { team: Team }) {
       const result = await saveWorkflowDraft(team.id, flowToGraph(nodes, edges));
       setValidation(result.validation);
       setNodes(result.draft.graph.nodes.map((node) => graphNodeToFlowNode(node, agentsById)));
-      setEdges(result.draft.graph.edges.map(graphEdgeToFlowEdge));
+      setEdges(result.draft.graph.edges.map((edge) => ({
+        id: edge.id,
+        source: edge.sourceNodeId,
+        target: edge.targetNodeId,
+        data: { outcomes: edge.outcome ? [edge.outcome] : [], underlyingEdgeIds: [edge.id], backward: false },
+      })));
       setDirty(false);
     } catch (caught) {
       setSaveError(errorMessage(caught));
@@ -553,10 +572,10 @@ function BuilderInner({ team }: { team: Team }) {
     return node;
   }, [selection, activeNodes]);
 
-  const selectedEdge = useMemo(() => {
-    if (!selection || selection.kind !== "edge") return null;
-    return activeEdges.find((candidate) => candidate.id === selection.id) ?? null;
-  }, [selection, activeEdges]);
+  const focusedPresentationEdge = useMemo(
+    () => presentationEdges.find((edge) => edge.underlyingEdgeIds.includes(focusedEdgeId ?? "")) ?? null,
+    [focusedEdgeId, presentationEdges],
+  );
 
   const editingAgent = editingAgentId ? (agentsById.get(editingAgentId) ?? null) : null;
 
@@ -598,41 +617,36 @@ function BuilderInner({ team }: { team: Team }) {
         position: selectedAgentNode.position,
       } satisfies AgentGraphNode}
       agent={(selectedAgentNode.data as AgentNodeData).agent}
-      graph={flowToGraph(activeNodes, activeEdges)}
+      graph={activeGraph ?? canonicalGraph}
       labelForNode={labelForNode}
       readOnly={readOnly}
       onEditAgent={() => setEditingAgentId((selectedAgentNode.data as AgentNodeData).agentId)}
-      onSelectOutcomeRow={(edgeId) => {
-        if (edgeId) focusTarget({ kind: "edge", id: edgeId });
+      onSetOutcomeRoute={(outcome, targetNodeId) => {
+        if (readOnly) return;
+        setEdges((current) => {
+          const nextGraph = setOutcomeRoute(
+            flowToGraph(nodes, current),
+            selectedAgentNode.id,
+            outcome,
+            targetNodeId,
+            () => crypto.randomUUID(),
+          );
+          return nextGraph.edges.map((edge) => ({
+            id: edge.id,
+            source: edge.sourceNodeId,
+            target: edge.targetNodeId,
+            data: { outcomes: edge.outcome ? [edge.outcome] : [], underlyingEdgeIds: [edge.id], backward: false },
+          }));
+        });
+        setDirty(true);
       }}
+      highlightedOutcomes={focusedPresentationEdge?.outcomes}
     />
-  ) : selectedEdge ? (
-    <div className="flex flex-col gap-3">
-      <div className="text-xs text-text-secondary">
-        <p>
-          <span className="font-medium text-text-primary">Source:</span> {labelForNode(selectedEdge.source)}
-        </p>
-        <p>
-          <span className="font-medium text-text-primary">Outcome:</span>{" "}
-          {(selectedEdge.data as OutcomeEdgeData | undefined)?.outcome ?? "(Start connection)"}
-        </p>
-        <p>
-          <span className="font-medium text-text-primary">Target:</span> {labelForNode(selectedEdge.target)}
-        </p>
-      </div>
-
-      {!readOnly ? (
-        <Button type="button" variant="outline" size="sm" onClick={deleteSelectedEdge}>
-          <Trash2Icon />
-          Delete Edge
-        </Button>
-      ) : null}
-    </div>
   ) : (
     <p className="text-xs text-text-muted">Select an Agent node or a connection to inspect it.</p>
   );
 
-  const validationContent = <ValidationPanel validation={validation} onFocusIssue={focusTarget} />;
+  const validationContent = <ValidationPanel validation={validation} onFocusIssue={focusTarget} labelForNode={labelForNode} />;
 
   return (
     <div className="flex flex-col gap-3">
@@ -680,6 +694,15 @@ function BuilderInner({ team }: { team: Team }) {
           <Button type="button" variant="outline" size="sm" disabled={readOnly} onClick={applyAutoLayout}>
             <WandSparklesIcon />
             Auto arrange
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-pressed={presentationMode === "all_routes"}
+            onClick={() => setPresentationMode((mode) => mode === "simplified" ? "all_routes" : "simplified")}
+          >
+            {presentationMode === "all_routes" ? "Simplified Flow" : "Show all routes"}
           </Button>
           <Button type="button" variant="outline" size="sm" disabled={readOnly || saving || !dirty} onClick={() => void save()}>
             {saving ? <Spinner className="size-4" /> : null}
