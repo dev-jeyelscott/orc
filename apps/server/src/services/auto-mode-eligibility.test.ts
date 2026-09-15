@@ -138,13 +138,11 @@ describe(
     );
 
     it.each([
-      "completed",
       "changes_requested",
       "blocked",
       "failed",
-      null,
     ] as const)(
-      "does not unlock a completed run whose latest result status is %s",
+      "does not unlock a completed run whose latest result status is a rejection (%s)",
       (
         resultStatus,
       ) => {
@@ -173,8 +171,64 @@ describe(
       },
     );
 
+    it.each([
+      "completed",
+      "approved",
+    ] as const)(
+      "unlocks a completed run whose latest result status is a non-rejection outcome (%s), since many workflows have no reviewer agent",
+      (
+        resultStatus,
+      ) => {
+        expect(
+          resolveAutoModeEligibility(
+            {
+              runStatus:
+                "completed",
+              latestExecution: {
+                resultStatus,
+                completedAt:
+                  new Date(
+                    "2026-09-04T13:59:00.000Z",
+                  ),
+              },
+            },
+            now,
+            5,
+          ),
+        ).toMatchObject({
+          eligible:
+            true,
+          state:
+            "ready",
+        });
+      },
+    );
+
     it(
-      "requires an approved execution to have completedAt",
+      "does not unlock a completed run with no persisted execution at all",
+      () => {
+        expect(
+          resolveAutoModeEligibility(
+            {
+              runStatus:
+                "completed",
+              latestExecution:
+                null,
+            },
+            now,
+            5,
+          ),
+        ).toMatchObject({
+          eligible:
+            false,
+          state:
+            "waiting_approval",
+        });
+      },
+    );
+
+    it(
+      "requires the latest execution to have completedAt",
       () => {
         expect(
           resolveAutoModeEligibility(

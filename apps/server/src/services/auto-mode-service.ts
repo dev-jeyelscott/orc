@@ -115,6 +115,11 @@ export type ProjectAutomationReadiness = {
 
 /**
  * Converts the latest persisted run and execution state into the Auto Mode eligibility rule.
+ * A completed run is eligible for the next task once its latest execution reports a non-rejection
+ * result: many configured workflows have no reviewer agent and therefore self-report "completed"
+ * rather than "approved", and gating intake on "approved" specifically stranded those Teams behind
+ * an approval that could never occur without manual intervention. Only an explicit rejection
+ * outcome (changes_requested/blocked/failed) on the latest execution still holds the Team back.
  */
 export function resolveAutoModeEligibility(
   snapshot:
@@ -186,11 +191,20 @@ export function resolveAutoModeEligibility(
     };
   }
 
+  const latestExecutionIsRejection =
+    snapshot.latestExecution
+      ?.resultStatus ===
+      "changes_requested" ||
+    snapshot.latestExecution
+      ?.resultStatus ===
+      "blocked" ||
+    snapshot.latestExecution
+      ?.resultStatus ===
+      "failed";
+
   if (
     !snapshot.latestExecution ||
-    snapshot.latestExecution
-      .resultStatus !==
-      "approved" ||
+    latestExecutionIsRejection ||
     !snapshot.latestExecution
       .completedAt
   ) {
