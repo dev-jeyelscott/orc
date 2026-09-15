@@ -32,6 +32,25 @@ export const TERMINAL_LABELS: Record<TerminalAction, string> = {
   fail_run: "Fail Run",
 };
 
+/**
+ * Fixed visual anchor per outcome, keyed only by the system outcome enum
+ * (never by agent role/name). Matches the corresponding source `Handle` id
+ * on `AgentNode`.
+ */
+export const OUTCOME_SOURCE_HANDLE: Record<AgentRouteOutcome, string> = {
+  completed: "source-completed",
+  approved: "source-approved",
+  changes_requested: "source-changes_requested",
+  blocked: "source-blocked",
+  failed: "source-failed",
+};
+
+/** Target handle for a backward (`changes_requested`) edge -- see AgentNode. */
+export const BACKWARD_TARGET_HANDLE = "target-back";
+
+/** Fixed left-to-right order for terminal nodes in the auto-arranged layout. */
+export const TERMINAL_ORDER: readonly TerminalAction[] = ["fail_run", "complete_run", "block_run"];
+
 const MIN_COORDINATE = -100_000;
 const MAX_COORDINATE = 100_000;
 
@@ -224,11 +243,32 @@ export function autoLayoutGraph(graph: WorkflowGraph): WorkflowGraph {
 
   dagre.layout(layoutGraph);
 
+  const nonTerminalXs = graph.nodes
+    .filter((node) => node.kind !== "terminal")
+    .map((node) => ((layoutGraph.node(node.id) as { x: number } | undefined)?.x ?? 0));
   const nonTerminalBottom = Math.max(
     0,
     ...graph.nodes
       .filter((node) => node.kind !== "terminal")
       .map((node) => ((layoutGraph.node(node.id) as { y: number } | undefined)?.y ?? 0)),
+  );
+  const backboneCenterX = nonTerminalXs.length
+    ? (Math.min(...nonTerminalXs) + Math.max(...nonTerminalXs)) / 2
+    : 0;
+
+  const terminalNodes = graph.nodes.filter(
+    (node): node is TerminalGraphNode => node.kind === "terminal",
+  );
+  const orderedTerminalX = new Map<string, number>(
+    [...terminalNodes]
+      .sort(
+        (a, b) => TERMINAL_ORDER.indexOf(a.terminalAction) - TERMINAL_ORDER.indexOf(b.terminalAction),
+      )
+      .map((node, index) => {
+        const spacing = TERMINAL_NODE_WIDTH + NODE_SEPARATION;
+        const offset = (index - (terminalNodes.length - 1) / 2) * spacing;
+        return [node.id, backboneCenterX + offset];
+      }),
   );
 
   return {
@@ -241,13 +281,17 @@ export function autoLayoutGraph(graph: WorkflowGraph): WorkflowGraph {
 
       const width = node.kind === "terminal" ? TERMINAL_NODE_WIDTH : AGENT_NODE_WIDTH;
       const height = node.kind === "terminal" ? TERMINAL_NODE_HEIGHT : AGENT_NODE_HEIGHT;
+      const centerX = node.kind === "terminal" ? (orderedTerminalX.get(node.id) ?? positioned.x) : positioned.x;
+      // All three terminals sit in one fixed row, regardless of whether Dagre's
+      // backbone ranking (e.g. an `approved` edge into Complete Run) placed one
+      // of them at a different rank than its siblings.
       const centerY = node.kind === "terminal"
-        ? Math.max(positioned.y, nonTerminalBottom + RANK_SEPARATION)
+        ? nonTerminalBottom + RANK_SEPARATION
         : positioned.y;
 
       return {
         ...node,
-        position: boundedPosition(positioned.x - width / 2, centerY - height / 2),
+        position: boundedPosition(centerX - width / 2, centerY - height / 2),
       };
     }),
     edges: graph.edges,

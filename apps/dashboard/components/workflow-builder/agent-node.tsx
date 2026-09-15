@@ -18,9 +18,10 @@ export type AgentNodeData = {
  * Displays only high-value identity/runtime information per roadmap
  * section 16 -- name, Department/role, effective harness/model, enabled
  * state. Full Agent settings and explicit outcome routing remain in the
- * Inspector. One unlabeled target and one unlabeled generic source handle
- * exist only for React Flow geometry; Agent-to-Agent routes are edited
- * accessibly through the Inspector rather than via outcome-specific ports.
+ * Inspector, never by dragging between ports. The handles below exist only
+ * as fixed visual anchors (per outcome, per the shared system route enum)
+ * so edges leave/enter a consistent side of the node; all but the primary
+ * top target are `isConnectable={false}` and play no part in the drag UX.
  */
 export function AgentNode({ data, selected }: NodeProps & { data: AgentNodeData }) {
   const agent = data.agent;
@@ -32,7 +33,52 @@ export function AgentNode({ data, selected }: NodeProps & { data: AgentNodeData 
       } ${data.invalid ? "workflow-node--invalid" : ""}`}
     >
       <Handle type="target" position={Position.Top} className="!size-2.5" />
-      <Handle type="source" id="route" position={Position.Bottom} className="!size-2.5" />
+      <Handle
+        type="target"
+        id="target-back"
+        position={Position.Bottom}
+        style={{ left: "70%" }}
+        isConnectable={false}
+        className="!size-2.5"
+      />
+
+      <Handle
+        type="source"
+        id="source-completed"
+        position={Position.Bottom}
+        style={{ left: "35%" }}
+        isConnectable={false}
+        className="!size-2.5"
+      />
+      <Handle
+        type="source"
+        id="source-approved"
+        position={Position.Bottom}
+        isConnectable={false}
+        className="!size-2.5"
+      />
+      <Handle
+        type="source"
+        id="source-changes_requested"
+        position={Position.Top}
+        style={{ left: "70%" }}
+        isConnectable={false}
+        className="!size-2.5"
+      />
+      <Handle
+        type="source"
+        id="source-blocked"
+        position={Position.Right}
+        isConnectable={false}
+        className="!size-2.5"
+      />
+      <Handle
+        type="source"
+        id="source-failed"
+        position={Position.Left}
+        isConnectable={false}
+        className="!size-2.5"
+      />
 
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">

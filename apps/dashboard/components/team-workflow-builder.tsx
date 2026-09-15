@@ -76,6 +76,8 @@ import {
   boundedPosition,
   buildPaletteAgents,
   canAddAgentNode,
+  BACKWARD_TARGET_HANDLE,
+  OUTCOME_SOURCE_HANDLE,
   setOutcomeRoute,
   type AgentGraphNode,
 } from "@/lib/workflow-graph-draft";
@@ -141,11 +143,15 @@ function presentationEdgeToFlowEdge(edge: WorkflowPresentationEdge, selected: bo
     backward: edge.backward,
   };
 
+  const sourceHandle = edge.kind === "start" ? "route" : OUTCOME_SOURCE_HANDLE[edge.outcomes[0]!];
+  const targetHandle = edge.backward ? BACKWARD_TARGET_HANDLE : undefined;
+
   return {
     id: edge.id,
     source: edge.sourceNodeId,
-    sourceHandle: "route",
+    sourceHandle,
     target: edge.targetNodeId,
+    targetHandle,
     type: "outcome",
     data,
     deletable: false,

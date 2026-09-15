@@ -16,6 +16,11 @@ export type OutcomeEdgeData = {
  * Renders one display connection for one-or-more persisted routes. Labels are
  * always textual; the edge data retains every canonical route ID.
  */
+// Beyond one rank step (node height + rank separation, see workflow-graph-draft.ts),
+// a backward edge risks crossing intervening nodes -- route it through a side gutter
+// instead of trusting the smoothstep algorithm to avoid overlaps on its own.
+const FAR_BACKWARD_THRESHOLD = 260;
+
 export function OutcomeEdge({
   id,
   sourceX,
@@ -28,6 +33,8 @@ export function OutcomeEdge({
   selected,
   markerEnd,
 }: EdgeProps & { data?: OutcomeEdgeData }) {
+  const isFarBackward = Boolean(data?.backward) && Math.abs(sourceY - targetY) > FAR_BACKWARD_THRESHOLD;
+
   const [forwardPath, forwardLabelX, forwardLabelY] = getSmoothStepPath({
     sourceX,
     sourceY,
@@ -35,16 +42,16 @@ export function OutcomeEdge({
     targetX,
     targetY,
     targetPosition,
-    borderRadius: data?.backward ? 16 : 8,
-    offset: data?.backward ? 72 : 24,
+    borderRadius: data?.backward ? 12 : 8,
+    offset: data?.backward ? 16 : 24,
   });
 
   const gutterX = Math.max(sourceX, targetX) + 96;
-  const edgePath = data?.backward
+  const edgePath = isFarBackward
     ? `M ${sourceX},${sourceY} L ${gutterX},${sourceY} L ${gutterX},${targetY} L ${targetX},${targetY}`
     : forwardPath;
-  const labelX = data?.backward ? gutterX : forwardLabelX;
-  const labelY = data?.backward ? (sourceY + targetY) / 2 : forwardLabelY;
+  const labelX = isFarBackward ? gutterX : forwardLabelX;
+  const labelY = isFarBackward ? (sourceY + targetY) / 2 : forwardLabelY;
 
   return (
     <>
