@@ -74,6 +74,11 @@ export type NotionAutoModeCycleDependencies = {
 
 /**
  * Maps authoritative ORC run and latest-execution state to the supported Notion lifecycle projection.
+ * Run status is the persistence-backed source of truth for completion: a "completed" run reports
+ * Done to Notion regardless of the specific resultStatus the finishing execution self-declared,
+ * since many configured workflows have no reviewer agent and therefore never produce "approved".
+ * The one exception is a rejection-shaped resultStatus (changes_requested/blocked/failed) on the
+ * latest execution, which is treated as stale/inconsistent run state rather than a true completion.
  */
 export function resolveNotionLifecycleStatus(
   runStatus:
@@ -113,10 +118,16 @@ export function resolveNotionLifecycleStatus(
   }
 
   if (
-    runStatus === "completed" &&
-    latestExecutionResultStatus === "approved"
+    runStatus === "completed"
   ) {
-    return "Done";
+    const latestExecutionIsRejection =
+      latestExecutionResultStatus === "changes_requested" ||
+      latestExecutionResultStatus === "blocked" ||
+      latestExecutionResultStatus === "failed";
+
+    return latestExecutionIsRejection
+      ? "In Progress"
+      : "Done";
   }
 
   return "In Progress";

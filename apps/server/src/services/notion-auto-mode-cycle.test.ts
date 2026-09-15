@@ -216,7 +216,17 @@ describe.sequential(
       [
         "completed",
         "completed",
+        "Done",
+      ],
+      [
+        "completed",
+        "changes_requested",
         "In Progress",
+      ],
+      [
+        "completed",
+        null,
+        "Done",
       ],
       [
         "blocked",
@@ -257,7 +267,7 @@ describe.sequential(
     );
 
     it(
-      "writes Done only when the latest persisted execution is approved",
+      "does not write Done when the latest persisted execution is a rejection despite an earlier approval",
       async () => {
         const {
           run,
@@ -376,6 +386,31 @@ describe.sequential(
             externalId,
           teamId:
             RESOLUTION_TEAM_ID,
+          status:
+            "Done",
+        });
+      },
+    );
+
+    it(
+      "derives Done from a locally completed run whose workflow has no reviewer and self-reports completed",
+      async () => {
+        const {
+          externalId,
+        } =
+          await createNotionRun(
+            "completed",
+            "completed",
+          );
+
+        expect(
+          await getLatestNotionLifecycleTarget(),
+        ).toEqual({
+          pageId:
+            externalId,
+          teamId:
+            RESOLUTION_TEAM_ID,
+          projectPath,
           status:
             "Done",
         });
