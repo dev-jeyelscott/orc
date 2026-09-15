@@ -2,12 +2,62 @@
 
 import Link from "next/link";
 
-import { PlusIcon, RefreshCwIcon, Trash2Icon, UsersIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangleIcon,
+  LayoutGridIcon,
+  ListIcon,
+  MoreHorizontalIcon,
+  PlusIcon,
+  RefreshCwIcon,
+  Rows3Icon,
+  SearchIcon,
+  TableIcon,
+  UserRoundMinusIcon,
+  UsersIcon,
+  XIcon,
+} from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
-import type { Agent, Team, TeamMembership } from "@orc/shared";
+import type {
+  Agent,
+  Team,
+} from "@orc/shared";
 
+import {
+  Avatar,
+  AvatarFallback,
+} from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+} from "@/components/ui/card";
+import {
+  Combobox,
+  ComboboxChip,
+  ComboboxChips,
+  ComboboxChipsInput,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxTrigger,
+  ComboboxValue,
+} from "@/components/ui/combobox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Empty,
   EmptyContent,
@@ -16,23 +66,920 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+import { Input } from "@/components/ui/input";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "@/components/ui/native-select";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  AGENT_VIEW_MODES,
+  type AgentViewMode,
+} from "@/lib/agent-collection";
 import { getAgents } from "@/lib/agents";
-import { getTeamMembers, replaceTeamMembers } from "@/lib/team-membership";
+import {
+  appendTeamMemberAgentIds,
+  getMembershipChangeCount,
+  getTeamMemberAgentSearchText,
+  getTeamMemberCandidateAgents,
+  getTeamMemberCandidateAvailability,
+  getTeamMemberDepartmentOptions,
+  getVisibleTeamMemberAgents,
+  removeTeamMemberAgentId,
+} from "@/lib/team-member-collection";
+import {
+  getTeamMembers,
+  replaceTeamMembers,
+} from "@/lib/team-membership";
+import {
+  getAgentInitials,
+  getAgentToneIndex,
+} from "@/lib/team-presentation";
+import { cn } from "@/lib/utils";
+
+const agentToneClasses = [
+  "bg-brand-accent/15 text-brand-accent",
+  "bg-status-running/15 text-status-running",
+  "bg-status-success/15 text-status-success",
+  "bg-status-warning/15 text-status-warning",
+  "bg-neon-cyan/15 text-neon-cyan",
+  "bg-neon-violet/15 text-neon-violet",
+] as const;
+
+type AgentAvatarProps = {
+  agent: Agent;
+  size?: "default" | "sm" | "lg";
+};
+
+type MemberActionsProps = {
+  agent: Agent;
+  disabled: boolean;
+  onRemove: (agentId: string) => void;
+};
+
+type MemberViewProps = {
+  agents: Agent[];
+  disabled: boolean;
+  onRemove: (agentId: string) => void;
+};
+
+type TeamMemberPickerProps = {
+  team: Team;
+  agents: Agent[];
+  draftAgents: Agent[];
+  disabled: boolean;
+  onApply: (agents: Agent[]) => void;
+};
 
 /**
  * Converts one unknown Team membership failure into concise operator-facing text.
  */
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Unable to load Team members";
+function errorMessage(
+  error: unknown,
+): string {
+  return error instanceof Error
+    ? error.message
+    : "Unable to load Team members";
 }
 
 /**
- * Owns Team composition only -- adding/removing Agents. Workflow topology
- * (layer, order, outcome routing / the graph) is a separate resource and is
- * never written from here. Each add/remove saves immediately through the
- * membership-only API; `onMembershipChange` lets the parent tab shell
- * refresh anything else that depends on current composition.
+ * Formats one Agent timestamp for the detailed read-only view.
+ */
+function formatUpdatedAt(
+  value: string,
+): string {
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+  }).format(new Date(value));
+}
+
+/**
+ * Renders one deterministic initials avatar using the existing Team palette.
+ */
+function AgentAvatar({
+  agent,
+  size = "default",
+}: AgentAvatarProps) {
+  const toneClass =
+    agentToneClasses[
+      getAgentToneIndex(
+        agent.id,
+        agentToneClasses.length,
+      )
+    ];
+
+  return (
+    <Avatar
+      size={size}
+      aria-label={`${agent.name}, ${agent.effective.role}`}
+    >
+      <AvatarFallback
+        className={cn(
+          "font-semibold",
+          toneClass,
+        )}
+      >
+        {getAgentInitials(agent.name)}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
+
+/**
+ * Renders the primary Agent identity shared by every collection view.
+ */
+function AgentIdentity({
+  agent,
+}: {
+  agent: Agent;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <AgentAvatar agent={agent} />
+
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium text-text-primary">
+          {agent.name}
+        </p>
+
+        <p className="truncate font-mono text-[11px] text-text-muted">
+          {agent.slug}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Renders the effective runtime without exposing Workflow topology.
+ */
+function AgentRuntime({
+  agent,
+  compact = false,
+}: {
+  agent: Agent;
+  compact?: boolean;
+}) {
+  if (compact) {
+    return (
+      <p className="truncate text-xs text-text-secondary">
+        {agent.effective.harness}
+        {" · "}
+        {agent.effective.model}
+        {" · "}
+        {agent.effective.reasoning}
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      <Badge variant="outline">
+        {agent.effective.harness}
+      </Badge>
+
+      <Badge variant="outline">
+        {agent.effective.model}
+      </Badge>
+
+      <Badge variant="outline">
+        {agent.effective.reasoning}
+      </Badge>
+    </div>
+  );
+}
+
+/**
+ * Renders effective Agent availability and explains inherited disablement.
+ */
+function AgentStatus({
+  agent,
+}: {
+  agent: Agent;
+}) {
+  const reason =
+    agent.effective.enabled
+      ? null
+      : agent.enabled
+        ? "Department disabled"
+        : "Agent disabled";
+
+  return (
+    <div className="grid gap-1">
+      <Badge
+        variant={
+          agent.effective.enabled
+            ? "success"
+            : "disabled"
+        }
+      >
+        {agent.effective.enabled
+          ? "Enabled"
+          : "Disabled"}
+      </Badge>
+
+      {reason ? (
+        <span className="text-[11px] text-text-muted">
+          {reason}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Stages a deliberate Team-member removal through a compact action menu.
+ */
+function MemberActions({
+  agent,
+  disabled,
+  onRemove,
+}: MemberActionsProps) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled}
+            aria-label={`Manage ${agent.name}`}
+          />
+        }
+      >
+        Manage
+        <MoreHorizontalIcon aria-hidden="true" />
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent
+        align="end"
+        className="w-52"
+      >
+        <DropdownMenuItem
+          variant="destructive"
+          onClick={() => onRemove(agent.id)}
+        >
+          <UserRoundMinusIcon />
+          Remove from Team
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * Renders the default high-density Team-member table.
+ */
+function TeamMemberTable({
+  agents,
+  disabled,
+  onRemove,
+}: MemberViewProps) {
+  return (
+    <div className="overflow-x-auto">
+      <Table className="min-w-[900px]">
+        <TableHeader className="bg-surface-interactive/45">
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="h-9 px-4 text-xs text-text-secondary">
+              Agent
+            </TableHead>
+
+            <TableHead className="h-9 px-4 text-xs text-text-secondary">
+              Department / Role
+            </TableHead>
+
+            <TableHead className="h-9 px-4 text-xs text-text-secondary">
+              Effective runtime
+            </TableHead>
+
+            <TableHead className="h-9 px-4 text-xs text-text-secondary">
+              Status
+            </TableHead>
+
+            <TableHead className="h-9 w-28 px-4 text-right text-xs text-text-secondary">
+              Actions
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+
+        <TableBody>
+          {agents.map((agent) => (
+            <TableRow
+              key={agent.id}
+              className="h-16 border-divider hover:bg-surface-interactive/45"
+            >
+              <TableCell className="px-4 py-2.5">
+                <AgentIdentity agent={agent} />
+              </TableCell>
+
+              <TableCell className="px-4 py-2.5">
+                <p className="text-sm text-text-primary">
+                  {agent.department.name}
+                </p>
+
+                <p className="mt-0.5 text-xs text-text-muted">
+                  {agent.effective.role}
+                </p>
+              </TableCell>
+
+              <TableCell className="px-4 py-2.5">
+                <AgentRuntime agent={agent} />
+              </TableCell>
+
+              <TableCell className="px-4 py-2.5">
+                <AgentStatus agent={agent} />
+              </TableCell>
+
+              <TableCell className="px-4 py-2.5 text-right">
+                <MemberActions
+                  agent={agent}
+                  disabled={disabled}
+                  onRemove={onRemove}
+                />
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+/**
+ * Renders the most compact non-table Team-member collection.
+ */
+function TeamMemberList({
+  agents,
+  disabled,
+  onRemove,
+}: MemberViewProps) {
+  return (
+    <div className="divide-y divide-divider">
+      {agents.map((agent) => (
+        <article
+          key={agent.id}
+          className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="min-w-0 flex-1">
+            <AgentIdentity agent={agent} />
+
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 pl-11 text-xs text-text-muted">
+              <span>{agent.department.name}</span>
+              <span aria-hidden="true">•</span>
+              <span>{agent.effective.role}</span>
+              <span aria-hidden="true">•</span>
+              <AgentRuntime
+                agent={agent}
+                compact
+              />
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2 pl-11 sm:pl-0">
+            <AgentStatus agent={agent} />
+
+            <MemberActions
+              agent={agent}
+              disabled={disabled}
+              onRemove={onRemove}
+            />
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Renders additional read-only effective Agent configuration without exposing
+ * Workflow layer, order, nodes, or routes.
+ */
+function TeamMemberDetailed({
+  agents,
+  disabled,
+  onRemove,
+}: MemberViewProps) {
+  return (
+    <div className="divide-y divide-divider">
+      {agents.map((agent) => {
+        const overrideCount = [
+          agent.hasHarnessOverride,
+          agent.hasCanWriteOverride,
+          agent.hasCanRunCommandsOverride,
+          agent.hasSandboxModeOverride,
+          agent.hasCanCommitOverride,
+          agent.hasModelOverride,
+          agent.hasReasoningOverride,
+        ].filter(Boolean).length;
+
+        return (
+          <article
+            key={agent.id}
+            className="grid gap-4 px-4 py-4 xl:grid-cols-[minmax(220px,1.2fr)_minmax(200px,1fr)_minmax(260px,1.2fr)_auto]"
+          >
+            <div className="min-w-0">
+              <AgentIdentity agent={agent} />
+
+              <p className="mt-2 text-xs text-text-muted">
+                Updated {formatUpdatedAt(agent.updatedAt)}
+              </p>
+            </div>
+
+            <div className="grid content-start gap-1 text-sm">
+              <span className="text-xs text-text-muted">
+                Department / Role
+              </span>
+
+              <span className="text-text-primary">
+                {agent.department.name}
+              </span>
+
+              <span className="text-xs text-text-secondary">
+                {agent.effective.role}
+              </span>
+            </div>
+
+            <div className="grid gap-3">
+              <div>
+                <p className="mb-1.5 text-xs text-text-muted">
+                  Effective runtime
+                </p>
+
+                <AgentRuntime agent={agent} />
+              </div>
+
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-text-secondary">
+                <span>
+                  Write: {agent.effective.canWrite ? "Yes" : "No"}
+                </span>
+
+                <span>
+                  Commands: {agent.effective.canRunCommands ? "Yes" : "No"}
+                </span>
+
+                <span>
+                  Commit: {agent.effective.canCommit ? "Yes" : "No"}
+                </span>
+
+                <span>
+                  Sandbox: {agent.effective.sandboxMode ?? "Unavailable"}
+                </span>
+
+                <span>
+                  Overrides: {overrideCount}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-start justify-between gap-2 xl:justify-end">
+              <AgentStatus agent={agent} />
+
+              <MemberActions
+                agent={agent}
+                disabled={disabled}
+                onRemove={onRemove}
+              />
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Renders responsive Team-member cards for the Grid presentation.
+ */
+function TeamMemberGrid({
+  agents,
+  disabled,
+  onRemove,
+}: MemberViewProps) {
+  return (
+    <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-3">
+      {agents.map((agent) => (
+        <Card
+          key={agent.id}
+          size="sm"
+          className="gap-3 bg-surface-card shadow-none ring-1 ring-border-default"
+        >
+          <CardHeader className="gap-3">
+            <div className="flex items-start justify-between gap-3">
+              <AgentIdentity agent={agent} />
+
+              <MemberActions
+                agent={agent}
+                disabled={disabled}
+                onRemove={onRemove}
+              />
+            </div>
+
+            <AgentStatus agent={agent} />
+          </CardHeader>
+
+          <CardContent className="grid gap-3 text-xs">
+            <div>
+              <p className="text-text-muted">
+                Department / Role
+              </p>
+
+              <p className="mt-1 text-sm text-text-primary">
+                {agent.department.name}
+              </p>
+
+              <p className="mt-0.5 text-text-secondary">
+                {agent.effective.role}
+              </p>
+            </div>
+
+            <div className="border-t border-divider pt-3">
+              <p className="mb-1.5 text-text-muted">
+                Effective runtime
+              </p>
+
+              <AgentRuntime agent={agent} />
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Renders one icon for each existing Agent collection view mode.
+ */
+function ViewModeIcon({
+  mode,
+}: {
+  mode: AgentViewMode;
+}) {
+  if (mode === "table") {
+    return <TableIcon aria-hidden="true" />;
+  }
+
+  if (mode === "list") {
+    return <ListIcon aria-hidden="true" />;
+  }
+
+  if (mode === "details") {
+    return <Rows3Icon aria-hidden="true" />;
+  }
+
+  return <LayoutGridIcon aria-hidden="true" />;
+}
+
+/**
+ * Formats the existing Agent collection mode into its operator-facing label.
+ */
+function viewModeLabel(
+  mode: AgentViewMode,
+): string {
+  if (mode === "details") {
+    return "Detailed";
+  }
+
+  return mode[0].toUpperCase() + mode.slice(1);
+}
+
+/**
+ * Renders the compact four-mode view switcher shared with Agent registry semantics.
+ */
+function TeamMemberViewSwitcher({
+  view,
+  onChange,
+}: {
+  view: AgentViewMode;
+  onChange: (view: AgentViewMode) => void;
+}) {
+  return (
+    <ButtonGroup aria-label="Team member view">
+      {AGENT_VIEW_MODES.map((mode) => (
+        <Button
+          key={mode}
+          type="button"
+          size="sm"
+          variant={
+            view === mode
+              ? "secondary"
+              : "outline"
+          }
+          aria-pressed={view === mode}
+          onClick={() => onChange(mode)}
+          title={`${viewModeLabel(mode)} view`}
+        >
+          <ViewModeIcon mode={mode} />
+
+          <span className="hidden 2xl:inline">
+            {viewModeLabel(mode)}
+          </span>
+        </Button>
+      ))}
+    </ButtonGroup>
+  );
+}
+
+/**
+ * Renders the searchable multi-select Agent picker while leaving membership
+ * persistence to the enclosing draft Save action.
+ */
+function TeamMemberPicker({
+  team,
+  agents,
+  draftAgents,
+  disabled,
+  onApply,
+}: TeamMemberPickerProps) {
+  const [open, setOpen] = useState(false);
+  const [pendingAgents, setPendingAgents] = useState<Agent[]>([]);
+
+  const draftAgentIds = useMemo(
+    () => draftAgents.map((agent) => agent.id),
+    [draftAgents],
+  );
+
+  const candidateAgents = useMemo(
+    () =>
+      getTeamMemberCandidateAgents(
+        agents,
+        draftAgentIds,
+      ),
+    [agents, draftAgentIds],
+  );
+
+  /**
+   * Removes one Agent from the pending picker selection.
+   */
+  function removePendingAgent(
+    agentId: string,
+  ) {
+    setPendingAgents((current) =>
+      current.filter(
+        (agent) => agent.id !== agentId,
+      ),
+    );
+  }
+
+  /**
+   * Applies the currently valid multi-selection to the parent membership draft.
+   */
+  function applyPendingAgents() {
+    if (pendingAgents.length === 0) {
+      return;
+    }
+
+    onApply(pendingAgents);
+    setPendingAgents([]);
+    setOpen(false);
+  }
+
+  /**
+   * Cancels the picker without changing the Team membership draft.
+   */
+  function cancelPicker() {
+    setPendingAgents([]);
+    setOpen(false);
+  }
+
+  return (
+    <Combobox
+      items={candidateAgents}
+      multiple
+      open={open}
+      value={pendingAgents}
+      itemToStringLabel={(agent) => agent.name}
+      isItemEqualToValue={
+        (item, value) =>
+          item.id === value.id
+      }
+      filter={
+        (agent, searchQuery) =>
+          getTeamMemberAgentSearchText(agent).includes(
+            searchQuery.trim().toLowerCase(),
+          )
+      }
+      onValueChange={(nextValue) => {
+        setPendingAgents(
+          Array.isArray(nextValue)
+            ? nextValue
+            : [],
+        );
+      }}
+      onOpenChange={(nextOpen, eventDetails) => {
+        if (
+          !nextOpen &&
+          eventDetails.reason === "item-press"
+        ) {
+          eventDetails.cancel();
+          return;
+        }
+
+        setOpen(nextOpen);
+
+        if (!nextOpen) {
+          setPendingAgents([]);
+        }
+      }}
+      onInputValueChange={(
+        _value,
+        eventDetails,
+      ) => {
+        if (eventDetails.isItemPress) {
+          eventDetails.cancel();
+        }
+      }}
+    >
+      <ComboboxTrigger
+        render={
+          <Button
+            type="button"
+            disabled={
+              disabled ||
+              candidateAgents.length === 0
+            }
+          />
+        }
+      >
+        <PlusIcon />
+        Add Agents
+      </ComboboxTrigger>
+
+      <ComboboxContent
+        align="end"
+        sideOffset={8}
+        className="w-[min(34rem,calc(100vw-2rem))] p-0"
+      >
+        <div className="border-b border-divider p-3">
+          <p className="mb-2 text-sm font-medium text-text-primary">
+            Add Agents to {team.name}
+          </p>
+
+          <ComboboxValue>
+            {() => (
+              <ComboboxChips
+                className="min-h-10 w-full"
+                aria-label={
+                  pendingAgents.length > 0
+                    ? "Selected Agents"
+                    : undefined
+                }
+              >
+                {pendingAgents.map((agent) => (
+                  <ComboboxChip
+                    key={agent.id}
+                    showRemove={false}
+                    aria-label={agent.name}
+                    aria-description="Use the remove button to remove this Agent from the pending selection."
+                  >
+                    {agent.name}
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={`Remove ${agent.name} from selection`}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        removePendingAgent(agent.id);
+                      }}
+                    >
+                      <XIcon />
+                    </Button>
+                  </ComboboxChip>
+                ))}
+
+                <ComboboxChipsInput
+                  placeholder="Search Agents..."
+                  aria-label="Search available Agents"
+                  aria-description={
+                    pendingAgents.length > 0
+                      ? `${pendingAgents.length} selected.`
+                      : undefined
+                  }
+                />
+              </ComboboxChips>
+            )}
+          </ComboboxValue>
+        </div>
+
+        <ComboboxList className="max-h-80 p-1">
+          <ComboboxEmpty className="py-6">
+            No matching Agents.
+          </ComboboxEmpty>
+
+          {candidateAgents.map((agent) => {
+            const otherPendingAgents =
+              pendingAgents.filter(
+                (pendingAgent) =>
+                  pendingAgent.id !== agent.id,
+              );
+
+            const availability =
+              getTeamMemberCandidateAvailability(
+                agent,
+                team.id,
+                draftAgents,
+                otherPendingAgents,
+              );
+
+            return (
+              <ComboboxItem
+                key={agent.id}
+                value={agent}
+                disabled={availability.disabled}
+                title={
+                  availability.reason ??
+                  undefined
+                }
+                className="min-h-12 items-start py-2.5 pe-10"
+              >
+                <AgentAvatar
+                  agent={agent}
+                  size="sm"
+                />
+
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium text-text-primary">
+                    {agent.name}
+                  </p>
+
+                  <p className="truncate text-xs text-text-muted">
+                    {agent.department.name}
+                    {" · "}
+                    {agent.effective.role}
+                  </p>
+                </div>
+
+                <div className="ml-auto max-w-40 text-right text-[11px] text-text-muted">
+                  {availability.reason ??
+                    (!agent.effective.enabled
+                      ? "Currently disabled"
+                      : null)}
+                </div>
+              </ComboboxItem>
+            );
+          })}
+        </ComboboxList>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-divider p-3">
+          <span className="text-xs text-text-muted">
+            {candidateAgents.length} candidate
+            {candidateAgents.length === 1
+              ? ""
+              : "s"}
+          </span>
+
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={pendingAgents.length === 0}
+              onClick={() => setPendingAgents([])}
+            >
+              Clear
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={cancelPicker}
+            >
+              Cancel
+            </Button>
+
+            <Button
+              type="button"
+              size="sm"
+              disabled={pendingAgents.length === 0}
+              onClick={applyPendingAgents}
+            >
+              Add {pendingAgents.length}{" "}
+              {pendingAgents.length === 1
+                ? "Agent"
+                : "Agents"}
+            </Button>
+          </div>
+        </div>
+      </ComboboxContent>
+    </Combobox>
+  );
+}
+
+/**
+ * Owns Team composition presentation and a client-side membership draft.
+ * Workflow topology remains fully owned by TeamWorkflowBuilder.
  */
 export function TeamMembersManager({
   team,
@@ -41,26 +988,71 @@ export function TeamMembersManager({
   team: Team;
   onMembershipChange?: () => void;
 }) {
-  const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
-  const [error, setError] = useState<string | null>(null);
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [membership, setMembership] = useState<TeamMembership | null>(null);
-  const [pendingAgentId, setPendingAgentId] = useState<string | null>(null);
-  const [mutationError, setMutationError] = useState<string | null>(null);
+  const [status, setStatus] =
+    useState<
+      "loading" |
+      "loaded" |
+      "error"
+    >("loading");
 
+  const [error, setError] =
+    useState<string | null>(null);
+
+  const [mutationError, setMutationError] =
+    useState<string | null>(null);
+
+  const [agents, setAgents] =
+    useState<Agent[]>([]);
+
+  const [
+    persistedAgentIds,
+    setPersistedAgentIds,
+  ] = useState<string[]>([]);
+
+  const [
+    draftAgentIds,
+    setDraftAgentIds,
+  ] = useState<string[]>([]);
+
+  const [query, setQuery] =
+    useState("");
+
+  const [
+    departmentFilter,
+    setDepartmentFilter,
+  ] = useState("all");
+
+  const [view, setView] =
+    useState<AgentViewMode>("table");
+
+  const [saving, setSaving] =
+    useState(false);
+
+  /**
+   * Loads persisted membership and the current Agent registry in parallel.
+   */
   const load = useCallback(async () => {
     setStatus("loading");
     setError(null);
     setMutationError(null);
 
     try {
-      const [teamMembership, allAgents] = await Promise.all([
+      const [
+        teamMembership,
+        allAgents,
+      ] = await Promise.all([
         getTeamMembers(team.id),
         getAgents(),
       ]);
 
-      setMembership(teamMembership);
+      const memberIds =
+        teamMembership.members.map(
+          (member) => member.agentId,
+        );
+
       setAgents(allAgents);
+      setPersistedAgentIds(memberIds);
+      setDraftAgentIds(memberIds);
       setStatus("loaded");
     } catch (caught) {
       setError(errorMessage(caught));
@@ -74,66 +1066,252 @@ export function TeamMembersManager({
     });
   }, [load]);
 
-  const memberAgentIds = useMemo(
-    () => new Set((membership?.members ?? []).map((member) => member.agentId)),
-    [membership],
-  );
-
-  const candidateAgents = useMemo(
+  const draftAgents = useMemo(
     () =>
-      agents.filter(
-        (agent) =>
-          agent.currentTeamId === null ||
-          agent.currentTeamId === team.id ||
-          memberAgentIds.has(agent.id),
+      getVisibleTeamMemberAgents(
+        agents,
+        draftAgentIds,
+        "",
+        "all",
       ),
-    [agents, team.id, memberAgentIds],
+    [agents, draftAgentIds],
   );
 
-  async function mutate(nextAgentIds: string[], agentIdBeingMutated: string) {
-    setPendingAgentId(agentIdBeingMutated);
+  const visibleAgents = useMemo(
+    () =>
+      getVisibleTeamMemberAgents(
+        agents,
+        draftAgentIds,
+        query,
+        departmentFilter,
+      ),
+    [
+      agents,
+      draftAgentIds,
+      query,
+      departmentFilter,
+    ],
+  );
+
+  const departmentOptions = useMemo(
+    () =>
+      getTeamMemberDepartmentOptions(
+        draftAgents,
+      ),
+    [draftAgents],
+  );
+
+  const membershipChangeCount = useMemo(
+    () =>
+      getMembershipChangeCount(
+        persistedAgentIds,
+        draftAgentIds,
+      ),
+    [
+      persistedAgentIds,
+      draftAgentIds,
+    ],
+  );
+
+  const dirty =
+    membershipChangeCount > 0;
+
+  useEffect(() => {
+    if (
+      departmentFilter !== "all" &&
+      !departmentOptions.some(
+        (department) =>
+          department.id ===
+          departmentFilter,
+      )
+    ) {
+      setDepartmentFilter("all");
+    }
+  }, [
+    departmentFilter,
+    departmentOptions,
+  ]);
+
+  /**
+   * Adds valid picker selections to the local draft without persisting them yet.
+   */
+  function stageAddMembers(
+    selectedAgents: Agent[],
+  ) {
+    setDraftAgentIds((current) => {
+      let next = [...current];
+
+      for (const selectedAgent of selectedAgents) {
+        const currentDraftAgents =
+          getVisibleTeamMemberAgents(
+            agents,
+            next,
+            "",
+            "all",
+          );
+
+        const availability =
+          getTeamMemberCandidateAvailability(
+            selectedAgent,
+            team.id,
+            currentDraftAgents,
+            [],
+          );
+
+        if (!availability.disabled) {
+          next =
+            appendTeamMemberAgentIds(
+              next,
+              [selectedAgent.id],
+            );
+        }
+      }
+
+      return next;
+    });
+
+    setMutationError(null);
+  }
+
+  /**
+   * Stages one member removal locally so it remains recoverable until Save.
+   */
+  function stageRemoveMember(
+    agentId: string,
+  ) {
+    setDraftAgentIds((current) =>
+      removeTeamMemberAgentId(
+        current,
+        agentId,
+      ),
+    );
+
+    setMutationError(null);
+  }
+
+  /**
+   * Restores the last successfully persisted membership state.
+   */
+  function discardChanges() {
+    setDraftAgentIds([
+      ...persistedAgentIds,
+    ]);
+
+    setMutationError(null);
+  }
+
+  /**
+   * Atomically persists the complete membership draft through the existing
+   * membership-only API and preserves the draft when the request fails.
+   */
+  async function saveChanges() {
+    if (!dirty || saving) {
+      return;
+    }
+
+    setSaving(true);
     setMutationError(null);
 
     try {
-      const next = await replaceTeamMembers(team.id, { agentIds: nextAgentIds });
-      setMembership(next);
+      const next =
+        await replaceTeamMembers(
+          team.id,
+          {
+            agentIds:
+              draftAgentIds,
+          },
+        );
+
+      const nextMemberIds =
+        next.members.map(
+          (member) =>
+            member.agentId,
+        );
+
+      const nextMemberIdSet =
+        new Set(nextMemberIds);
+
+      setPersistedAgentIds(
+        nextMemberIds,
+      );
+
+      setDraftAgentIds(
+        nextMemberIds,
+      );
+
+      setAgents((current) =>
+        current.map((agent) => {
+          if (
+            nextMemberIdSet.has(
+              agent.id,
+            )
+          ) {
+            return {
+              ...agent,
+              currentTeamId:
+                team.id,
+            };
+          }
+
+          if (
+            agent.currentTeamId ===
+            team.id
+          ) {
+            return {
+              ...agent,
+              currentTeamId:
+                null,
+            };
+          }
+
+          return agent;
+        }),
+      );
+
       onMembershipChange?.();
     } catch (caught) {
-      setMutationError(errorMessage(caught));
+      setMutationError(
+        errorMessage(caught),
+      );
     } finally {
-      setPendingAgentId(null);
+      setSaving(false);
     }
-  }
-
-  function addMember(agentId: string) {
-    void mutate([...memberAgentIds, agentId], agentId);
-  }
-
-  function removeMember(agentId: string) {
-    void mutate([...memberAgentIds].filter((id) => id !== agentId), agentId);
   }
 
   if (status === "loading") {
     return (
-      <Empty className="min-h-[16rem] border border-border-default bg-surface-elevated">
+      <Empty className="min-h-[20rem] border border-border-default bg-surface-elevated">
         <Spinner className="size-6" />
-        <EmptyTitle>Loading Team members...</EmptyTitle>
+        <EmptyTitle>
+          Loading Team members...
+        </EmptyTitle>
       </Empty>
     );
   }
 
-  if (status === "error" || !membership) {
+  if (status === "error") {
     return (
-      <Empty className="min-h-[16rem] border border-border-default bg-surface-elevated">
+      <Empty className="min-h-[20rem] border border-border-default bg-surface-elevated">
         <EmptyHeader>
           <EmptyMedia variant="icon">
             <UsersIcon />
           </EmptyMedia>
-          <EmptyTitle>Team members unavailable</EmptyTitle>
-          <EmptyDescription>{error}</EmptyDescription>
+
+          <EmptyTitle>
+            Team members unavailable
+          </EmptyTitle>
+
+          <EmptyDescription>
+            {error}
+          </EmptyDescription>
         </EmptyHeader>
+
         <EmptyContent>
-          <Button type="button" variant="outline" onClick={() => void load()}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void load()}
+          >
             <RefreshCwIcon />
             Retry
           </Button>
@@ -142,99 +1320,215 @@ export function TeamMembersManager({
     );
   }
 
-  const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
-
   return (
     <div className="flex flex-col gap-4">
       {mutationError ? (
-        <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div
+          role="alert"
+          className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
           {mutationError}
-        </p>
+        </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="flex flex-col gap-2">
-          <h3 className="text-sm font-medium text-text-primary">Current members</h3>
+      <section
+        aria-label="Team members"
+        className="min-w-0 overflow-hidden rounded-lg border border-border-default bg-surface-elevated"
+      >
+        <div className="flex flex-col gap-3 border-b border-divider p-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex shrink-0 items-center gap-2">
+            <h2 className="text-base font-semibold text-text-primary">
+              Team members
+            </h2>
 
-          {membership.members.length === 0 ? (
-            <p className="rounded-md border border-dashed border-border-default p-4 text-sm text-text-muted">
-              No Agents selected yet. Add Agents from the candidate list.
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {membership.members.map((member) => (
-                <li
-                  key={member.agentId}
-                  className="flex items-center justify-between gap-3 rounded-md border border-border-default bg-surface-elevated p-3"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-text-primary">{member.agent.name}</p>
-                    <p className="truncate text-xs text-text-muted">{member.agent.department.name}</p>
-                  </div>
+            <Badge variant="secondary">
+              {draftAgents.length}{" "}
+              {draftAgents.length === 1
+                ? "member"
+                : "members"}
+            </Badge>
+          </div>
 
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    disabled={pendingAgentId === member.agentId}
-                    onClick={() => removeMember(member.agentId)}
-                    aria-label={`Remove ${member.agent.name} from this Team`}
+          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+            <div className="relative min-w-52 flex-1 xl:max-w-72">
+              <SearchIcon
+                aria-hidden="true"
+                className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-text-muted"
+              />
+
+              <Input
+                type="search"
+                className="pl-8"
+                placeholder="Search Team members..."
+                aria-label="Search Team members"
+                value={query}
+                onChange={(event) =>
+                  setQuery(
+                    event.target.value,
+                  )
+                }
+              />
+            </div>
+
+            <NativeSelect
+              aria-label="Filter Team members by Department"
+              value={departmentFilter}
+              onChange={(event) =>
+                setDepartmentFilter(
+                  event.target.value,
+                )
+              }
+            >
+              <NativeSelectOption value="all">
+                All Departments
+              </NativeSelectOption>
+
+              {departmentOptions.map(
+                (department) => (
+                  <NativeSelectOption
+                    key={department.id}
+                    value={department.id}
                   >
-                    {pendingAgentId === member.agentId ? <Spinner className="size-4" /> : <Trash2Icon />}
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
+                    {department.name}
+                  </NativeSelectOption>
+                ),
+              )}
+            </NativeSelect>
+
+            <TeamMemberViewSwitcher
+              view={view}
+              onChange={setView}
+            />
+
+            <TeamMemberPicker
+              team={team}
+              agents={agents}
+              draftAgents={draftAgents}
+              disabled={saving}
+              onApply={stageAddMembers}
+            />
+          </div>
         </div>
 
-        <div className="flex flex-col gap-2">
-          <h3 className="text-sm font-medium text-text-primary">Available Agents</h3>
+        {draftAgents.length === 0 ? (
+          <Empty className="min-h-64">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <UsersIcon />
+              </EmptyMedia>
 
-          {candidateAgents.filter((agent) => !memberAgentIds.has(agent.id)).length === 0 ? (
-            <p className="rounded-md border border-dashed border-border-default p-4 text-sm text-text-muted">
-              No unassigned Agents are available.{" "}
-              <Link href="/agents" className="underline">
-                Create one from the Agents page.
-              </Link>
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {candidateAgents
-                .filter((agent) => !memberAgentIds.has(agent.id))
-                .map((agent) => {
-                  const departmentTaken = membership.members.some(
-                    (member) => agentsById.get(member.agentId)?.departmentId === agent.departmentId,
-                  );
+              <EmptyTitle>
+                No Team members yet
+              </EmptyTitle>
 
-                  return (
-                    <li
-                      key={agent.id}
-                      className="flex items-center justify-between gap-3 rounded-md border border-border-default bg-surface-elevated p-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-text-primary">{agent.name}</p>
-                        <p className="truncate text-xs text-text-muted">{agent.department.name}</p>
-                      </div>
+              <EmptyDescription>
+                Add eligible Agents to compose this Team.
+              </EmptyDescription>
+            </EmptyHeader>
 
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={departmentTaken || pendingAgentId === agent.id}
-                        onClick={() => addMember(agent.id)}
-                        title={departmentTaken ? `${agent.department.name} is already represented` : undefined}
-                      >
-                        {pendingAgentId === agent.id ? <Spinner className="size-4" /> : <PlusIcon />}
-                        Add
-                      </Button>
-                    </li>
-                  );
-                })}
-            </ul>
-          )}
+            {agents.length === 0 ? (
+              <EmptyContent>
+                <Button
+                  variant="outline"
+                  render={<Link href="/agents" />}
+                >
+                  Manage Agents
+                </Button>
+              </EmptyContent>
+            ) : null}
+          </Empty>
+        ) : visibleAgents.length === 0 ? (
+          <Empty className="min-h-56">
+            <EmptyTitle>
+              No matching Team members
+            </EmptyTitle>
+
+            <EmptyDescription>
+              Try another search or Department filter.
+            </EmptyDescription>
+          </Empty>
+        ) : view === "table" ? (
+          <TeamMemberTable
+            agents={visibleAgents}
+            disabled={saving}
+            onRemove={stageRemoveMember}
+          />
+        ) : view === "list" ? (
+          <TeamMemberList
+            agents={visibleAgents}
+            disabled={saving}
+            onRemove={stageRemoveMember}
+          />
+        ) : view === "details" ? (
+          <TeamMemberDetailed
+            agents={visibleAgents}
+            disabled={saving}
+            onRemove={stageRemoveMember}
+          />
+        ) : (
+          <TeamMemberGrid
+            agents={visibleAgents}
+            disabled={saving}
+            onRemove={stageRemoveMember}
+          />
+        )}
+
+        <footer className="border-t border-divider px-4 py-3 text-xs text-text-muted">
+          Showing {visibleAgents.length} of{" "}
+          {draftAgents.length} Team members
+        </footer>
+      </section>
+
+      {dirty ? (
+        <div className="flex flex-col gap-3 rounded-lg border border-status-warning/50 bg-status-warning/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <AlertTriangleIcon
+              aria-hidden="true"
+              className="mt-0.5 size-4 shrink-0 text-status-warning"
+            />
+
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-status-warning">
+                {membershipChangeCount} membership{" "}
+                {membershipChangeCount === 1
+                  ? "change"
+                  : "changes"}{" "}
+                in draft
+              </p>
+
+              <p className="mt-0.5 text-xs text-text-muted">
+                Changes are not persisted until you save.
+                Updating Team membership can make the current
+                workflow revision stale, so review the Workflow
+                tab after saving.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={saving}
+              onClick={discardChanges}
+            >
+              Discard changes
+            </Button>
+
+            <Button
+              type="button"
+              disabled={saving}
+              onClick={() => void saveChanges()}
+            >
+              {saving ? (
+                <Spinner className="size-4" />
+              ) : null}
+
+              Save changes
+            </Button>
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
