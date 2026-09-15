@@ -783,6 +783,7 @@ function BuilderInner({ team }: { team: Team }) {
             onConnect={onConnect}
             isValidConnection={isValidConnection}
             nodesDraggable={!readOnly}
+            autoPanOnNodeDrag={false}
             nodesConnectable={!readOnly}
             elementsSelectable
             deleteKeyCode={readOnly ? null : ["Backspace", "Delete"]}
