@@ -5,6 +5,7 @@ export * from "./team.js";
 export * from "./department.js";
 export * from "./department-knowledge.js";
 export * from "./team-workflow.js";
+export * from "./workflow-graph.js";
 export * from "./run.js";
 export * from "./task.js";
 export * from "./agent-execution.js";

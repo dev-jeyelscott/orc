@@ -31,6 +31,10 @@ function runPayload() {
       "running" as const,
     currentAgentId:
       null,
+    workflowRevisionId:
+      null,
+    currentWorkflowNodeId:
+      null,
     executionCount:
       0,
     terminalReason:

@@ -14,6 +14,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -663,6 +664,120 @@ export const teamMemberRoutes =
     ],
   );
 
+export const workflowRevisionStateEnum =
+  pgEnum(
+    "workflow_revision_state",
+    [
+      "draft",
+      "published",
+    ],
+  );
+
+export const workflowNodeKindEnum =
+  pgEnum(
+    "workflow_node_kind",
+    [
+      "start",
+      "agent",
+      "terminal",
+    ],
+  );
+
+/**
+ * One mutable Draft revision plus zero or more immutable Published revisions
+ * per Team. Team membership stays in `team_members`; this table (with
+ * `workflow_nodes`/`workflow_edges`) is the sole source of workflow
+ * topology. Additive only in this slice — no runtime code reads these
+ * tables yet.
+ */
+export const workflowRevisions = pgTable("workflow_revisions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  teamId: uuid("team_id").notNull().references(() => teams.id, { onDelete: "restrict" }),
+  state: workflowRevisionStateEnum("state").notNull(),
+  version: integer("version"),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  ...timestamps,
+}, (table) => [
+  index("workflow_revisions_team_id_idx").on(table.teamId),
+  uniqueIndex("workflow_revisions_team_draft_unique")
+    .on(table.teamId)
+    .where(sql`${table.state} = 'draft'`),
+  unique("workflow_revisions_team_version_unique").on(table.teamId, table.version),
+  check(
+    "workflow_revisions_draft_fields_check",
+    sql`${table.state} <> 'draft' or (${table.version} is null and ${table.publishedAt} is null)`,
+  ),
+  check(
+    "workflow_revisions_published_fields_check",
+    sql`${table.state} <> 'published' or (${table.version} >= 1 and ${table.publishedAt} is not null)`,
+  ),
+]);
+
+/**
+ * `unique(id, revisionId)` exists solely so `workflow_edges` can declare a
+ * composite foreign key that enforces an edge's endpoints belong to the
+ * same revision as the edge itself, at the database layer.
+ */
+export const workflowNodes = pgTable("workflow_nodes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  revisionId: uuid("revision_id").notNull().references(() => workflowRevisions.id, { onDelete: "cascade" }),
+  kind: workflowNodeKindEnum("kind").notNull(),
+  agentId: uuid("agent_id").references(() => agents.id, { onDelete: "restrict" }),
+  terminalAction: terminalActionEnum("terminal_action"),
+  positionX: integer("position_x").notNull(),
+  positionY: integer("position_y").notNull(),
+  ...timestamps,
+}, (table) => [
+  index("workflow_nodes_revision_id_idx").on(table.revisionId),
+  unique("workflow_nodes_id_revision_id_unique").on(table.id, table.revisionId),
+  uniqueIndex("workflow_nodes_revision_agent_unique")
+    .on(table.revisionId, table.agentId)
+    .where(sql`${table.agentId} is not null`),
+  uniqueIndex("workflow_nodes_revision_terminal_action_unique")
+    .on(table.revisionId, table.terminalAction)
+    .where(sql`${table.terminalAction} is not null`),
+  check(
+    "workflow_nodes_kind_fields_check",
+    sql`(${table.kind} = 'start' and ${table.agentId} is null and ${table.terminalAction} is null)
+      or (${table.kind} = 'agent' and ${table.agentId} is not null and ${table.terminalAction} is null)
+      or (${table.kind} = 'terminal' and ${table.agentId} is null and ${table.terminalAction} is not null)`,
+  ),
+]);
+
+/**
+ * Start edges carry `outcome = null`; Agent outcome edges require one of the
+ * five fixed outcomes. Composite foreign keys against
+ * `workflow_nodes(id, revision_id)` guarantee an edge can never reference a
+ * node belonging to a different revision than the edge itself.
+ */
+export const workflowEdges = pgTable("workflow_edges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  revisionId: uuid("revision_id").notNull().references(() => workflowRevisions.id, { onDelete: "cascade" }),
+  sourceNodeId: uuid("source_node_id").notNull(),
+  targetNodeId: uuid("target_node_id").notNull(),
+  outcome: agentRouteOutcomeEnum("outcome"),
+  ...timestamps,
+}, (table) => [
+  index("workflow_edges_revision_id_idx").on(table.revisionId),
+  index("workflow_edges_source_node_id_idx").on(table.sourceNodeId),
+  uniqueIndex("workflow_edges_source_outcome_unique")
+    .on(table.sourceNodeId, table.outcome)
+    .where(sql`${table.outcome} is not null`),
+  uniqueIndex("workflow_edges_source_start_unique")
+    .on(table.sourceNodeId)
+    .where(sql`${table.outcome} is null`),
+  foreignKey({
+    name: "workflow_edges_source_node_revision_fk",
+    columns: [table.sourceNodeId, table.revisionId],
+    foreignColumns: [workflowNodes.id, workflowNodes.revisionId],
+  }).onDelete("cascade"),
+  foreignKey({
+    name: "workflow_edges_target_node_revision_fk",
+    columns: [table.targetNodeId, table.revisionId],
+    foreignColumns: [workflowNodes.id, workflowNodes.revisionId],
+  }).onDelete("cascade"),
+]);
+
 export const runs =
   pgTable(
     "runs",
@@ -720,6 +835,27 @@ export const runs =
       terminalReason:
         text(
           "terminal_reason",
+        ),
+      /**
+       * Nullable: only graph-based (Snapshot V2) Runs set these. The Run's
+       * own immutable `workflowSnapshot` remains authoritative even after
+       * the referenced revision is superseded by a later publish -- no
+       * live join back to `workflow_revisions` is required or safe here.
+       */
+      workflowRevisionId:
+        uuid(
+          "workflow_revision_id",
+        ).references(
+          () =>
+            workflowRevisions.id,
+          {
+            onDelete:
+              "restrict",
+          },
+        ),
+      currentWorkflowNodeId:
+        uuid(
+          "current_workflow_node_id",
         ),
       ...timestamps,
     },

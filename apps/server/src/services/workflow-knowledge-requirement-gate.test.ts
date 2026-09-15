@@ -31,11 +31,15 @@ const {
   runs,
   tasks,
   teamMembers,
+  workflowEdges,
+  workflowNodes,
+  workflowRevisions,
 } = await import("../db/schema.js");
 const { createTask, startTask } = await import("./workflow-service.js");
 const { createKnowledgeCategory, deleteKnowledgeCategory } = await import(
   "./knowledge-category-service.js"
 );
+const { backfillTeamWorkflow } = await import("./workflow-backfill-service.js");
 
 const project = {
   id: "phase9-knowledge-gate-project",
@@ -173,6 +177,8 @@ beforeEach(async () => {
     },
   ]);
 
+  await backfillTeamWorkflow(RESOLUTION_TEAM_ID);
+
   mocks.startSnapshotAgentExecution.mockImplementation(
     async (
       _run: unknown,
@@ -217,6 +223,16 @@ afterEach(async () => {
   if (taskId) {
     await db.delete(tasks).where(eq(tasks.id, taskId));
   }
+
+  const revisionRows = await db
+    .select({ id: workflowRevisions.id })
+    .from(workflowRevisions)
+    .where(eq(workflowRevisions.teamId, RESOLUTION_TEAM_ID));
+  for (const revision of revisionRows) {
+    await db.delete(workflowEdges).where(eq(workflowEdges.revisionId, revision.id));
+    await db.delete(workflowNodes).where(eq(workflowNodes.revisionId, revision.id));
+  }
+  await db.delete(workflowRevisions).where(eq(workflowRevisions.teamId, RESOLUTION_TEAM_ID));
 
   for (const id of [firstAgentId, secondAgentId]) {
     if (!id) continue;

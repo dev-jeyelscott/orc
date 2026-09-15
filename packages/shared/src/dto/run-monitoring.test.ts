@@ -28,6 +28,8 @@ const run = {
   projectPath: "/workspace/orc",
   status: "completed" as const,
   currentAgentId: null,
+  workflowRevisionId: null,
+  currentWorkflowNodeId: null,
   executionCount: 1,
   terminalReason: null,
   createdAt: "2026-09-10T00:00:00.000Z",

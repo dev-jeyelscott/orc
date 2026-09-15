@@ -24,6 +24,8 @@ import {
   type Task,
   type TaskWithRun,
   type UploadedProjectDocumentContext,
+  type WorkflowGraph,
+  type WorkflowGraphNode,
 } from "@orc/shared";
 
 import { env } from "../config/env.js";
@@ -39,7 +41,6 @@ import {
   runs,
   taskDocuments,
   tasks,
-  teamMemberRoutes,
   teamMembers,
   teams,
 } from "../db/schema.js";
@@ -88,6 +89,10 @@ import {
   loadTaskDocumentContext,
 } from "./task-document-context-service.js";
 
+import {
+  resolveRunnablePublishedWorkflow,
+} from "./workflow-graph-service.js";
+
 type TerminalAction =
   | "complete_run"
   | "fail_run"
@@ -105,7 +110,20 @@ type SnapshotRoute = {
   terminalAction: TerminalAction | null;
 };
 
+/**
+ * `version` is optional so every legacy persisted snapshot (no field, or
+ * absent) keeps parsing as Snapshot V1 unchanged. A graph-based Run
+ * (Snapshot V2) is a structural superset: it still populates `agents`
+ * (index 0 is always the Agent the Start edge targets) and `routes`, so
+ * every consumer in this file that reads those two fields keeps working
+ * for both versions without a version-aware branch. Only outcome
+ * resolution (`resolveWorkflowTransition`) needs to know the version,
+ * because V2's `routes` is exhaustive -- an outcome with no matching route
+ * means no edge was configured, not "fall through to a default."
+ */
 type WorkflowSnapshot = {
+  version?: 2;
+  workflowRevisionId?: string;
   agents: SnapshotAgent[];
   routes: SnapshotRoute[];
   knowledgeContext:
@@ -118,6 +136,7 @@ type TransitionOrigin =
   | "explicit"
   | "default"
   | "fallback"
+  | "route_missing"
   | "limit";
 
 type AgentWorkflowTransition = {
@@ -363,6 +382,10 @@ function serializeRun(
       row.status,
     currentAgentId:
       row.currentAgentId ?? null,
+    workflowRevisionId:
+      row.workflowRevisionId ?? null,
+    currentWorkflowNodeId:
+      row.currentWorkflowNodeId ?? null,
     executionCount:
       row.executionCount,
     terminalReason:
@@ -374,30 +397,13 @@ function serializeRun(
   };
 }
 
-type AgentWithDepartmentRow = {
-  agent:
-    typeof agents.$inferSelect;
-  department:
-    typeof departments.$inferSelect;
-  layer:
-    number;
-  executionOrder:
-    number;
-};
-
-type SnapshotRouteInput = {
-  sourceAgentId: string;
-  outcome: AgentResultStatus;
-  targetAgentId: string | null;
-  terminalAction: TerminalAction | null;
-};
-
 /**
- * Loads one Team's live workflow topology -- `team_members` joined to their
- * Department-inheriting Agent configuration, plus `team_member_routes`
- * translated to concrete Agent IDs -- as the sole authoritative source for
- * new Run snapshots. Legacy Agent-owned team_id/layer/execution_order and
- * `agent_routes` are never read here.
+ * Legacy Snapshot V1 building (`loadTeamWorkflowTopology`/`snapshotFromRows`,
+ * reading `team_members`/`team_member_routes` layer/order/routes directly)
+ * has been removed: new Run creation is graph-only (see
+ * `resolveRunnablePublishedWorkflow`/`snapshotFromGraphV2` below).
+ * `resolveLegacyWorkflowTransition` and `snapshotOf`'s Snapshot V1 parsing
+ * path remain so historical pre-cutover Runs stay readable.
  */
 type WorkflowDbClient =
   | typeof db
@@ -405,234 +411,124 @@ type WorkflowDbClient =
       Parameters<typeof db.transaction>[0]
     >[0];
 
-async function loadTeamWorkflowTopology(
-  tx:
-    WorkflowDbClient,
-  teamId:
-    string,
-): Promise<{
-  enabledAgents: AgentWithDepartmentRow[];
-  routes: SnapshotRouteInput[];
-}> {
-  const memberRows =
-    await tx
-      .select()
-      .from(teamMembers)
-      .innerJoin(
-        agents,
-        eq(
-          agents.id,
-          teamMembers.agentId,
-        ),
-      )
-      .innerJoin(
-        departments,
-        eq(
-          agents.departmentId,
-          departments.id,
-        ),
-      )
-      .where(
-        eq(
-          teamMembers.teamId,
-          teamId,
-        ),
-      );
+/**
+ * Builds an immutable Snapshot V2 from a Published workflow graph:
+ * resolved effective Agent runtime configuration per Agent node, and every
+ * graph edge flattened into the same `SnapshotRoute` shape Snapshot V1
+ * uses. `agents[0]` is always the Agent the Start edge targets, so the
+ * existing "launch the first agent" call sites need no changes. `routes`
+ * is exhaustive -- it is never filtered down to only the outcomes that
+ * happened to be configured, so a missing route at resolution time
+ * unambiguously means no edge exists.
+ */
+async function snapshotFromGraphV2(
+  tx: WorkflowDbClient,
+  workflowRevisionId: string,
+  graph: WorkflowGraph,
+  knowledgeContext: KnowledgeRef[] = [],
+  taskDocumentContext: UploadedProjectDocumentContext = [],
+): Promise<WorkflowSnapshot> {
+  const agentNodes = graph.nodes.filter(
+    (node): node is Extract<WorkflowGraphNode, { kind: "agent" }> =>
+      node.kind === "agent",
+  );
+  const agentIds = agentNodes.map((node) => node.agentId);
 
-  const agentIdByMemberId =
-    new Map(
-      memberRows.map(
-        (row) => [
-          row.team_members.id,
-          row.agents.id,
-        ],
-      ),
-    );
-
-  const enabledAgents =
-    orderWorkflowAgents(
-      memberRows
-        .filter(
-          (row) =>
-            row.agents.enabled &&
-            row.departments.enabled,
-        )
-        .map(
-          (row) => ({
-            agent:
-              row.agents,
-            department:
-              row.departments,
-            layer:
-              row.team_members.layer,
-            executionOrder:
-              row.team_members.executionOrder,
-          }),
-        ),
-    );
-
-  const memberIds =
-    [...agentIdByMemberId.keys()];
-
-  const routeRows =
-    memberIds.length
+  const rows =
+    agentIds.length
       ? await tx
           .select()
-          .from(
-            teamMemberRoutes,
+          .from(agents)
+          .innerJoin(
+            departments,
+            eq(agents.departmentId, departments.id),
           )
-          .where(
-            and(
-              inArray(
-                teamMemberRoutes.sourceTeamMemberId,
-                memberIds,
-              ),
-              eq(
-                teamMemberRoutes.enabled,
-                true,
-              ),
-            ),
-          )
+          .where(inArray(agents.id, agentIds))
       : [];
 
-  const routes:
-    SnapshotRouteInput[] =
-      routeRows.map(
-        (route) => ({
-          sourceAgentId:
-            agentIdByMemberId.get(
-              route.sourceTeamMemberId,
-            )!,
-          outcome:
-            route.outcome,
-          targetAgentId:
-            route.targetTeamMemberId
-              ? (
-                  agentIdByMemberId.get(
-                    route.targetTeamMemberId,
-                  ) ??
-                  null
-                )
-              : null,
-          terminalAction:
-            route.terminalAction ??
-            null,
-        }),
+  const rowByAgentId = new Map(rows.map((row) => [row.agents.id, row]));
+
+  const start = graph.nodes.find(
+    (node): node is Extract<WorkflowGraphNode, { kind: "start" }> => node.kind === "start",
+  );
+  const startEdge = start
+    ? graph.edges.find((edge) => edge.sourceNodeId === start.id)
+    : undefined;
+  const firstAgentNode = startEdge
+    ? agentNodes.find((node) => node.id === startEdge.targetNodeId)
+    : undefined;
+
+  const orderedAgentNodes = firstAgentNode
+    ? [firstAgentNode, ...agentNodes.filter((node) => node.id !== firstAgentNode.id)]
+    : agentNodes;
+
+  const snapshotAgents: SnapshotAgent[] = orderedAgentNodes.map((node, index) => {
+    const row = rowByAgentId.get(node.agentId);
+
+    if (!row) {
+      throw new WorkflowServiceError(
+        "The Published workflow references an Agent that no longer exists",
+        409,
       );
+    }
+
+    const effective = resolveEffectiveAgentConfig(row.agents, row.departments);
+
+    return {
+      id: node.agentId,
+      name: row.agents.name,
+      role: effective.role,
+      layer: index + 1,
+      executionOrder: 1,
+      harness: effective.harness,
+      model: effective.model,
+      reasoning: effective.reasoning,
+      systemPrompt: effective.systemPrompt,
+      canWrite: effective.canWrite,
+      canRunCommands: effective.canRunCommands,
+      sandboxMode: effective.sandboxMode,
+      canCommit: effective.canCommit,
+    };
+  });
+
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const routes: SnapshotRoute[] = [];
+
+  for (const edge of graph.edges) {
+    const sourceNode = nodeById.get(edge.sourceNodeId);
+    if (!sourceNode || sourceNode.kind !== "agent" || edge.outcome === null) {
+      continue;
+    }
+
+    const targetNode = nodeById.get(edge.targetNodeId);
+    if (!targetNode) {
+      continue;
+    }
+
+    if (targetNode.kind === "agent") {
+      routes.push({
+        sourceAgentId: sourceNode.agentId,
+        outcome: edge.outcome,
+        targetAgentId: targetNode.agentId,
+        terminalAction: null,
+      });
+    } else if (targetNode.kind === "terminal") {
+      routes.push({
+        sourceAgentId: sourceNode.agentId,
+        outcome: edge.outcome,
+        targetAgentId: null,
+        terminalAction: targetNode.terminalAction,
+      });
+    }
+  }
 
   return {
-    enabledAgents,
+    version: 2,
+    workflowRevisionId,
+    agents: snapshotAgents,
     routes,
-  };
-}
-
-/**
- * Creates an immutable run-owned workflow snapshot from the current effective
- * Department + Agent configuration and optional orchestrator-selected bounded
- * durable knowledge. Workflow topology (Team composition, layer/order, and
- * routing) comes exclusively from `team_members`/`team_member_routes`.
- */
-function snapshotFromRows(
-  agentRows:
-    AgentWithDepartmentRow[],
-  routeRows:
-    SnapshotRouteInput[],
-  knowledgeContext:
-    KnowledgeRef[] = [],
-  taskDocumentContext:
-    UploadedProjectDocumentContext = [],
-): WorkflowSnapshot {
-  const orderedAgents =
-    orderWorkflowAgents(
-      agentRows,
-    );
-
-  const enabledIds =
-    new Set(
-      orderedAgents.map(
-        (row) =>
-          row.agent.id,
-      ),
-    );
-
-  return {
-    agents:
-      orderedAgents.map(
-        ({ agent, department, layer, executionOrder }) => {
-          const effective =
-            resolveEffectiveAgentConfig(
-              agent,
-              department,
-            );
-
-          return {
-            id:
-              agent.id,
-            name:
-              agent.name,
-            role:
-              effective.role,
-            layer,
-            executionOrder,
-            harness:
-              effective.harness,
-            model:
-              effective.model,
-            reasoning:
-              effective.reasoning,
-            systemPrompt:
-              effective.systemPrompt,
-            canWrite:
-              effective.canWrite,
-            canRunCommands:
-              effective.canRunCommands,
-            sandboxMode:
-              effective.sandboxMode,
-            canCommit:
-              effective.canCommit,
-          };
-        },
-      ),
-    routes:
-      routeRows
-        .filter(
-          (route) =>
-            enabledIds.has(
-              route.sourceAgentId,
-            ) &&
-            (
-              !route.targetAgentId ||
-              enabledIds.has(
-                route.targetAgentId,
-              )
-            ),
-        )
-        .map(
-          (route) => ({
-            sourceAgentId:
-              route.sourceAgentId,
-            outcome:
-              route.outcome,
-            targetAgentId:
-              route.targetAgentId ??
-              null,
-            terminalAction:
-              route.terminalAction ??
-              null,
-          }),
-        ),
-    knowledgeContext:
-      knowledgeContext.map(
-        (
-          ref,
-        ) => ({
-          ...ref,
-        }),
-      ),
-    taskDocumentContext:
-      taskDocumentContext.map(
-        (ref) => ({ ...ref }),
-      ),
+    knowledgeContext: knowledgeContext.map((ref) => ({ ...ref })),
+    taskDocumentContext: taskDocumentContext.map((ref) => ({ ...ref })),
   };
 }
 
@@ -664,6 +560,9 @@ function snapshotOf(
   }
 
   return {
+    ...(snapshot.version === 2 && typeof snapshot.workflowRevisionId === "string"
+      ? { version: 2 as const, workflowRevisionId: snapshot.workflowRevisionId }
+      : {}),
     agents:
       snapshot.agents,
     routes:
@@ -717,9 +616,124 @@ function terminalStatusForAction(
 }
 
 /**
- * Resolves one structured result into an explicit route, default progression, or terminal fallback.
+ * Resolves one structured result into a transition, dispatching on the
+ * snapshot version so this stays the single call-site contract every
+ * existing caller already uses. Legacy (Snapshot V1) Runs keep exactly
+ * their current explicit-route / default-progression / terminal-fallback
+ * behavior, unchanged. Graph-based (Snapshot V2) Runs route only through
+ * an explicit edge and fail the Run outright when none matches -- see
+ * `resolveGraphWorkflowTransition`.
  */
 function resolveWorkflowTransition(
+  snapshot: WorkflowSnapshot,
+  sourceAgentId: string,
+  outcome: AgentResultStatus,
+  failureReason: string | null,
+): WorkflowTransition {
+  if (snapshot.version === 2) {
+    return resolveGraphWorkflowTransition(snapshot, sourceAgentId, outcome);
+  }
+
+  return resolveLegacyWorkflowTransition(snapshot, sourceAgentId, outcome, failureReason);
+}
+
+/**
+ * Resolves a Snapshot V2 outcome strictly through the Published graph's
+ * edges: `snapshot.routes` is exhaustive (every edge from the Published
+ * graph, materialized at Run start), so an outcome with no matching route
+ * unambiguously means no edge was configured for it. Per roadmap section
+ * 6, that is never interpreted as Block Run, Fail Run, or "next Agent" --
+ * the Run fails explicitly with a deterministic `route_missing` reason
+ * instead.
+ */
+function resolveGraphWorkflowTransition(
+  snapshot: WorkflowSnapshot,
+  sourceAgentId: string,
+  outcome: AgentResultStatus,
+): WorkflowTransition {
+  const sourceAgent = snapshot.agents.find((agent) => agent.id === sourceAgentId);
+
+  if (!sourceAgent) {
+    return {
+      kind: "terminal",
+      origin: "fallback",
+      sourceAgentId,
+      outcome,
+      targetAgentId: null,
+      terminalAction: "fail_run",
+      reason: "The completed agent is outside this run's workflow snapshot.",
+    };
+  }
+
+  const matchedRoute = snapshot.routes.find(
+    (route) => route.sourceAgentId === sourceAgentId && route.outcome === outcome,
+  );
+
+  if (!matchedRoute) {
+    return {
+      kind: "terminal",
+      origin: "route_missing",
+      sourceAgentId,
+      outcome,
+      targetAgentId: null,
+      terminalAction: "fail_run",
+      reason: `No workflow edge is configured for outcome "${outcome}" from node "${sourceAgent.name}".`,
+    };
+  }
+
+  if (matchedRoute.terminalAction) {
+    return {
+      kind: "terminal",
+      origin: "explicit",
+      sourceAgentId,
+      outcome,
+      targetAgentId: null,
+      terminalAction: matchedRoute.terminalAction,
+      reason: `Terminal route: ${matchedRoute.terminalAction}`,
+    };
+  }
+
+  if (matchedRoute.targetAgentId) {
+    const targetExists = snapshot.agents.some((agent) => agent.id === matchedRoute.targetAgentId);
+
+    if (!targetExists) {
+      return {
+        kind: "terminal",
+        origin: "fallback",
+        sourceAgentId,
+        outcome,
+        targetAgentId: null,
+        terminalAction: "fail_run",
+        reason: "The workflow route targeted an agent outside this run's snapshot.",
+        attemptedTargetAgentId: matchedRoute.targetAgentId,
+      };
+    }
+
+    return {
+      kind: "agent",
+      origin: "explicit",
+      sourceAgentId,
+      outcome,
+      targetAgentId: matchedRoute.targetAgentId,
+      terminalAction: null,
+    };
+  }
+
+  return {
+    kind: "terminal",
+    origin: "fallback",
+    sourceAgentId,
+    outcome,
+    targetAgentId: null,
+    terminalAction: "fail_run",
+    reason: "The workflow snapshot contains a route without a destination.",
+  };
+}
+
+/**
+ * Resolves one Snapshot V1 structured result into an explicit route, default progression, or terminal fallback.
+ */
+function resolveLegacyWorkflowTransition(
   snapshot: WorkflowSnapshot,
   sourceAgentId: string,
   outcome: AgentResultStatus,
@@ -2402,20 +2416,17 @@ export async function startTask(
           );
         }
 
-        const {
-          enabledAgents,
-          routes,
-        } =
-          await loadTeamWorkflowTopology(
+        const runnableWorkflow =
+          await resolveRunnablePublishedWorkflow(
             tx,
             currentTask.teamId,
           );
 
         if (
-          !enabledAgents.length
+          !runnableWorkflow
         ) {
           throw new WorkflowServiceError(
-            "The selected team has no enabled agents",
+            "The selected team has no runnable Published workflow. Update and publish the Draft workflow.",
             409,
           );
         }
@@ -2427,9 +2438,10 @@ export async function startTask(
           );
 
         const workflowSnapshot =
-          snapshotFromRows(
-            enabledAgents,
-            routes,
+          await snapshotFromGraphV2(
+            tx,
+            runnableWorkflow.revisionId,
+            runnableWorkflow.graph,
             validatedKnowledgeContext,
             taskDocumentContext,
           );
@@ -2482,6 +2494,8 @@ export async function startTask(
               status:
                 "running",
               workflowSnapshot,
+              workflowRevisionId:
+                runnableWorkflow.revisionId,
               executionCount:
                 0,
               updatedAt:
@@ -2653,28 +2667,26 @@ export async function createAndStartTask(
           );
         }
 
-        const {
-          enabledAgents,
-          routes,
-        } =
-          await loadTeamWorkflowTopology(
+        const runnableWorkflow =
+          await resolveRunnablePublishedWorkflow(
             tx,
             teamId,
           );
 
         if (
-          !enabledAgents.length
+          !runnableWorkflow
         ) {
           throw new WorkflowServiceError(
-            "The selected team has no enabled agents",
+            "The selected team has no runnable Published workflow. Update and publish the Draft workflow.",
             409,
           );
         }
 
         const workflowSnapshot =
-          snapshotFromRows(
-            enabledAgents,
-            routes,
+          await snapshotFromGraphV2(
+            tx,
+            runnableWorkflow.revisionId,
+            runnableWorkflow.graph,
           );
 
         const now =
@@ -2709,6 +2721,8 @@ export async function createAndStartTask(
               status:
                 "running",
               workflowSnapshot,
+              workflowRevisionId:
+                runnableWorkflow.revisionId,
               executionCount:
                 0,
               updatedAt:

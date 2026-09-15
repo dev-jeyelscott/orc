@@ -179,3 +179,51 @@ export type TeamWorkflow =
   z.infer<
     typeof teamWorkflowSchema
   >;
+
+/**
+ * Membership-only Team contracts (Slice 3 of the explicit-node workflow
+ * builder roadmap): Agent IDs only, deliberately excluding graph
+ * placement/routing so the Agents tab can never write workflow topology.
+ * Additive alongside the legacy contracts above, which remain live until
+ * the dashboard's Workflow tab cuts over to the graph builder.
+ */
+export const teamMembershipInputSchema =
+  z.object({
+    agentIds:
+      z.array(
+        z.string().uuid(),
+      ),
+  });
+
+export const teamMembershipMemberSchema =
+  z.object({
+    agentId:
+      z.string().uuid(),
+    agent:
+      agentSchema,
+  });
+
+export const teamMembershipSchema =
+  z.object({
+    teamId:
+      z.string().uuid(),
+    members:
+      z.array(
+        teamMembershipMemberSchema,
+      ),
+  });
+
+export type TeamMembershipInput =
+  z.infer<
+    typeof teamMembershipInputSchema
+  >;
+
+export type TeamMembershipMember =
+  z.infer<
+    typeof teamMembershipMemberSchema
+  >;
+
+export type TeamMembership =
+  z.infer<
+    typeof teamMembershipSchema
+  >;

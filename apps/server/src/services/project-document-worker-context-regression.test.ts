@@ -177,6 +177,9 @@ const {
   teamMemberRoutes,
   teamMembers,
   teams,
+  workflowEdges,
+  workflowNodes,
+  workflowRevisions,
 } = await import("../db/schema.js");
 
 const { createConversation, postConversationMessage } =
@@ -185,6 +188,8 @@ const { createConversation, postConversationMessage } =
 const { createProjectDocument } = await import("./project-document-service.js");
 
 const { getRunMonitoringDetail } = await import("./run-monitoring-service.js");
+
+const { backfillTeamWorkflow } = await import("./workflow-backfill-service.js");
 
 const createdAgentIds = new Set<string>();
 const createdDepartmentIds = new Set<string>();
@@ -374,6 +379,8 @@ function queueCreateStartTurns(): void {
  * Creates one Conversation and drives it through the real trusted Task and Run creation path.
  */
 async function createConversationTaskRun(documentIds: string[]) {
+  await backfillTeamWorkflow(RESOLUTION_TEAM_ID);
+
   const conversation = await createConversation(
     testState.project!.path,
     RESOLUTION_TEAM_ID,
@@ -647,6 +654,16 @@ afterEach(async () => {
       .delete(projectDocuments)
       .where(eq(projectDocuments.projectPath, projectPath));
   }
+
+  const revisionRows = await db
+    .select({ id: workflowRevisions.id })
+    .from(workflowRevisions)
+    .where(eq(workflowRevisions.teamId, RESOLUTION_TEAM_ID));
+  for (const revision of revisionRows) {
+    await db.delete(workflowEdges).where(eq(workflowEdges.revisionId, revision.id));
+    await db.delete(workflowNodes).where(eq(workflowNodes.revisionId, revision.id));
+  }
+  await db.delete(workflowRevisions).where(eq(workflowRevisions.teamId, RESOLUTION_TEAM_ID));
 
   for (const agentId of createdAgentIds) {
     const [member] = await db

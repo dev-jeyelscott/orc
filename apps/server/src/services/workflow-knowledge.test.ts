@@ -74,6 +74,9 @@ const {
   runs,
   tasks,
   teamMembers,
+  workflowEdges,
+  workflowNodes,
+  workflowRevisions,
 } =
   await import(
     "../db/schema.js"
@@ -85,6 +88,13 @@ const {
 } =
   await import(
     "./workflow-service.js"
+  );
+
+const {
+  backfillTeamWorkflow,
+} =
+  await import(
+    "./workflow-backfill-service.js"
   );
 
 const {
@@ -323,6 +333,10 @@ beforeEach(
           1,
       });
 
+    await backfillTeamWorkflow(
+      RESOLUTION_TEAM_ID,
+    );
+
     mocks.startSnapshotAgentExecution
       .mockImplementation(
         async (
@@ -419,6 +433,33 @@ afterEach(
           ),
         );
     }
+
+    const revisionRows =
+      await db
+        .select({
+          id: workflowRevisions.id,
+        })
+        .from(workflowRevisions)
+        .where(
+          eq(
+            workflowRevisions.teamId,
+            RESOLUTION_TEAM_ID,
+          ),
+        );
+
+    for (const revision of revisionRows) {
+      await db.delete(workflowEdges).where(eq(workflowEdges.revisionId, revision.id));
+      await db.delete(workflowNodes).where(eq(workflowNodes.revisionId, revision.id));
+    }
+
+    await db
+      .delete(workflowRevisions)
+      .where(
+        eq(
+          workflowRevisions.teamId,
+          RESOLUTION_TEAM_ID,
+        ),
+      );
 
     if (
       agentId

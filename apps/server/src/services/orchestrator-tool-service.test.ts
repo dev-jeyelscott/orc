@@ -279,6 +279,10 @@ function runDetail(
         "failed",
       currentAgentId:
         null,
+      workflowRevisionId:
+        null,
+      currentWorkflowNodeId:
+        null,
       executionCount:
         executions.length,
       terminalReason:

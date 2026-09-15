@@ -45,6 +45,12 @@ import {
   teamWorkflowRoutes,
 } from "./routes/team-workflow.js";
 import {
+  teamWorkflowGraphRoutes,
+} from "./routes/team-workflow-graph.js";
+import {
+  teamMembershipRoutes,
+} from "./routes/team-membership.js";
+import {
   workflowRoutes,
 } from "./routes/workflows.js";
 import {
@@ -87,6 +93,14 @@ export async function buildApp() {
 
   await app.register(
     teamWorkflowRoutes,
+  );
+
+  await app.register(
+    teamWorkflowGraphRoutes,
+  );
+
+  await app.register(
+    teamMembershipRoutes,
   );
 
   await app.register(

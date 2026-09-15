@@ -28,6 +28,14 @@ export const runSchema =
       z.string()
         .uuid()
         .nullable(),
+    workflowRevisionId:
+      z.string()
+        .uuid()
+        .nullable(),
+    currentWorkflowNodeId:
+      z.string()
+        .uuid()
+        .nullable(),
     executionCount:
       z.number()
         .int()

@@ -127,6 +127,10 @@ export async function listRunMonitoringSummaries(): Promise<
         runs.workflowSnapshot,
       currentAgentId:
         runs.currentAgentId,
+      workflowRevisionId:
+        runs.workflowRevisionId,
+      currentWorkflowNodeId:
+        runs.currentWorkflowNodeId,
       executionCount:
         runs.executionCount,
       terminalReason:
@@ -177,6 +181,12 @@ export async function listRunMonitoringSummaries(): Promise<
           row.status,
         currentAgentId:
           row.currentAgentId ??
+          null,
+        workflowRevisionId:
+          row.workflowRevisionId ??
+          null,
+        currentWorkflowNodeId:
+          row.currentWorkflowNodeId ??
           null,
         executionCount:
           row.executionCount,
