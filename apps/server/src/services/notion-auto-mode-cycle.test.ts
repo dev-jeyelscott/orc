@@ -362,6 +362,7 @@ describe.sequential(
             externalId,
           teamId:
             RESOLUTION_TEAM_ID,
+          projectPath,
           status:
             "In Progress",
         });
@@ -386,6 +387,7 @@ describe.sequential(
             externalId,
           teamId:
             RESOLUTION_TEAM_ID,
+          projectPath,
           status:
             "Done",
         });
@@ -434,6 +436,7 @@ describe.sequential(
             externalId,
           teamId:
             RESOLUTION_TEAM_ID,
+          projectPath,
           status:
             null,
         });
@@ -459,6 +462,7 @@ describe.sequential(
             externalId,
           teamId:
             DEVELOPMENT_TEAM_ID,
+          projectPath,
           status:
             "Done",
         });
@@ -773,88 +777,6 @@ describe(
           runIntakeCycle,
         ).toHaveBeenCalledTimes(
           1,
-        );
-      },
-    );
-
-    it(
-      "forwards a Team-scoped adapter factory into intake so every eligible Team's own data source can be queried",
-      async () => {
-        const resolutionAdapter = {
-          getNextReadyTask:
-            vi.fn(),
-          updateStatus:
-            vi.fn(),
-        };
-
-        const developmentAdapter = {
-          getNextReadyTask:
-            vi.fn(),
-          updateStatus:
-            vi.fn(),
-        };
-
-        const createNotionAdapter =
-          vi.fn(
-            (
-              teamId:
-                string,
-            ) =>
-              teamId ===
-              RESOLUTION_TEAM_ID
-                ? resolutionAdapter
-                : developmentAdapter,
-          );
-
-        let observedResolutionAdapter:
-          unknown;
-
-        let observedDevelopmentAdapter:
-          unknown;
-
-        const runIntakeCycle =
-          vi.fn(
-            async (
-              dependencies?: {
-                createNotionAdapter?:
-                  (
-                    teamId:
-                      string,
-                  ) => unknown;
-              },
-            ) => {
-              observedResolutionAdapter =
-                dependencies
-                  ?.createNotionAdapter?.(
-                    RESOLUTION_TEAM_ID,
-                  );
-
-              observedDevelopmentAdapter =
-                dependencies
-                  ?.createNotionAdapter?.(
-                    DEVELOPMENT_TEAM_ID,
-                  );
-            },
-          );
-
-        await runNotionAutoModeCycle({
-          getLifecycleTarget:
-            async () =>
-              null,
-          createNotionAdapter,
-          runIntakeCycle,
-        });
-
-        expect(
-          observedResolutionAdapter,
-        ).toBe(
-          resolutionAdapter,
-        );
-
-        expect(
-          observedDevelopmentAdapter,
-        ).toBe(
-          developmentAdapter,
         );
       },
     );

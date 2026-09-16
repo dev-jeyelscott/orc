@@ -66,6 +66,14 @@ const created = {
   agentIds: new Set<string>(),
 };
 
+let suspendedAssignments:
+  Array<{
+    projectPath:
+      string;
+    autoModeEnabled:
+      boolean;
+  }> = [];
+
 let team:
   typeof teams.$inferSelect;
 
@@ -311,12 +319,61 @@ beforeEach(
   async () => {
     createdExternalIds.clear();
 
+    suspendedAssignments =
+      await db
+        .select({
+          projectPath:
+            projectTeamAssignments.projectPath,
+          autoModeEnabled:
+            projectTeamAssignments.autoModeEnabled,
+        })
+        .from(projectTeamAssignments)
+        .where(
+          eq(
+            projectTeamAssignments.autoModeEnabled,
+            true,
+          ),
+        );
+
+    await db
+      .update(projectTeamAssignments)
+      .set({
+        autoModeEnabled:
+          false,
+      })
+      .where(
+        eq(
+          projectTeamAssignments.autoModeEnabled,
+          true,
+        ),
+      );
+
     await createRunnableProjectTeam();
   },
 );
 
 afterEach(
   async () => {
+    for (
+      const assignment of
+      suspendedAssignments
+    ) {
+      await db
+        .update(projectTeamAssignments)
+        .set({
+          autoModeEnabled:
+            assignment.autoModeEnabled,
+        })
+        .where(
+          eq(
+            projectTeamAssignments.projectPath,
+            assignment.projectPath,
+          ),
+        );
+    }
+
+    suspendedAssignments = [];
+
     await db
       .delete(runs)
       .where(

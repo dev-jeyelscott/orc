@@ -7,7 +7,7 @@ import type {
 import {
   pairConversationMessages,
   type ConversationExchange,
-} from "./orchestrator-presentation";
+} from "./orchestrator-presentation.ts";
 
 /** Creates one deterministic persisted conversation message for helper verification. */
 function createMessage(

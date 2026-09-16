@@ -24,7 +24,7 @@ Treat this table as the project baseline, not proof that every item is already i
 
 ## Core Architecture Rules
 
-- Projects are filesystem-backed. The configured workspace root defaults to `~/workspace`.
+- Projects are filesystem-backed. The configured workspace root defaults to `~/orc/workspace`.
 - Project discovery is a system responsibility, not an orchestrator responsibility.
 - Worker agents are configuration data. Do not hardcode behavior for names such as Architect, Builder, QA, Security Specialist, or any future role.
 - Workflow order comes from configured `layer` and same-layer execution order.
@@ -117,7 +117,7 @@ When working on orchestration behavior:
 
 When implementing or modifying project discovery:
 
-- Use the configured workspace root, with `~/workspace` only as the default.
+- Use the configured workspace root, with `~/orc/workspace` only as the default.
 - The filesystem remains authoritative for available projects.
 - V1 discovery considers direct child directories containing `.git`.
 - Do not require manual project registration in PostgreSQL.

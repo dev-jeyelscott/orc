@@ -6,7 +6,7 @@ import type {
 
 import {
   getRunDocumentContextItems,
-} from "./run-document-context";
+} from "./run-document-context.ts";
 
 const detail:
   Pick<

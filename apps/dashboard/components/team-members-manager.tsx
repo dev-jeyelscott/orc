@@ -793,10 +793,7 @@ function TeamMemberPicker({
         _value,
         eventDetails,
       ) => {
-        if (
-          eventDetails.reason === "input-clear" &&
-          eventDetails.isItemPress
-        ) {
+        if (eventDetails.reason === "item-press") {
           eventDetails.cancel();
         }
       }}

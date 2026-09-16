@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-default-type=module --experimental-strip-types --test lib/*.test.mjs"
+    "test": "node --import tsx --test lib/*.test.mjs lib/*.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -45,6 +45,7 @@
     "eslint-config-next": "16.3.4",
     "shadcn": "^4.20.1",
     "tailwindcss": "^4",
+    "tsx": "^4.23.13",
     "typescript": "^5"
   }
 }

@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 
-import {
-  cancelRun,
-  getProjectAutomationStatuses,
-  skipRun,
-} from "./workflows";
+import { cancelRun, getProjectAutomationStatuses, skipRun } from "./workflows.ts";
 
 const originalFetch = globalThis.fetch;
 
@@ -17,52 +13,36 @@ async function testProjectAutomationStatusClient(): Promise<void> {
       JSON.stringify({
         projects: [
           {
-            projectPath: "/workspace/project-a",
-            teamId:
-              "00000000-0000-4000-9000-000000000001",
-            autoModeEnabled:
-              true,
-            state:
-              "ready",
-            nextEligibleAt:
-              null,
-            blockedByActiveRun:
-              false,
-            unavailableReason:
-              null,
+            projectPath: "/orc/workspace/project-a",
+            teamId: "00000000-0000-4000-9000-000000000001",
+            autoModeEnabled: true,
+            state: "ready",
+            nextEligibleAt: null,
+            blockedByActiveRun: false,
+            unavailableReason: null,
           },
         ],
       }),
       {
         status: 200,
         headers: {
-          "content-type":
-            "application/json",
+          "content-type": "application/json",
         },
       },
     );
 
   try {
-    assert.deepEqual(
-      await getProjectAutomationStatuses(),
-      [
-        {
-          projectPath: "/workspace/project-a",
-          teamId:
-            "00000000-0000-4000-9000-000000000001",
-          autoModeEnabled:
-            true,
-          state:
-            "ready",
-          nextEligibleAt:
-            null,
-          blockedByActiveRun:
-            false,
-          unavailableReason:
-            null,
-        },
-      ],
-    );
+    assert.deepEqual(await getProjectAutomationStatuses(), [
+      {
+        projectPath: "/orc/workspace/project-a",
+        teamId: "00000000-0000-4000-9000-000000000001",
+        autoModeEnabled: true,
+        state: "ready",
+        nextEligibleAt: null,
+        blockedByActiveRun: false,
+        unavailableReason: null,
+      },
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -75,10 +55,7 @@ async function testBodylessRunControlsDoNotSendEmptyJsonBody(): Promise<void> {
   let requestInit: RequestInit | undefined;
   let requestUrl = "";
 
-  globalThis.fetch = async (
-    input,
-    init,
-  ) => {
+  globalThis.fetch = async (input, init) => {
     requestInit = init;
     requestUrl = input.toString();
 
@@ -86,10 +63,12 @@ async function testBodylessRunControlsDoNotSendEmptyJsonBody(): Promise<void> {
       JSON.stringify({
         id: "00000000-0000-4000-9000-000000000010",
         teamId: "00000000-0000-4000-9000-000000000001",
-        projectPath: "/workspace/orc",
+        projectPath: "/orc/app",
         taskId: null,
         status: "cancelled",
         currentAgentId: null,
+        workflowRevisionId: null,
+        currentWorkflowNodeId: null,
         executionCount: 1,
         terminalReason: "Cancelled by operator",
         createdAt: "2026-09-09T00:00:00.000Z",
@@ -105,55 +84,26 @@ async function testBodylessRunControlsDoNotSendEmptyJsonBody(): Promise<void> {
   };
 
   try {
-    await cancelRun(
-      "00000000-0000-4000-9000-000000000010",
-    );
+    await cancelRun("00000000-0000-4000-9000-000000000010");
 
-    assert.equal(
-      new Headers(
-        requestInit?.headers,
-      ).has(
-        "content-type",
-      ),
-      false,
-    );
+    assert.equal(new Headers(requestInit?.headers).has("content-type"), false);
 
-    await skipRun(
-      "00000000-0000-4000-9000-000000000010",
-    );
+    await skipRun("00000000-0000-4000-9000-000000000010");
 
-    assert.equal(
-      requestUrl.endsWith("/skip"),
-      true,
-    );
+    assert.equal(requestUrl.endsWith("/skip"), true);
 
-    assert.equal(
-      new Headers(
-        requestInit?.headers,
-      ).has(
-        "content-type",
-      ),
-      false,
-    );
+    assert.equal(new Headers(requestInit?.headers).has("content-type"), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
 }
 
 void testProjectAutomationStatusClient()
-  .then(
-    testBodylessRunControlsDoNotSendEmptyJsonBody,
-  )
-  .then(
-    () => {
-      console.log(
-        "workflow client helper tests passed",
-      );
-    },
-  )
-  .catch(
-    (error: unknown) => {
-      console.error(error);
-      process.exitCode = 1;
-    },
-  );
+  .then(testBodylessRunControlsDoNotSendEmptyJsonBody)
+  .then(() => {
+    console.log("workflow client helper tests passed");
+  })
+  .catch((error: unknown) => {
+    console.error(error);
+    process.exitCode = 1;
+  });

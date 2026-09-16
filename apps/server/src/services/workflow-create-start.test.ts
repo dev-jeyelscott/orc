@@ -777,7 +777,7 @@ describe(
     );
 
     it(
-      "rejects an enabled Team with no enabled agents",
+      "rejects an enabled Team with no runnable Published workflow",
       async () => {
         await expect(
           createAndStartTask({
@@ -794,7 +794,7 @@ describe(
           statusCode:
             409,
           message:
-            "The selected team has no enabled agents",
+            "The selected team has no runnable Published workflow. Update and publish the Draft workflow.",
         });
       },
     );

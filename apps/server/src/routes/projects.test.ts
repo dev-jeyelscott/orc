@@ -1,20 +1,10 @@
 import Fastify from "fastify";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type {
-  Project,
-  ProjectTeamAssignment,
-} from "@orc/shared";
+import type { Project, ProjectTeamAssignment } from "@orc/shared";
 
 const PROJECT_ID = "discovered-project";
-const PROJECT_PATH = "/workspace/discovered-project";
+const PROJECT_PATH = "/orc/workspace/discovered-project";
 const TEAM_ID = "00000000-0000-4000-9000-000000000001";
 
 const project: Project = {
@@ -54,7 +44,10 @@ vi.mock("../config/env.js", () => ({ env: { WORKSPACE_ROOT: "/workspace" } }));
 vi.mock("../services/project-discovery.js", () => discoveryMocks);
 vi.mock("../services/project-team-assignment-service.js", () => ({
   ProjectTeamAssignmentError: class ProjectTeamAssignmentError extends Error {
-    constructor(message: string, readonly statusCode: number) {
+    constructor(
+      message: string,
+      readonly statusCode: number,
+    ) {
       super(message);
     }
   },
@@ -75,7 +68,9 @@ beforeEach(async () => {
   });
   discoveryMocks.getProject.mockResolvedValue(project);
   assignmentMocks.getProjectTeamAssignmentByPath.mockResolvedValue(assignment);
-  assignmentMocks.getProjectTeamAssignmentsByPaths.mockResolvedValue(new Map([[PROJECT_PATH, assignment]]));
+  assignmentMocks.getProjectTeamAssignmentsByPaths.mockResolvedValue(
+    new Map([[PROJECT_PATH, assignment]]),
+  );
   app = Fastify();
   await app.register(projectRoutes);
 });
@@ -94,7 +89,9 @@ describe("Project Team assignment routes", () => {
       workspaceRoot: "/workspace",
       error: null,
     });
-    expect(assignmentMocks.getProjectTeamAssignmentsByPaths).toHaveBeenCalledWith([PROJECT_PATH]);
+    expect(
+      assignmentMocks.getProjectTeamAssignmentsByPaths,
+    ).toHaveBeenCalledWith([PROJECT_PATH]);
   });
 
   it("rejects assignment writes for a Project no longer found by filesystem discovery", async () => {
@@ -103,7 +100,11 @@ describe("Project Team assignment routes", () => {
     const response = await app.inject({
       method: "PUT",
       url: `/api/projects/${PROJECT_ID}/team-assignment`,
-      payload: { teamId: TEAM_ID, notionDataSourceId: "notion-project-source", autoModeEnabled: true },
+      payload: {
+        teamId: TEAM_ID,
+        notionDataSourceId: "notion-project-source",
+        autoModeEnabled: true,
+      },
     });
 
     expect(response.statusCode).toBe(404);
@@ -118,18 +119,30 @@ describe("Project Team assignment routes", () => {
     const put = await app.inject({
       method: "PUT",
       url: `/api/projects/${PROJECT_ID}/team-assignment`,
-      payload: { teamId: TEAM_ID, notionDataSourceId: "notion-project-source", autoModeEnabled: true },
+      payload: {
+        teamId: TEAM_ID,
+        notionDataSourceId: "notion-project-source",
+        autoModeEnabled: true,
+      },
     });
-    const deleted = await app.inject({ method: "DELETE", url: `/api/projects/${PROJECT_ID}/team-assignment` });
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${PROJECT_ID}/team-assignment`,
+    });
 
     expect(put.statusCode).toBe(200);
     expect(put.json()).toEqual(assignment);
-    expect(assignmentMocks.upsertProjectTeamAssignment).toHaveBeenCalledWith(PROJECT_PATH, {
-      teamId: TEAM_ID,
-      notionDataSourceId: "notion-project-source",
-      autoModeEnabled: true,
-    });
+    expect(assignmentMocks.upsertProjectTeamAssignment).toHaveBeenCalledWith(
+      PROJECT_PATH,
+      {
+        teamId: TEAM_ID,
+        notionDataSourceId: "notion-project-source",
+        autoModeEnabled: true,
+      },
+    );
     expect(deleted.statusCode).toBe(204);
-    expect(assignmentMocks.deleteProjectTeamAssignment).toHaveBeenCalledWith(PROJECT_PATH);
+    expect(assignmentMocks.deleteProjectTeamAssignment).toHaveBeenCalledWith(
+      PROJECT_PATH,
+    );
   });
 });

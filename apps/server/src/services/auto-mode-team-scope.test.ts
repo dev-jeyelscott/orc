@@ -3,6 +3,7 @@ import {
 } from "drizzle-orm";
 import {
   afterEach,
+  beforeEach,
   describe,
   expect,
   it,
@@ -66,6 +67,52 @@ const created = {
   agentIds: new Set<string>(),
   projectPaths: new Set<string>(),
 };
+
+let suspendedAssignments:
+  Array<{
+    projectPath:
+      string;
+    autoModeEnabled:
+      boolean;
+  }> = [];
+
+/**
+ * Temporarily disables every Auto Mode Project assignment that predates this test file (real
+ * Project automation configured outside these tests) so a global intake cycle can only ever pick
+ * up this file's own Team-scoped fixtures as candidates.
+ */
+beforeEach(
+  async () => {
+    suspendedAssignments =
+      await db
+        .select({
+          projectPath:
+            projectTeamAssignments.projectPath,
+          autoModeEnabled:
+            projectTeamAssignments.autoModeEnabled,
+        })
+        .from(projectTeamAssignments)
+        .where(
+          eq(
+            projectTeamAssignments.autoModeEnabled,
+            true,
+          ),
+        );
+
+    await db
+      .update(projectTeamAssignments)
+      .set({
+        autoModeEnabled:
+          false,
+      })
+      .where(
+        eq(
+          projectTeamAssignments.autoModeEnabled,
+          true,
+        ),
+      );
+  },
+);
 
 /**
  * Creates one fully-runnable Team (enabled Agent under an enabled Department)
@@ -282,6 +329,30 @@ async function cleanup(): Promise<void> {
 
 afterEach(
   cleanup,
+);
+
+afterEach(
+  async () => {
+    for (
+      const assignment of
+      suspendedAssignments
+    ) {
+      await db
+        .update(projectTeamAssignments)
+        .set({
+          autoModeEnabled:
+            assignment.autoModeEnabled,
+        })
+        .where(
+          eq(
+            projectTeamAssignments.projectPath,
+            assignment.projectPath,
+          ),
+        );
+    }
+
+    suspendedAssignments = [];
+  },
 );
 
 /**

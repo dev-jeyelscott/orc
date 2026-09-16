@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type {
-  DomainEvent,
-  ProjectListResponse,
-  RunStatus,
-} from "@orc/shared";
+import type { DomainEvent, ProjectListResponse, RunStatus } from "@orc/shared";
 
 import {
   DASHBOARD_EVENT_LIMIT,
@@ -35,14 +31,12 @@ function makeEvent(index: number): DomainEvent {
   return {
     id: crypto.randomUUID(),
     type: `event.${index}`,
-    projectPath: "/tmp/workspace/project",
+    projectPath: "/tmp/orc/workspace/project",
     taskId: null,
     runId: null,
     agentExecutionId: null,
     data: {},
-    createdAt: new Date(
-      Date.UTC(2026, 0, 1, 0, index, 0),
-    ).toISOString(),
+    createdAt: new Date(Date.UTC(2026, 0, 1, 0, index, 0)).toISOString(),
   };
 }
 
@@ -98,19 +92,14 @@ describe("dashboard-service aggregation helpers", () => {
   });
 
   it("selects the active run before a newer historical candidate", () => {
-    expect(
-      selectActivityCandidate(
-        { id: "active" },
-        { id: "recent" },
-      ),
-    ).toEqual({
-      kind: "active",
-      run: { id: "active" },
-    });
+    expect(selectActivityCandidate({ id: "active" }, { id: "recent" })).toEqual(
+      {
+        kind: "active",
+        run: { id: "active" },
+      },
+    );
 
-    expect(
-      selectActivityCandidate(null, { id: "recent" }),
-    ).toEqual({
+    expect(selectActivityCandidate(null, { id: "recent" })).toEqual({
       kind: "recent",
       run: { id: "recent" },
     });
@@ -125,12 +114,8 @@ describe("dashboard-service aggregation helpers", () => {
     const result = limitDashboardEvents(events);
 
     expect(result).toHaveLength(DASHBOARD_EVENT_LIMIT);
-    expect(result[0]?.type).toBe(
-      `event.${DASHBOARD_EVENT_LIMIT + 3}`,
-    );
-    expect(
-      Date.parse(result[0]!.createdAt),
-    ).toBeGreaterThan(
+    expect(result[0]?.type).toBe(`event.${DASHBOARD_EVENT_LIMIT + 3}`);
+    expect(Date.parse(result[0]!.createdAt)).toBeGreaterThan(
       Date.parse(result[result.length - 1]!.createdAt),
     );
   });

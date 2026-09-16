@@ -7,7 +7,7 @@ import type {
 import {
   changeOrchestratorHarness,
   includePersistedOption,
-} from "./harness-options";
+} from "./harness-options.ts";
 
 const persisted: OrchestratorSettings = {
   harness:

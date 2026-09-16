@@ -3,6 +3,7 @@ import {
 } from "drizzle-orm";
 import {
   afterEach,
+  beforeEach,
   describe,
   expect,
   it,
@@ -13,6 +14,7 @@ import {
   db,
 } from "../db/client.js";
 import {
+  projectTeamAssignments,
   runs,
   tasks,
 } from "../db/schema.js";
@@ -77,9 +79,75 @@ async function createActiveManualWorkflow(): Promise<void> {
     });
 }
 
+let suspendedAssignments:
+  Array<{
+    projectPath:
+      string;
+    autoModeEnabled:
+      boolean;
+  }> = [];
+
+/**
+ * Temporarily disables every Auto Mode Project assignment that predates this test file (real
+ * Project automation configured outside these tests) so a global intake cycle sees no
+ * automation-ready Team unless a given test explicitly creates one.
+ */
+beforeEach(
+  async () => {
+    suspendedAssignments =
+      await db
+        .select({
+          projectPath:
+            projectTeamAssignments.projectPath,
+          autoModeEnabled:
+            projectTeamAssignments.autoModeEnabled,
+        })
+        .from(projectTeamAssignments)
+        .where(
+          eq(
+            projectTeamAssignments.autoModeEnabled,
+            true,
+          ),
+        );
+
+    await db
+      .update(projectTeamAssignments)
+      .set({
+        autoModeEnabled:
+          false,
+      })
+      .where(
+        eq(
+          projectTeamAssignments.autoModeEnabled,
+          true,
+        ),
+      );
+  },
+);
+
 afterEach(
   async () => {
     await cleanupManualGatingData();
+
+    for (
+      const assignment of
+      suspendedAssignments
+    ) {
+      await db
+        .update(projectTeamAssignments)
+        .set({
+          autoModeEnabled:
+            assignment.autoModeEnabled,
+        })
+        .where(
+          eq(
+            projectTeamAssignments.projectPath,
+            assignment.projectPath,
+          ),
+        );
+    }
+
+    suspendedAssignments = [];
   },
 );
 
