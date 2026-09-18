@@ -14,17 +14,20 @@ import {
   type ConfigIssue,
   type ConfigResource,
   type DepartmentResource,
+  type ProjectResource,
   type SkillResource,
   type TeamResource,
 } from "./loader.js";
 import {
   agentConfigSchema,
   departmentConfigSchema,
+  projectConfigSchema,
   skillConfigSchema,
   teamConfigSchema,
   workflowConfigSchema,
   type AgentConfig,
   type DepartmentConfig,
+  type ProjectConfig,
   type SkillConfig,
   type TeamConfig,
   type WorkflowConfig,
@@ -74,6 +77,11 @@ export interface WrittenTeamFile {
 
 export interface WrittenTeamWorkflowFile {
   data: WorkflowConfig;
+  configRevision: string;
+}
+
+export interface WrittenProjectFile {
+  data: ProjectConfig;
   configRevision: string;
 }
 
@@ -619,6 +627,97 @@ export async function writeTeamWorkflowFile(
 export async function getTeamWorkflowRevision(configRoot: string, teamSlug: string): Promise<string | null> {
   const graph = await loadConfigGraph(configRoot);
   return graph.teams.find((resource) => resource.data.slug === teamSlug)?.workflow?.contentHash ?? null;
+}
+
+/**
+ * Writes one canonical Project resource (`.orc/projects/<slug>.yaml`,
+ * roadmap Vertical Spec 6). Callers are responsible for proving the
+ * supplied workspace-relative path resolves to a currently discovered
+ * filesystem Project before calling this -- the config kernel enforces
+ * only path shape/containment, never filesystem existence.
+ */
+export async function writeProjectFile(
+  configRoot: string,
+  data: ProjectConfig,
+  options: { previousSlug: string | null; expectedRevision: string | null },
+): Promise<WrittenProjectFile> {
+  const parsed = projectConfigSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new ConfigValidationError(
+      parsed.error.issues.map((issue) => ({
+        filePath: path.join(configRoot, "projects", `${data.slug}.yaml`),
+        resourceType: "project",
+        resourceId: data.slug,
+        field: issue.path.join(".") || null,
+        message: issue.message,
+      })),
+    );
+  }
+
+  const graph = await loadCleanGraph(configRoot);
+
+  let existing: ProjectResource | null = null;
+  if (options.previousSlug === null) {
+    if (graph.projects.some((resource) => resource.data.slug === data.slug)) {
+      throw new ConfigConflictError(`Project "${data.slug}" already exists`);
+    }
+  } else {
+    existing = graph.projects.find((resource) => resource.data.slug === options.previousSlug) ?? null;
+    if (!existing) {
+      throw new ConfigConflictError(`Project "${options.previousSlug}" no longer exists`);
+    }
+    if (options.expectedRevision !== null && existing.contentHash !== options.expectedRevision) {
+      throw new ConfigConflictError("Project was modified by another edit; reload and retry");
+    }
+  }
+
+  const filePath = path.join(configRoot, "projects", `${data.slug}.yaml`);
+  if (!existing || existing.data.slug !== data.slug) {
+    if (await pathExists(filePath)) {
+      throw new ConfigConflictError(`Project "${data.slug}" already exists`);
+    }
+  }
+
+  const proposedResource: ProjectResource = { filePath, contentHash: "", data: parsed.data };
+  const proposedProjects = existing
+    ? graph.projects.map((resource) => (resource === existing ? proposedResource : resource))
+    : [...graph.projects, proposedResource];
+
+  const issues = runGraphValidation({ ...graph, projects: proposedProjects });
+  if (issues.length) {
+    throw new ConfigValidationError(issues);
+  }
+
+  const previousFilePath =
+    existing && existing.data.slug !== data.slug ? path.join(configRoot, "projects", `${existing.data.slug}.yaml`) : null;
+  if (previousFilePath && (await pathExists(previousFilePath))) {
+    await fs.rename(previousFilePath, filePath);
+  }
+
+  const yamlContent = stringifyYaml(parsed.data);
+  await atomicWriteFile(filePath, yamlContent);
+
+  return { data: parsed.data, configRevision: sha256(normalizeText(yamlContent)) };
+}
+
+/** Deletes one canonical Project resource. Never affects filesystem discovery or historical Task/Run ownership. */
+export async function deleteProjectFile(configRoot: string, slug: string, expectedRevision: string | null): Promise<boolean> {
+  const graph = await loadCleanGraph(configRoot);
+  const existing = graph.projects.find((resource) => resource.data.slug === slug);
+  if (!existing) return false;
+
+  if (expectedRevision !== null && existing.contentHash !== expectedRevision) {
+    throw new ConfigConflictError("Project was modified by another edit; reload and retry");
+  }
+
+  await fs.rm(existing.filePath, { force: true });
+  return true;
+}
+
+/** Reads one Project's current canonical `configRevision`, or null if the file does not exist. */
+export async function getProjectRevision(configRoot: string, slug: string): Promise<string | null> {
+  const graph = await loadConfigGraph(configRoot);
+  return graph.projects.find((resource) => resource.data.slug === slug)?.contentHash ?? null;
 }
 
 /** Reads one Department's current canonical `configRevision`, or null if the file does not exist. */

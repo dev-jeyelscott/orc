@@ -1,8 +1,8 @@
 import { eq, inArray } from "drizzle-orm";
 
 import { db } from "../db/client.js";
-import { agents, agentSkills, departments, skills, teams } from "../db/schema.js";
-import type { AgentConfig, DepartmentConfig, SkillConfig, TeamConfig } from "./schemas.js";
+import { agents, agentSkills, departments, projectTeamAssignments, skills, teams } from "../db/schema.js";
+import type { AgentConfig, DepartmentConfig, ProjectConfig, SkillConfig, TeamConfig } from "./schemas.js";
 
 /** Accepts either the top-level `db` handle or an in-flight `db.transaction` callback's `tx`. */
 type DbOrTx = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -180,4 +180,38 @@ export async function syncTeamProjection(config: TeamConfig, tx: DbOrTx = db): P
 /** Removes a Team's PostgreSQL projection row by slug. A no-op if it was never synced. */
 export async function removeTeamProjection(slug: string, tx: DbOrTx = db): Promise<void> {
   await tx.delete(teams).where(eq(teams.slug, slug));
+}
+
+/**
+ * Upserts one canonical Project file's static assignment/automation intent
+ * into its PostgreSQL projection row, keyed by the Project's canonical
+ * absolute filesystem path (the same identity `project-team-assignment-service.ts`
+ * has always used). The referenced Team must already be projected.
+ */
+export async function syncProjectAssignmentProjection(
+  config: ProjectConfig,
+  absoluteProjectPath: string,
+  tx: DbOrTx = db,
+): Promise<void> {
+  const [team] = await tx.select({ id: teams.id }).from(teams).where(eq(teams.slug, config.team));
+  if (!team) {
+    throw new Error(`Cannot project Project "${config.slug}": Team "${config.team}" has not been synced yet`);
+  }
+
+  const values = {
+    projectPath: absoluteProjectPath,
+    teamId: team.id,
+    notionDataSourceId: config.automation.notionDataSourceId,
+    autoModeEnabled: config.automation.autoModeEnabled,
+  };
+
+  await tx
+    .insert(projectTeamAssignments)
+    .values(values)
+    .onConflictDoUpdate({ target: projectTeamAssignments.projectPath, set: { ...values, updatedAt: new Date() } });
+}
+
+/** Removes a Project's PostgreSQL assignment projection row by canonical path. A no-op if it was never synced. */
+export async function removeProjectAssignmentProjection(absoluteProjectPath: string, tx: DbOrTx = db): Promise<void> {
+  await tx.delete(projectTeamAssignments).where(eq(projectTeamAssignments.projectPath, absoluteProjectPath));
 }
