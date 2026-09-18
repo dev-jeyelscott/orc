@@ -100,6 +100,8 @@ describe(
               "",
             enabled:
               true,
+            configRevision:
+              "abc123",
             createdAt:
               timestamp,
             updatedAt:

@@ -31,7 +31,7 @@ Treat this table as the project baseline, not proof that every item is already i
 - V1 executes worker agents sequentially, including agents in the same layer.
 - Claude and Codex must stay behind generic harness/runtime interfaces. Provider-specific process logic belongs in harness adapters.
 - Workers operate directly on the selected real repository. Do not introduce worktrees or repository copies unless scope explicitly changes.
-- PostgreSQL is the persistent source of truth for orchestration state such as agents, tasks, runs, executions, conversations, events, results, and terminal history where implemented.
+- `.orc/` (under the application repository, e.g. `~/orc/app/.orc`) is the durable, Git-backed authority for operator-managed configuration: Departments, Agents, Skills and their Agent assignments, Teams and membership, Team workflow Draft/Published state, and Project-to-Team assignment plus static Notion/Auto Mode automation config. PostgreSQL projects that configuration for runtime use and remains the sole authority for everything else: Tasks, Runs, Agent Executions, Conversations, domain events, terminal history, and Run workflow snapshots. Project *existence* stays filesystem-backed (direct child `.git` discovery under the configured workspace root), enriched but never created by a Project file. See `apps/server/src/config/` for the config kernel/loader/mutation/sync services backing this.
 - Raw terminal history and domain/business events are separate concepts. Do not use terminal text as workflow state.
 - Agent handoffs should use validated structured results rather than natural-language terminal scraping.
 - The orchestrator supervises system capabilities and must read actual runtime state before reporting progress.
