@@ -12,6 +12,7 @@ import {
   type AgentResource,
   type ConfigGraph,
   type ConfigIssue,
+  type ConfigResource,
   type DepartmentResource,
   type SkillResource,
   type TeamResource,
@@ -21,10 +22,12 @@ import {
   departmentConfigSchema,
   skillConfigSchema,
   teamConfigSchema,
+  workflowConfigSchema,
   type AgentConfig,
   type DepartmentConfig,
   type SkillConfig,
   type TeamConfig,
+  type WorkflowConfig,
 } from "./schemas.js";
 
 /** A save/delete arrived with a stale or missing expected `configRevision`. */
@@ -66,6 +69,11 @@ export interface WrittenSkillFile {
 
 export interface WrittenTeamFile {
   data: TeamConfig;
+  configRevision: string;
+}
+
+export interface WrittenTeamWorkflowFile {
+  data: WorkflowConfig;
   configRevision: string;
 }
 
@@ -542,6 +550,75 @@ export async function deleteTeamFile(
 export async function getTeamRevision(configRoot: string, slug: string): Promise<string | null> {
   const graph = await loadConfigGraph(configRoot);
   return graph.teams.find((resource) => resource.data.slug === slug)?.contentHash ?? null;
+}
+
+/**
+ * Writes one Team's canonical `workflow.yaml` (Draft + Published state,
+ * roadmap Vertical Spec 5). Requires the owning Team to already have a
+ * canonical `team.yaml` -- a Team not yet migrated to file-authoritative
+ * membership has no directory to place `workflow.yaml` in, and the caller
+ * (`workflow-graph-service.ts`) falls back to DB-only Draft/Publish
+ * behavior for that case rather than calling this function. Re-validates
+ * the full graph so every Agent node key still resolves to a current Team
+ * member.
+ */
+export async function writeTeamWorkflowFile(
+  configRoot: string,
+  teamSlug: string,
+  data: WorkflowConfig,
+  expectedRevision: string | null,
+): Promise<WrittenTeamWorkflowFile> {
+  const parsed = workflowConfigSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new ConfigValidationError(
+      parsed.error.issues.map((issue) => ({
+        filePath: path.join(configRoot, "teams", teamSlug, "workflow.yaml"),
+        resourceType: "workflow",
+        resourceId: teamSlug,
+        field: issue.path.join(".") || null,
+        message: issue.message,
+      })),
+    );
+  }
+
+  const graph = await loadCleanGraph(configRoot);
+  const teamIndex = graph.teams.findIndex((resource) => resource.data.slug === teamSlug);
+
+  if (teamIndex === -1) {
+    throw new ConfigConflictError(`Team "${teamSlug}" does not have a canonical file yet`);
+  }
+
+  const existingTeam = graph.teams[teamIndex];
+
+  if (expectedRevision !== null && existingTeam.workflow && existingTeam.workflow.contentHash !== expectedRevision) {
+    throw new ConfigConflictError("Workflow was modified by another edit; reload and retry");
+  }
+
+  const dir = path.join(configRoot, "teams", teamSlug);
+  const proposedWorkflow: ConfigResource<WorkflowConfig> = {
+    filePath: path.join(dir, "workflow.yaml"),
+    contentHash: "",
+    data: parsed.data,
+  };
+  const proposedTeams = graph.teams.map((resource, index) =>
+    index === teamIndex ? { ...existingTeam, workflow: proposedWorkflow } : resource,
+  );
+
+  const issues = runGraphValidation({ ...graph, teams: proposedTeams });
+  if (issues.length) {
+    throw new ConfigValidationError(issues);
+  }
+
+  const yamlContent = stringifyYaml(parsed.data);
+  await atomicWriteFile(path.join(dir, "workflow.yaml"), yamlContent);
+
+  return { data: parsed.data, configRevision: sha256(normalizeText(yamlContent)) };
+}
+
+/** Reads one Team's current canonical workflow `configRevision`, or null if no `workflow.yaml` exists yet. */
+export async function getTeamWorkflowRevision(configRoot: string, teamSlug: string): Promise<string | null> {
+  const graph = await loadConfigGraph(configRoot);
+  return graph.teams.find((resource) => resource.data.slug === teamSlug)?.workflow?.contentHash ?? null;
 }
 
 /** Reads one Department's current canonical `configRevision`, or null if the file does not exist. */

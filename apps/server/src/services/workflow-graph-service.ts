@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import type {
   AgentRouteOutcome,
@@ -15,8 +15,19 @@ import type {
   WorkflowValidationResult,
 } from "@orc/shared";
 
+import { env } from "../config/env.js";
+import {
+  ConfigConflictError,
+  ConfigReferentialError,
+  ConfigValidationError,
+  writeTeamWorkflowFile,
+  type WrittenTeamWorkflowFile,
+} from "../config/config-mutation-service.js";
+import { markConfigOutOfSync } from "../config/health-state.js";
+import { loadConfigGraph } from "../config/loader.js";
+import type { WorkflowConfig, WorkflowEdgeConfig, WorkflowGraphConfig, WorkflowNodeConfig } from "../config/schemas.js";
 import { db } from "../db/client.js";
-import { teams, workflowEdges, workflowNodes, workflowRevisions } from "../db/schema.js";
+import { agents, teams, workflowEdges, workflowNodes, workflowRevisions } from "../db/schema.js";
 import {
   resolveExecutableTeamAgents,
   resolveTeamMemberAgentIds,
@@ -88,6 +99,186 @@ async function loadGraph(tx: Tx, revisionId: string): Promise<WorkflowGraph> {
     nodes: nodeRows.map(nodeRowToGraphNode),
     edges: edgeRows.map(edgeRowToGraphEdge),
   };
+}
+
+/** Replaces one revision's persisted nodes/edges to match an already-validated graph exactly. */
+async function replaceRevisionGraph(tx: Tx, revisionId: string, graph: WorkflowGraph): Promise<void> {
+  await tx.delete(workflowEdges).where(eq(workflowEdges.revisionId, revisionId));
+  await tx.delete(workflowNodes).where(eq(workflowNodes.revisionId, revisionId));
+
+  if (graph.nodes.length) {
+    await tx.insert(workflowNodes).values(
+      graph.nodes.map((node) => ({
+        id: node.id,
+        revisionId,
+        kind: node.kind,
+        agentId: node.kind === "agent" ? node.agentId : null,
+        terminalAction: node.kind === "terminal" ? node.terminalAction : null,
+        positionX: node.position.x,
+        positionY: node.position.y,
+      })),
+    );
+  }
+
+  if (graph.edges.length) {
+    await tx.insert(workflowEdges).values(
+      graph.edges.map((edge) => ({
+        id: edge.id,
+        revisionId,
+        sourceNodeId: edge.sourceNodeId,
+        targetNodeId: edge.targetNodeId,
+        outcome: edge.outcome,
+      })),
+    );
+  }
+}
+
+/** Inserts one immutable Published revision's node/edge rows, remapping node ids as PostgreSQL assigns them. */
+async function insertPublishedGraph(tx: Tx, revisionId: string, graph: WorkflowGraph): Promise<void> {
+  const nodeIdMap = new Map<string, string>();
+
+  if (graph.nodes.length) {
+    const insertedNodes = await tx
+      .insert(workflowNodes)
+      .values(
+        graph.nodes.map((node) => ({
+          revisionId,
+          kind: node.kind,
+          agentId: node.kind === "agent" ? node.agentId : null,
+          terminalAction: node.kind === "terminal" ? node.terminalAction : null,
+          positionX: node.position.x,
+          positionY: node.position.y,
+        })),
+      )
+      .returning();
+
+    graph.nodes.forEach((node, index) => nodeIdMap.set(node.id, insertedNodes[index].id));
+  }
+
+  if (graph.edges.length) {
+    await tx.insert(workflowEdges).values(
+      graph.edges.map((edge) => ({
+        revisionId,
+        sourceNodeId: nodeIdMap.get(edge.sourceNodeId) as string,
+        targetNodeId: nodeIdMap.get(edge.targetNodeId) as string,
+        outcome: edge.outcome,
+      })),
+    );
+  }
+}
+
+/** Converts a known config-mutation-service error into the stable Workflow graph service error shape. */
+function translateWorkflowConfigError(error: unknown): never {
+  if (
+    error instanceof ConfigConflictError ||
+    error instanceof ConfigReferentialError ||
+    error instanceof ConfigValidationError
+  ) {
+    throw new WorkflowGraphServiceError(error.message, error.statusCode);
+  }
+  throw error;
+}
+
+/** Resolves the canonical Agent slug for each id referenced by a runtime graph's Agent nodes. */
+async function loadAgentSlugMap(tx: Tx, agentIds: readonly string[]): Promise<Map<string, string>> {
+  const uniqueIds = [...new Set(agentIds)];
+  if (!uniqueIds.length) return new Map();
+  const rows = await tx.select({ id: agents.id, slug: agents.slug }).from(agents).where(inArray(agents.id, uniqueIds));
+  return new Map(rows.map((row) => [row.id, row.slug]));
+}
+
+/** Resolves the current Agent DB id for each canonical slug referenced by a canonical file graph's Agent nodes. */
+async function loadAgentIdMap(tx: Tx, agentSlugs: readonly string[]): Promise<Map<string, string>> {
+  const uniqueSlugs = [...new Set(agentSlugs)];
+  if (!uniqueSlugs.length) return new Map();
+  const rows = await tx.select({ id: agents.id, slug: agents.slug }).from(agents).where(inArray(agents.slug, uniqueSlugs));
+  return new Map(rows.map((row) => [row.slug, row.id]));
+}
+
+function symbolicNodeKey(node: WorkflowGraphNode, agentSlugById: ReadonlyMap<string, string>): string {
+  if (node.kind === "start") return "start";
+  if (node.kind === "terminal") return `terminal:${node.terminalAction}`;
+  const slug = agentSlugById.get(node.agentId);
+  if (!slug) {
+    throw new WorkflowGraphServiceError(
+      `Cannot project workflow to canonical file: Agent ${node.agentId} has no canonical slug`,
+      409,
+    );
+  }
+  return `agent:${slug}`;
+}
+
+/**
+ * Converts a runtime graph (DB UUID node ids) into the canonical
+ * symbolic-key shape `workflow.yaml` persists (roadmap Vertical Spec 5,
+ * section 14.1). Every Agent node's referenced Agent must already have a
+ * canonical slug -- callers only reach this once that has been confirmed.
+ */
+function graphToWorkflowGraphConfig(graph: WorkflowGraph, agentSlugById: ReadonlyMap<string, string>): WorkflowGraphConfig {
+  const keyByNodeId = new Map<string, string>();
+  for (const node of graph.nodes) {
+    keyByNodeId.set(node.id, symbolicNodeKey(node, agentSlugById));
+  }
+
+  const nodes: WorkflowNodeConfig[] = graph.nodes.map((node) => {
+    const key = keyByNodeId.get(node.id) as string;
+    if (node.kind === "start") {
+      return { key, kind: "start", position: node.position };
+    }
+    if (node.kind === "terminal") {
+      return { key, kind: "terminal", action: node.terminalAction, position: node.position };
+    }
+    return { key, kind: "agent", agent: agentSlugById.get(node.agentId) as string, position: node.position };
+  });
+
+  const edges: WorkflowEdgeConfig[] = graph.edges.map((edge) => ({
+    source: keyByNodeId.get(edge.sourceNodeId) as string,
+    target: keyByNodeId.get(edge.targetNodeId) as string,
+    ...(edge.outcome ? { outcome: edge.outcome } : {}),
+  }));
+
+  return { nodes, edges };
+}
+
+/**
+ * Converts a canonical symbolic-key file graph back into a runtime graph
+ * with freshly generated node ids -- used only to reconstruct a DB
+ * Draft/Published projection from `workflow.yaml` (fresh-database
+ * recovery, roadmap Vertical Spec 5, section 14.5). Every canonical Agent
+ * slug must already be projected into `agents`.
+ */
+function workflowGraphConfigToGraph(config: WorkflowGraphConfig, agentIdBySlug: ReadonlyMap<string, string>): WorkflowGraph {
+  const idByKey = new Map<string, string>();
+  for (const node of config.nodes) {
+    idByKey.set(node.key, crypto.randomUUID());
+  }
+
+  const nodes: WorkflowGraphNode[] = config.nodes.map((node) => {
+    const id = idByKey.get(node.key) as string;
+    if (node.kind === "start") {
+      return { id, kind: "start", position: node.position };
+    }
+    if (node.kind === "terminal") {
+      return { id, kind: "terminal", terminalAction: node.action, position: node.position };
+    }
+    const agentId = agentIdBySlug.get(node.agent);
+    if (!agentId) {
+      throw new WorkflowGraphServiceError(
+        `Cannot reconstruct workflow from canonical file: Agent "${node.agent}" is not projected`,
+        409,
+      );
+    }
+    return { id, kind: "agent", agentId, position: node.position };
+  });
+
+  const edges: WorkflowGraphEdge[] = config.edges.map((edge) => ({
+    id: crypto.randomUUID(),
+    sourceNodeId: idByKey.get(edge.source) as string,
+    targetNodeId: idByKey.get(edge.target) as string,
+    outcome: edge.outcome ?? null,
+  }));
+
+  return { nodes, edges };
 }
 
 /**
@@ -573,66 +764,85 @@ export async function getOrCreateDraft(teamId: string): Promise<WorkflowDraft> {
 export async function saveDraftGraph(
   teamId: string,
   graph: WorkflowGraph,
+  configRoot: string = env.ORC_CONFIG_ROOT,
 ): Promise<{ draft: WorkflowDraft; validation: WorkflowValidationResult }> {
   assertStructurallySafeDraft(graph);
 
-  return db.transaction(async (tx) => {
-    await tx.execute(sql`LOCK TABLE ${workflowRevisions} IN SHARE ROW EXCLUSIVE MODE`);
+  const [teamRow] = await db.select().from(teams).where(eq(teams.id, teamId));
+  if (!teamRow) {
+    throw new WorkflowGraphServiceError("The selected Team does not exist", 404);
+  }
 
-    const draftRow = await getOrCreateDraftRow(tx, teamId);
+  const agentIds = graph.nodes
+    .filter((node): node is Extract<WorkflowGraphNode, { kind: "agent" }> => node.kind === "agent")
+    .map((node) => node.agentId);
+  const agentSlugById = await loadAgentSlugMap(db, agentIds);
 
-    await tx.delete(workflowEdges).where(eq(workflowEdges.revisionId, draftRow.id));
-    await tx.delete(workflowNodes).where(eq(workflowNodes.revisionId, draftRow.id));
+  // Canonical file projection only activates once the Team itself has a
+  // `team.yaml` (roadmap Vertical Spec 4) and every referenced Agent has a
+  // canonical slug -- a Team not yet migrated keeps the pre-Spec-5 DB-only
+  // Draft behavior rather than being blocked from saving.
+  let fileWrite: WrittenTeamWorkflowFile | null = null;
+  if (agentIds.every((id) => agentSlugById.has(id))) {
+    const configGraph = await loadConfigGraph(configRoot);
+    const teamResource = configGraph.teams.find((resource) => resource.data.slug === teamRow.slug);
 
-    if (graph.nodes.length) {
-      await tx.insert(workflowNodes).values(
-        graph.nodes.map((node) => ({
-          id: node.id,
-          revisionId: draftRow.id,
-          kind: node.kind,
-          agentId: node.kind === "agent" ? node.agentId : null,
-          terminalAction: node.kind === "terminal" ? node.terminalAction : null,
-          positionX: node.position.x,
-          positionY: node.position.y,
-        })),
-      );
+    if (teamResource) {
+      const draftConfig = graphToWorkflowGraphConfig(graph, agentSlugById);
+      const proposedWorkflow: WorkflowConfig = {
+        version: 1,
+        published: teamResource.workflow?.data.published ?? null,
+        draft: draftConfig,
+      };
+
+      try {
+        fileWrite = await writeTeamWorkflowFile(configRoot, teamRow.slug, proposedWorkflow, null);
+      } catch (error) {
+        translateWorkflowConfigError(error);
+      }
     }
+  }
 
-    if (graph.edges.length) {
-      await tx.insert(workflowEdges).values(
-        graph.edges.map((edge) => ({
-          id: edge.id,
-          revisionId: draftRow.id,
-          sourceNodeId: edge.sourceNodeId,
-          targetNodeId: edge.targetNodeId,
-          outcome: edge.outcome,
-        })),
-      );
+  try {
+    return await db.transaction(async (tx) => {
+      await tx.execute(sql`LOCK TABLE ${workflowRevisions} IN SHARE ROW EXCLUSIVE MODE`);
+
+      const draftRow = await getOrCreateDraftRow(tx, teamId);
+      await replaceRevisionGraph(tx, draftRow.id, graph);
+
+      await tx
+        .update(workflowRevisions)
+        .set({ updatedAt: new Date() })
+        .where(eq(workflowRevisions.id, draftRow.id));
+
+      const [updatedDraftRow] = await tx
+        .select()
+        .from(workflowRevisions)
+        .where(eq(workflowRevisions.id, draftRow.id));
+
+      const persistedGraph = await loadGraph(tx, draftRow.id);
+      const validation = validateGraph(persistedGraph, await validationContext(tx, teamId));
+
+      return {
+        draft: {
+          id: draftRow.id,
+          teamId,
+          graph: persistedGraph,
+          updatedAt: updatedDraftRow.updatedAt.toISOString(),
+        },
+        validation,
+      };
+    });
+  } catch (error) {
+    if (fileWrite) {
+      markConfigOutOfSync({
+        reason: "Workflow Draft projection sync failed after canonical file write",
+        resourceType: "workflow",
+        resourceId: teamRow.slug,
+      });
     }
-
-    await tx
-      .update(workflowRevisions)
-      .set({ updatedAt: new Date() })
-      .where(eq(workflowRevisions.id, draftRow.id));
-
-    const [updatedDraftRow] = await tx
-      .select()
-      .from(workflowRevisions)
-      .where(eq(workflowRevisions.id, draftRow.id));
-
-    const persistedGraph = await loadGraph(tx, draftRow.id);
-    const validation = validateGraph(persistedGraph, await validationContext(tx, teamId));
-
-    return {
-      draft: {
-        id: draftRow.id,
-        teamId,
-        graph: persistedGraph,
-        updatedAt: updatedDraftRow.updatedAt.toISOString(),
-      },
-      validation,
-    };
-  });
+    throw error;
+  }
 }
 
 /**
@@ -641,81 +851,175 @@ export async function saveDraftGraph(
  * edges and other warnings never block publish. The Draft row is left
  * untouched after publishing.
  */
-export async function publishDraft(teamId: string): Promise<PublishWorkflowResponse> {
-  return db.transaction(async (tx) => {
-    await tx.execute(sql`LOCK TABLE ${workflowRevisions} IN SHARE ROW EXCLUSIVE MODE`);
+export async function publishDraft(
+  teamId: string,
+  configRoot: string = env.ORC_CONFIG_ROOT,
+): Promise<PublishWorkflowResponse> {
+  const [team] = await db.select().from(teams).where(eq(teams.id, teamId));
+  if (!team) {
+    throw new WorkflowGraphServiceError("The selected Team does not exist", 404);
+  }
 
-    const [team] = await tx.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId));
-    if (!team) {
-      throw new WorkflowGraphServiceError("The selected Team does not exist", 404);
+  const [draftRow] = await db
+    .select()
+    .from(workflowRevisions)
+    .where(and(eq(workflowRevisions.teamId, teamId), eq(workflowRevisions.state, "draft")));
+  if (!draftRow) {
+    throw new WorkflowGraphServiceError("The Team has no Draft workflow to publish", 404);
+  }
+
+  const graph = await loadGraph(db, draftRow.id);
+  const validation = validateGraph(graph, await validationContext(db, teamId));
+
+  if (!validation.publishable) {
+    throw new WorkflowGraphServiceError(
+      "The Draft workflow has blocking validation errors and cannot be published",
+      400,
+      validation,
+    );
+  }
+
+  const agentIds = graph.nodes
+    .filter((node): node is Extract<WorkflowGraphNode, { kind: "agent" }> => node.kind === "agent")
+    .map((node) => node.agentId);
+  const agentSlugById = await loadAgentSlugMap(db, agentIds);
+
+  // Canonical file projection (roadmap Vertical Spec 5, section 14.4): only
+  // active once the Team has a `team.yaml` and every referenced Agent has a
+  // canonical slug. `published.version` in the file is canonical -- the DB
+  // revision version is derived from it, never the other way around.
+  let fileWrite: WrittenTeamWorkflowFile | null = null;
+  let nextVersion: number;
+
+  if (agentIds.every((id) => agentSlugById.has(id))) {
+    const configGraph = await loadConfigGraph(configRoot);
+    const teamResource = configGraph.teams.find((resource) => resource.data.slug === team.slug);
+
+    if (teamResource) {
+      const publishedConfig = graphToWorkflowGraphConfig(graph, agentSlugById);
+      nextVersion = (teamResource.workflow?.data.published?.version ?? 0) + 1;
+
+      const proposedWorkflow: WorkflowConfig = {
+        version: 1,
+        published: { version: nextVersion, graph: publishedConfig },
+        draft: teamResource.workflow?.data.draft ?? { nodes: [], edges: [] },
+      };
+
+      try {
+        fileWrite = await writeTeamWorkflowFile(configRoot, team.slug, proposedWorkflow, null);
+      } catch (error) {
+        translateWorkflowConfigError(error);
+      }
+    } else {
+      nextVersion = await nextDbPublishedVersion(teamId);
     }
+  } else {
+    nextVersion = await nextDbPublishedVersion(teamId);
+  }
 
-    const [draftRow] = await tx
-      .select()
-      .from(workflowRevisions)
-      .where(and(eq(workflowRevisions.teamId, teamId), eq(workflowRevisions.state, "draft")));
-    if (!draftRow) {
-      throw new WorkflowGraphServiceError("The Team has no Draft workflow to publish", 404);
-    }
+  try {
+    return await db.transaction(async (tx) => {
+      await tx.execute(sql`LOCK TABLE ${workflowRevisions} IN SHARE ROW EXCLUSIVE MODE`);
 
-    const graph = await loadGraph(tx, draftRow.id);
-    const validation = validateGraph(graph, await validationContext(tx, teamId));
-
-    if (!validation.publishable) {
-      throw new WorkflowGraphServiceError(
-        "The Draft workflow has blocking validation errors and cannot be published",
-        400,
-        validation,
-      );
-    }
-
-    const [{ maxVersion }] = await tx
-      .select({ maxVersion: sql<number | null>`max(${workflowRevisions.version})` })
-      .from(workflowRevisions)
-      .where(and(eq(workflowRevisions.teamId, teamId), eq(workflowRevisions.state, "published")));
-
-    const nextVersion = (maxVersion ?? 0) + 1;
-
-    const [publishedRow] = await tx
-      .insert(workflowRevisions)
-      .values({ teamId, state: "published", version: nextVersion, publishedAt: new Date() })
-      .returning();
-
-    const nodeIdMap = new Map<string, string>();
-
-    if (graph.nodes.length) {
-      const insertedNodes = await tx
-        .insert(workflowNodes)
-        .values(
-          graph.nodes.map((node) => ({
-            revisionId: publishedRow.id,
-            kind: node.kind,
-            agentId: node.kind === "agent" ? node.agentId : null,
-            terminalAction: node.kind === "terminal" ? node.terminalAction : null,
-            positionX: node.position.x,
-            positionY: node.position.y,
-          })),
-        )
+      const [publishedRow] = await tx
+        .insert(workflowRevisions)
+        .values({ teamId, state: "published", version: nextVersion, publishedAt: new Date() })
         .returning();
 
-      graph.nodes.forEach((node, index) => nodeIdMap.set(node.id, insertedNodes[index].id));
-    }
+      await insertPublishedGraph(tx, publishedRow.id, graph);
 
-    if (graph.edges.length) {
-      await tx.insert(workflowEdges).values(
-        graph.edges.map((edge) => ({
-          revisionId: publishedRow.id,
-          sourceNodeId: nodeIdMap.get(edge.sourceNodeId) as string,
-          targetNodeId: nodeIdMap.get(edge.targetNodeId) as string,
-          outcome: edge.outcome,
-        })),
-      );
+      return {
+        revision: publishedRevisionSummary(publishedRow, graph.nodes.length, graph.edges.length),
+        validation,
+      };
+    });
+  } catch (error) {
+    if (fileWrite) {
+      markConfigOutOfSync({
+        reason: "Workflow Published projection sync failed after canonical file publish",
+        resourceType: "workflow",
+        resourceId: team.slug,
+      });
     }
+    throw error;
+  }
+}
 
-    return {
-      revision: publishedRevisionSummary(publishedRow, graph.nodes.length, graph.edges.length),
-      validation,
-    };
+/** DB-only publish versioning fallback for a Team not yet migrated to canonical `workflow.yaml` authority. */
+async function nextDbPublishedVersion(teamId: string): Promise<number> {
+  const [{ maxVersion }] = await db
+    .select({ maxVersion: sql<number | null>`max(${workflowRevisions.version})` })
+    .from(workflowRevisions)
+    .where(and(eq(workflowRevisions.teamId, teamId), eq(workflowRevisions.state, "published")));
+
+  return (maxVersion ?? 0) + 1;
+}
+
+/**
+ * Reconstructs a Team's Draft and latest-canonical-Published DB projection
+ * from `workflow.yaml` when the corresponding DB rows are missing (fresh
+ * PostgreSQL recovery, roadmap Vertical Spec 5 section 14.5 / Spec 8's
+ * fresh-DB proof). A no-op when the Team has no canonical `team.yaml`/
+ * `workflow.yaml`, or when the file's `published.version` is already
+ * projected. Never deletes an extra historical Published revision the DB
+ * still holds beyond what the file represents.
+ */
+export async function reconstructTeamWorkflowProjection(
+  teamId: string,
+  configRoot: string = env.ORC_CONFIG_ROOT,
+): Promise<void> {
+  const [team] = await db.select().from(teams).where(eq(teams.id, teamId));
+  if (!team) return;
+
+  const configGraph = await loadConfigGraph(configRoot);
+  const teamResource = configGraph.teams.find((resource) => resource.data.slug === team.slug);
+  const workflow = teamResource?.workflow?.data;
+  if (!workflow) return;
+
+  const agentSlugs = new Set<string>();
+  for (const node of workflow.draft.nodes) {
+    if (node.kind === "agent") agentSlugs.add(node.agent);
+  }
+  for (const node of workflow.published?.graph.nodes ?? []) {
+    if (node.kind === "agent") agentSlugs.add(node.agent);
+  }
+  const agentIdBySlug = await loadAgentIdMap(db, [...agentSlugs]);
+
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`LOCK TABLE ${workflowRevisions} IN SHARE ROW EXCLUSIVE MODE`);
+
+    const draftRow = await getOrCreateDraftRow(tx, teamId);
+    const draftGraph = workflowGraphConfigToGraph(workflow.draft, agentIdBySlug);
+    await replaceRevisionGraph(tx, draftRow.id, draftGraph);
+    await tx.update(workflowRevisions).set({ updatedAt: new Date() }).where(eq(workflowRevisions.id, draftRow.id));
+
+    if (workflow.published) {
+      const [existingPublished] = await tx
+        .select({ id: workflowRevisions.id })
+        .from(workflowRevisions)
+        .where(
+          and(
+            eq(workflowRevisions.teamId, teamId),
+            eq(workflowRevisions.state, "published"),
+            eq(workflowRevisions.version, workflow.published.version),
+          ),
+        );
+
+      if (!existingPublished) {
+        const publishedGraph = workflowGraphConfigToGraph(workflow.published.graph, agentIdBySlug);
+        const [publishedRow] = await tx
+          .insert(workflowRevisions)
+          .values({
+            teamId,
+            state: "published",
+            version: workflow.published.version,
+            publishedAt: new Date(),
+          })
+          .returning();
+
+        await insertPublishedGraph(tx, publishedRow.id, publishedGraph);
+      }
+    }
   });
 }
 
