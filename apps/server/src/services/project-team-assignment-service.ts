@@ -121,30 +121,45 @@ export function validateProjectAutomationConfiguration(
 }
 
 /**
- * Attempts canonical `.orc/projects/<slug>.yaml` file projection (roadmap
- * Vertical Spec 6) for an assignment mutation, but only once its
- * preconditions hold: the Project path must currently be a discovered
- * filesystem repository (a Project file must never fabricate one), and the
- * assigned Team must already be file-authoritative (Spec 4). A Team or
- * Project pair that has not migrated yet keeps the pre-Spec-6 DB-only
- * assignment behavior below unchanged.
+ * Writes canonical `.orc/projects/<slug>.yaml` file projection (roadmap
+ * Vertical Spec 6/8) for an assignment mutation. The migration is complete
+ * through Spec 8: a Project assignment mutation always requires a
+ * currently discovered filesystem Project (a Project file must never
+ * fabricate one) and an already file-authoritative Team (Spec 4). Either
+ * prerequisite missing is an explicit configuration error, never a silent
+ * DB-only assignment.
  */
 async function tryWriteProjectFile(
   canonicalPath: string,
   teamSlug: string,
   automation: ProjectConfig["automation"],
   configRoot: string,
-): Promise<{ data: ProjectConfig } | null> {
+): Promise<{ data: ProjectConfig }> {
   const workspaceRoot = await resolveWorkspaceRoot(configRoot);
   const discovered = await getProjectByPath(workspaceRoot, canonicalPath);
-  if (!discovered) return null;
+  if (!discovered) {
+    throw new ProjectTeamAssignmentError(
+      "Canonical configuration is missing: this path is not a currently discovered filesystem Project under the configured workspace root. Verify the Project exists under the workspace and that .orc/orc.yaml's workspaceRoot is correct.",
+      409,
+    );
+  }
 
   const graph = await loadConfigGraph(configRoot);
   const teamResource = graph.teams.find((resource) => resource.data.slug === teamSlug);
-  if (!teamResource) return null;
+  if (!teamResource) {
+    throw new ProjectTeamAssignmentError(
+      `Canonical configuration is missing: Team "${teamSlug}" has no .orc/teams/${teamSlug}/team.yaml. Export or synchronize .orc/ configuration before assigning this Team to a Project.`,
+      409,
+    );
+  }
 
   const relativePath = path.relative(workspaceRoot, canonicalPath);
-  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) return null;
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    throw new ProjectTeamAssignmentError(
+      "This Project path is outside the configured workspace root and cannot be written to canonical configuration.",
+      409,
+    );
+  }
 
   const existingResource = graph.projects.find((resource) => {
     const resolved = path.resolve(workspaceRoot, resource.data.path);
@@ -190,7 +205,7 @@ export async function upsertProjectTeamAssignment(
 
   const automation: ProjectConfig["automation"] = { notionDataSourceId, autoModeEnabled };
 
-  let fileWrite: { data: ProjectConfig } | null;
+  let fileWrite: { data: ProjectConfig };
   try {
     fileWrite = await tryWriteProjectFile(canonicalPath, team.slug, automation, configRoot);
   } catch (error) {
@@ -198,27 +213,13 @@ export async function upsertProjectTeamAssignment(
   }
 
   try {
-    if (fileWrite) {
-      await syncProjectAssignmentProjection(fileWrite.data, canonicalPath);
-    } else {
-      await db.insert(projectTeamAssignments).values({
-        projectPath: canonicalPath,
-        teamId: input.teamId,
-        notionDataSourceId,
-        autoModeEnabled,
-      }).onConflictDoUpdate({
-        target: projectTeamAssignments.projectPath,
-        set: { teamId: input.teamId, notionDataSourceId, autoModeEnabled, updatedAt: new Date() },
-      });
-    }
+    await syncProjectAssignmentProjection(fileWrite.data, canonicalPath);
   } catch (error) {
-    if (fileWrite) {
-      markConfigOutOfSync({
-        reason: "Project assignment projection sync failed after canonical file write",
-        resourceType: "project",
-        resourceId: fileWrite.data.slug,
-      });
-    }
+    markConfigOutOfSync({
+      reason: "Project assignment projection sync failed after canonical file write",
+      resourceType: "project",
+      resourceId: fileWrite.data.slug,
+    });
     if (typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "23505") {
       throw new ProjectTeamAssignmentError("That Notion data source is already assigned to another Project", 409);
     }

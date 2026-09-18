@@ -24,7 +24,7 @@ import {
   type WrittenTeamWorkflowFile,
 } from "../config/config-mutation-service.js";
 import { markConfigOutOfSync } from "../config/health-state.js";
-import { loadConfigGraph } from "../config/loader.js";
+import { loadConfigGraph, type TeamResource } from "../config/loader.js";
 import type { WorkflowConfig, WorkflowEdgeConfig, WorkflowGraphConfig, WorkflowNodeConfig } from "../config/schemas.js";
 import { db } from "../db/client.js";
 import { agents, teams, workflowEdges, workflowNodes, workflowRevisions } from "../db/schema.js";
@@ -745,6 +745,75 @@ async function validationContext(tx: Tx, teamId: string): Promise<WorkflowGraphV
   };
 }
 
+/**
+ * Requires canonical file authority for a workflow mutation (roadmap
+ * Vertical Spec 5/8): the owning Team must already have `team.yaml` (Spec
+ * 4) and every referenced Agent id must resolve to a canonical
+ * `agent.yaml` slug (Spec 2), not merely a DB `agents.slug` value. Either
+ * prerequisite missing is an explicit configuration/migration error -- the
+ * migration is complete through Spec 8, so there is no DB-only fallback
+ * left for a Team/Agent pair that has not migrated.
+ */
+async function requireCanonicalTeamResource(
+  teamSlug: string,
+  agentIds: readonly string[],
+  agentSlugById: ReadonlyMap<string, string>,
+  configRoot: string,
+): Promise<TeamResource> {
+  const missingSlugAgentId = agentIds.find((id) => !agentSlugById.has(id));
+  if (missingSlugAgentId) {
+    throw new WorkflowGraphServiceError(
+      `Cannot save workflow: Agent ${missingSlugAgentId} has no canonical slug`,
+      409,
+    );
+  }
+
+  const configGraph = await loadConfigGraph(configRoot);
+  const teamResource = configGraph.teams.find((resource) => resource.data.slug === teamSlug);
+  if (!teamResource) {
+    throw new WorkflowGraphServiceError(
+      `Canonical configuration is missing: Team "${teamSlug}" has no .orc/teams/${teamSlug}/team.yaml. Export or synchronize .orc/ configuration before saving this workflow.`,
+      409,
+    );
+  }
+
+  const canonicalAgentSlugs = new Set(configGraph.agents.map((resource) => resource.data.slug));
+  for (const slug of new Set(agentSlugById.values())) {
+    if (!canonicalAgentSlugs.has(slug)) {
+      throw new WorkflowGraphServiceError(
+        `Canonical configuration is missing: Agent "${slug}" has no .orc/agents/${slug}/agent.yaml. Export or synchronize .orc/ configuration before saving this workflow.`,
+        409,
+      );
+    }
+  }
+
+  return teamResource;
+}
+
+/** Validates canonical prerequisites, then writes the proposed canonical Draft (published state carried over unchanged). */
+async function writeCanonicalDraft(
+  teamSlug: string,
+  graph: WorkflowGraph,
+  agentIds: readonly string[],
+  agentSlugById: ReadonlyMap<string, string>,
+  configRoot: string,
+): Promise<WrittenTeamWorkflowFile> {
+  const teamResource = await requireCanonicalTeamResource(teamSlug, agentIds, agentSlugById, configRoot);
+
+  const draftConfig = graphToWorkflowGraphConfig(graph, agentSlugById);
+  const proposedWorkflow: WorkflowConfig = {
+    version: 1,
+    published: teamResource.workflow?.data.published ?? null,
+    draft: draftConfig,
+  };
+
+  try {
+    return await writeTeamWorkflowFile(configRoot, teamSlug, proposedWorkflow, null);
+  } catch (error) {
+    translateWorkflowConfigError(error);
+  }
+}
+
 /** Returns the Team's Draft workflow, creating an empty seeded one if none exists yet. */
 export async function getOrCreateDraft(teamId: string): Promise<WorkflowDraft> {
   return db.transaction(async (tx) => {
@@ -778,30 +847,12 @@ export async function saveDraftGraph(
     .map((node) => node.agentId);
   const agentSlugById = await loadAgentSlugMap(db, agentIds);
 
-  // Canonical file projection only activates once the Team itself has a
-  // `team.yaml` (roadmap Vertical Spec 4) and every referenced Agent has a
-  // canonical slug -- a Team not yet migrated keeps the pre-Spec-5 DB-only
-  // Draft behavior rather than being blocked from saving.
-  let fileWrite: WrittenTeamWorkflowFile | null = null;
-  if (agentIds.every((id) => agentSlugById.has(id))) {
-    const configGraph = await loadConfigGraph(configRoot);
-    const teamResource = configGraph.teams.find((resource) => resource.data.slug === teamRow.slug);
-
-    if (teamResource) {
-      const draftConfig = graphToWorkflowGraphConfig(graph, agentSlugById);
-      const proposedWorkflow: WorkflowConfig = {
-        version: 1,
-        published: teamResource.workflow?.data.published ?? null,
-        draft: draftConfig,
-      };
-
-      try {
-        fileWrite = await writeTeamWorkflowFile(configRoot, teamRow.slug, proposedWorkflow, null);
-      } catch (error) {
-        translateWorkflowConfigError(error);
-      }
-    }
-  }
+  // The migration is complete through Spec 8: saving a Draft always
+  // requires canonical file authority. Both the owning Team (`team.yaml`,
+  // Spec 4) and every referenced Agent (`agent.yaml`, Spec 2) must already
+  // be file-authoritative -- a Team/Agent that has not migrated yet is an
+  // explicit configuration error, never a silent DB-only Draft write.
+  await writeCanonicalDraft(teamRow.slug, graph, agentIds, agentSlugById, configRoot);
 
   try {
     return await db.transaction(async (tx) => {
@@ -834,13 +885,11 @@ export async function saveDraftGraph(
       };
     });
   } catch (error) {
-    if (fileWrite) {
-      markConfigOutOfSync({
-        reason: "Workflow Draft projection sync failed after canonical file write",
-        resourceType: "workflow",
-        resourceId: teamRow.slug,
-      });
-    }
+    markConfigOutOfSync({
+      reason: "Workflow Draft projection sync failed after canonical file write",
+      resourceType: "workflow",
+      resourceId: teamRow.slug,
+    });
     throw error;
   }
 }
@@ -884,37 +933,26 @@ export async function publishDraft(
     .map((node) => node.agentId);
   const agentSlugById = await loadAgentSlugMap(db, agentIds);
 
-  // Canonical file projection (roadmap Vertical Spec 5, section 14.4): only
-  // active once the Team has a `team.yaml` and every referenced Agent has a
-  // canonical slug. `published.version` in the file is canonical -- the DB
-  // revision version is derived from it, never the other way around.
-  let fileWrite: WrittenTeamWorkflowFile | null = null;
-  let nextVersion: number;
+  // The migration is complete through Spec 8: publishing always requires
+  // canonical file authority (Team `team.yaml` + every referenced Agent's
+  // `agent.yaml`). `published.version` in the file is canonical -- the DB
+  // revision version is derived from it, never the other way around, and
+  // there is no DB-only versioning fallback left for a Team that has not
+  // migrated.
+  const teamResource = await requireCanonicalTeamResource(team.slug, agentIds, agentSlugById, configRoot);
+  const publishedConfig = graphToWorkflowGraphConfig(graph, agentSlugById);
+  const nextVersion = (teamResource.workflow?.data.published?.version ?? 0) + 1;
 
-  if (agentIds.every((id) => agentSlugById.has(id))) {
-    const configGraph = await loadConfigGraph(configRoot);
-    const teamResource = configGraph.teams.find((resource) => resource.data.slug === team.slug);
+  const proposedWorkflow: WorkflowConfig = {
+    version: 1,
+    published: { version: nextVersion, graph: publishedConfig },
+    draft: teamResource.workflow?.data.draft ?? { nodes: [], edges: [] },
+  };
 
-    if (teamResource) {
-      const publishedConfig = graphToWorkflowGraphConfig(graph, agentSlugById);
-      nextVersion = (teamResource.workflow?.data.published?.version ?? 0) + 1;
-
-      const proposedWorkflow: WorkflowConfig = {
-        version: 1,
-        published: { version: nextVersion, graph: publishedConfig },
-        draft: teamResource.workflow?.data.draft ?? { nodes: [], edges: [] },
-      };
-
-      try {
-        fileWrite = await writeTeamWorkflowFile(configRoot, team.slug, proposedWorkflow, null);
-      } catch (error) {
-        translateWorkflowConfigError(error);
-      }
-    } else {
-      nextVersion = await nextDbPublishedVersion(teamId);
-    }
-  } else {
-    nextVersion = await nextDbPublishedVersion(teamId);
+  try {
+    await writeTeamWorkflowFile(configRoot, team.slug, proposedWorkflow, null);
+  } catch (error) {
+    translateWorkflowConfigError(error);
   }
 
   try {
@@ -934,25 +972,13 @@ export async function publishDraft(
       };
     });
   } catch (error) {
-    if (fileWrite) {
-      markConfigOutOfSync({
-        reason: "Workflow Published projection sync failed after canonical file publish",
-        resourceType: "workflow",
-        resourceId: team.slug,
-      });
-    }
+    markConfigOutOfSync({
+      reason: "Workflow Published projection sync failed after canonical file publish",
+      resourceType: "workflow",
+      resourceId: team.slug,
+    });
     throw error;
   }
-}
-
-/** DB-only publish versioning fallback for a Team not yet migrated to canonical `workflow.yaml` authority. */
-async function nextDbPublishedVersion(teamId: string): Promise<number> {
-  const [{ maxVersion }] = await db
-    .select({ maxVersion: sql<number | null>`max(${workflowRevisions.version})` })
-    .from(workflowRevisions)
-    .where(and(eq(workflowRevisions.teamId, teamId), eq(workflowRevisions.state, "published")));
-
-  return (maxVersion ?? 0) + 1;
 }
 
 /**

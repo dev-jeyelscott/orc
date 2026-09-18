@@ -104,18 +104,41 @@ describe("Project assignment canonical file projection (Vertical Spec 6)", () =>
     expect(assignment?.teamId).toBe(teamB.id);
   });
 
-  it("never fabricates a Project for an undiscovered path -- falls back to DB-only assignment", async () => {
+  it("never fabricates a Project for an undiscovered path -- rejects the mutation with an explicit configuration error", async () => {
     const { configRoot, workspaceRoot } = await makeConfigRoot();
     const team = await createTestTeam(configRoot, "undiscovered");
     const undiscoveredPath = path.join(workspaceRoot, "not-a-real-project");
 
-    const assignment = await upsertProjectTeamAssignment(
-      undiscoveredPath,
-      { teamId: team.id, notionDataSourceId: null, autoModeEnabled: false },
-      configRoot,
-    );
+    await expect(
+      upsertProjectTeamAssignment(
+        undiscoveredPath,
+        { teamId: team.id, notionDataSourceId: null, autoModeEnabled: false },
+        configRoot,
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
 
-    expect(assignment.teamId).toBe(team.id);
+    const graph = await loadConfigGraph(configRoot);
+    expect(graph.projects).toHaveLength(0);
+
+    const [row] = await db.select().from(projectTeamAssignments).where(eq(projectTeamAssignments.projectPath, path.resolve(undiscoveredPath)));
+    expect(row).toBeUndefined();
+  });
+
+  it("rejects the mutation when the selected Team has no canonical team.yaml", async () => {
+    const { configRoot, projectPath } = await makeConfigRoot();
+    const [dbOnlyTeam] = await db
+      .insert(teams)
+      .values({ slug: `project-assignment-cfg-db-only-${crypto.randomUUID()}`, name: "DB-only Team", description: "", enabled: true })
+      .returning();
+    createdTeamIds.add(dbOnlyTeam.id);
+
+    await expect(
+      upsertProjectTeamAssignment(
+        projectPath,
+        { teamId: dbOnlyTeam.id, notionDataSourceId: null, autoModeEnabled: false },
+        configRoot,
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
 
     const graph = await loadConfigGraph(configRoot);
     expect(graph.projects).toHaveLength(0);

@@ -1,3 +1,7 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -5,6 +9,10 @@ import type { WorkflowGraph } from "@orc/shared";
 
 import { db } from "../db/client.js";
 import { agents, departments, teamMembers, teams, workflowEdges, workflowNodes, workflowRevisions } from "../db/schema.js";
+import { createAgent } from "./agent-service.js";
+import { createDepartment } from "./department-service.js";
+import { replaceTeamMembers } from "./team-membership.js";
+import { createTeam } from "./team-service.js";
 import {
   WorkflowGraphServiceError,
   getOrCreateDraft,
@@ -18,11 +26,24 @@ import {
 const createdAgentIds = new Set<string>();
 const createdDepartmentIds = new Set<string>();
 const createdTeamIds = new Set<string>();
+const createdRoots: string[] = [];
 
-async function createTestDepartment(label: string, enabled = true) {
-  const [department] = await db
-    .insert(departments)
-    .values({
+/**
+ * Every fixture below is created through the file-authoritative services
+ * (roadmap Spec 2/4) against a private per-test `.orc/` root, since Spec 8
+ * removed workflow-graph-service's DB-only Draft/Publish fallback for a
+ * Team/Agent that has not migrated. `configRoot` must be threaded into every
+ * `saveDraftGraph`/`publishDraft` call in this file.
+ */
+async function makeConfigRoot(): Promise<string> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "orc-workflow-graph-test-"));
+  createdRoots.push(root);
+  return root;
+}
+
+async function createTestDepartment(configRoot: string, label: string, enabled = true) {
+  const department = await createDepartment(
+    {
       slug: `workflow-graph-${label}-${crypto.randomUUID()}`,
       name: `${label} Department`,
       role: `${label} Role`,
@@ -31,37 +52,39 @@ async function createTestDepartment(label: string, enabled = true) {
       defaultReasoning: "high",
       systemPrompt: `Act as ${label}.`,
       enabled,
-    })
-    .returning();
+    },
+    configRoot,
+  );
   createdDepartmentIds.add(department.id);
   return department;
 }
 
-async function createTestAgent(departmentId: string, label: string, enabled = true) {
-  const [agent] = await db
-    .insert(agents)
-    .values({
+async function createTestAgent(configRoot: string, departmentId: string, label: string, enabled = true) {
+  const agent = await createAgent(
+    {
       departmentId,
       slug: `workflow-graph-agent-${label}-${crypto.randomUUID()}`,
       name: `${label} Agent`,
       enabled,
-    })
-    .returning();
+      additionalPrompt: "",
+    },
+    configRoot,
+  );
   createdAgentIds.add(agent.id);
   return agent;
 }
 
-async function createTestTeam(label: string) {
-  const [team] = await db
-    .insert(teams)
-    .values({ slug: `workflow-graph-team-${label}-${crypto.randomUUID()}`, name: `${label} Team` })
-    .returning();
+async function createTestTeam(configRoot: string, label: string) {
+  const team = await createTeam(
+    { slug: `workflow-graph-team-${label}-${crypto.randomUUID()}`, name: `${label} Team`, description: "", enabled: true },
+    configRoot,
+  );
   createdTeamIds.add(team.id);
   return team;
 }
 
-async function addTeamMember(teamId: string, departmentId: string, agentId: string, layer: number) {
-  await db.insert(teamMembers).values({ teamId, departmentId, agentId, layer, executionOrder: 1 });
+async function addTeamMember(configRoot: string, teamId: string, agentId: string) {
+  await replaceTeamMembers(teamId, [agentId], null, configRoot);
 }
 
 afterEach(async () => {
@@ -87,11 +110,16 @@ afterEach(async () => {
   createdTeamIds.clear();
   createdAgentIds.clear();
   createdDepartmentIds.clear();
+
+  for (const root of createdRoots.splice(0)) {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
 
 describe("getOrCreateDraft", () => {
   it("seeds a fresh Draft with Start and the three terminal nodes", async () => {
-    const team = await createTestTeam("seed");
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "seed");
     const draft = await getOrCreateDraft(team.id);
 
     expect(draft.graph.nodes).toHaveLength(4);
@@ -101,7 +129,8 @@ describe("getOrCreateDraft", () => {
   });
 
   it("returns the same Draft on repeated calls", async () => {
-    const team = await createTestTeam("idempotent");
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "idempotent");
     const first = await getOrCreateDraft(team.id);
     const second = await getOrCreateDraft(team.id);
 
@@ -115,10 +144,11 @@ describe("getOrCreateDraft", () => {
 
 describe("saveDraftGraph", () => {
   it("saves an incomplete Draft (missing Start edge, disconnected Agent) without error", async () => {
-    const team = await createTestTeam("incomplete");
-    const department = await createTestDepartment("incomplete");
-    const agent = await createTestAgent(department.id, "incomplete");
-    await addTeamMember(team.id, department.id, agent.id, 1);
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "incomplete");
+    const department = await createTestDepartment(configRoot, "incomplete");
+    const agent = await createTestAgent(configRoot, department.id, "incomplete");
+    await addTeamMember(configRoot, team.id, agent.id);
 
     const draft = await getOrCreateDraft(team.id);
     const startNode = draft.graph.nodes.find((node) => node.kind === "start")!;
@@ -128,7 +158,7 @@ describe("saveDraftGraph", () => {
       edges: [],
     };
 
-    const result = await saveDraftGraph(team.id, graph);
+    const result = await saveDraftGraph(team.id, graph, configRoot);
 
     expect(result.draft.graph.nodes).toHaveLength(5);
     expect(result.validation.publishable).toBe(false);
@@ -137,7 +167,8 @@ describe("saveDraftGraph", () => {
   });
 
   it("rejects a duplicate node id in the same request", async () => {
-    const team = await createTestTeam("dup-node");
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "dup-node");
     const draft = await getOrCreateDraft(team.id);
     const [firstNode] = draft.graph.nodes;
 
@@ -145,12 +176,13 @@ describe("saveDraftGraph", () => {
       saveDraftGraph(team.id, {
         nodes: [firstNode, firstNode],
         edges: [],
-      }),
+      }, configRoot),
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it("rejects an edge referencing a node absent from the request", async () => {
-    const team = await createTestTeam("dangling-edge");
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "dangling-edge");
     const draft = await getOrCreateDraft(team.id);
     const startNode = draft.graph.nodes.find((node) => node.kind === "start")!;
 
@@ -158,8 +190,21 @@ describe("saveDraftGraph", () => {
       saveDraftGraph(team.id, {
         nodes: [startNode],
         edges: [{ id: crypto.randomUUID(), sourceNodeId: startNode.id, targetNodeId: crypto.randomUUID(), outcome: null }],
-      }),
+      }, configRoot),
     ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("rejects saving a Draft for a Team that has no canonical team.yaml", async () => {
+    const configRoot = await makeConfigRoot();
+    const [dbOnlyTeam] = await db
+      .insert(teams)
+      .values({ slug: `workflow-graph-db-only-${crypto.randomUUID()}`, name: "DB-only Team" })
+      .returning();
+    createdTeamIds.add(dbOnlyTeam.id);
+
+    const draft = await getOrCreateDraft(dbOnlyTeam.id);
+
+    await expect(saveDraftGraph(dbOnlyTeam.id, draft.graph, configRoot)).rejects.toMatchObject({ statusCode: 409 });
   });
 });
 
@@ -194,33 +239,35 @@ describe("publishDraft", () => {
   }
 
   it("publishes a valid Draft as version 1 and increments on republish", async () => {
-    const team = await createTestTeam("publish");
-    const department = await createTestDepartment("publish");
-    const agent = await createTestAgent(department.id, "publish");
-    await addTeamMember(team.id, department.id, agent.id, 1);
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "publish");
+    const department = await createTestDepartment(configRoot, "publish");
+    const agent = await createTestAgent(configRoot, department.id, "publish");
+    await addTeamMember(configRoot, team.id, agent.id);
 
     const graph = await buildLinearGraph(team.id, [agent.id]);
-    await saveDraftGraph(team.id, graph);
+    await saveDraftGraph(team.id, graph, configRoot);
 
-    const first = await publishDraft(team.id);
+    const first = await publishDraft(team.id, configRoot);
     expect(first.revision.version).toBe(1);
     expect(first.validation.publishable).toBe(true);
 
-    const second = await publishDraft(team.id);
+    const second = await publishDraft(team.id, configRoot);
     expect(second.revision.version).toBe(2);
   });
 
   it("blocks publish when an enabled Team Agent is missing from the graph", async () => {
-    const team = await createTestTeam("missing-agent");
-    const department = await createTestDepartment("missing-agent");
-    await createTestAgent(department.id, "missing-agent");
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "missing-agent");
+    const department = await createTestDepartment(configRoot, "missing-agent");
+    await createTestAgent(configRoot, department.id, "missing-agent");
     // No graph edits: Draft only has system nodes, but Team has an executable Agent.
-    const agent2 = await createTestAgent(department.id, "missing-agent-2");
-    await addTeamMember(team.id, department.id, agent2.id, 1);
+    const agent2 = await createTestAgent(configRoot, department.id, "missing-agent-2");
+    await addTeamMember(configRoot, team.id, agent2.id);
 
     await getOrCreateDraft(team.id);
 
-    await expect(publishDraft(team.id)).rejects.toMatchObject({
+    await expect(publishDraft(team.id, configRoot)).rejects.toMatchObject({
       statusCode: 400,
       validation: expect.objectContaining({
         errors: expect.arrayContaining([expect.objectContaining({ code: "missing_team_agent_node" })]),
@@ -229,10 +276,11 @@ describe("publishDraft", () => {
   });
 
   it("rejects a Draft save that would place the same Agent in two nodes", async () => {
-    const team = await createTestTeam("dup-agent");
-    const department = await createTestDepartment("dup-agent");
-    const agent = await createTestAgent(department.id, "dup-agent");
-    await addTeamMember(team.id, department.id, agent.id, 1);
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "dup-agent");
+    const department = await createTestDepartment(configRoot, "dup-agent");
+    const agent = await createTestAgent(configRoot, department.id, "dup-agent");
+    await addTeamMember(configRoot, team.id, agent.id);
 
     const draft = await getOrCreateDraft(team.id);
     const start = draft.graph.nodes.find((node) => node.kind === "start")!;
@@ -243,17 +291,18 @@ describe("publishDraft", () => {
       saveDraftGraph(team.id, {
         nodes: [...draft.graph.nodes, nodeA, nodeB],
         edges: [{ id: crypto.randomUUID(), sourceNodeId: start.id, targetNodeId: nodeA.id, outcome: null }],
-      }),
+      }, configRoot),
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it("blocks publish for an unreachable Agent", async () => {
-    const team = await createTestTeam("unreachable");
-    const department = await createTestDepartment("unreachable");
-    const agentA = await createTestAgent(department.id, "unreachable-a");
-    const departmentB = await createTestDepartment("unreachable-b");
-    const agentB = await createTestAgent(departmentB.id, "unreachable-b");
-    await addTeamMember(team.id, department.id, agentA.id, 1);
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "unreachable");
+    const department = await createTestDepartment(configRoot, "unreachable");
+    const agentA = await createTestAgent(configRoot, department.id, "unreachable-a");
+    const departmentB = await createTestDepartment(configRoot, "unreachable-b");
+    const agentB = await createTestAgent(configRoot, departmentB.id, "unreachable-b");
+    await addTeamMember(configRoot, team.id, agentA.id);
 
     const draft = await getOrCreateDraft(team.id);
     const start = draft.graph.nodes.find((node) => node.kind === "start")!;
@@ -270,7 +319,7 @@ describe("publishDraft", () => {
         { id: crypto.randomUUID(), sourceNodeId: start.id, targetNodeId: nodeA.id, outcome: null },
         { id: crypto.randomUUID(), sourceNodeId: nodeA.id, targetNodeId: completeRun.id, outcome: "completed" },
       ],
-    });
+    }, configRoot);
 
     // nodeB (agentB) has no route in and is not a Team member either -- assert
     // the unreachable code specifically by making it a member but disconnected.
@@ -280,10 +329,11 @@ describe("publishDraft", () => {
   });
 
   it("allows publish with only warnings for missing outcome edges and self-loops", async () => {
-    const team = await createTestTeam("warnings-only");
-    const department = await createTestDepartment("warnings-only");
-    const agent = await createTestAgent(department.id, "warnings-only");
-    await addTeamMember(team.id, department.id, agent.id, 1);
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "warnings-only");
+    const department = await createTestDepartment(configRoot, "warnings-only");
+    const agent = await createTestAgent(configRoot, department.id, "warnings-only");
+    await addTeamMember(configRoot, team.id, agent.id);
 
     const draft = await getOrCreateDraft(team.id);
     const start = draft.graph.nodes.find((node) => node.kind === "start")!;
@@ -299,9 +349,9 @@ describe("publishDraft", () => {
         { id: crypto.randomUUID(), sourceNodeId: node.id, targetNodeId: completeRun.id, outcome: "completed" },
         { id: crypto.randomUUID(), sourceNodeId: node.id, targetNodeId: node.id, outcome: "changes_requested" },
       ],
-    });
+    }, configRoot);
 
-    const result = await publishDraft(team.id);
+    const result = await publishDraft(team.id, configRoot);
     expect(result.validation.publishable).toBe(true);
     expect(result.validation.warnings.some((issue) => issue.code === "missing_outcome_edge")).toBe(true);
     expect(result.validation.warnings.some((issue) => issue.message.includes("routes an outcome back to itself"))).toBe(
@@ -310,18 +360,19 @@ describe("publishDraft", () => {
   });
 
   it("keeps a Published revision immutable across later publishes", async () => {
-    const team = await createTestTeam("immutable");
-    const department = await createTestDepartment("immutable");
-    const agent = await createTestAgent(department.id, "immutable");
-    await addTeamMember(team.id, department.id, agent.id, 1);
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "immutable");
+    const department = await createTestDepartment(configRoot, "immutable");
+    const agent = await createTestAgent(configRoot, department.id, "immutable");
+    await addTeamMember(configRoot, team.id, agent.id);
 
     const graph = await buildLinearGraph(team.id, [agent.id]);
-    await saveDraftGraph(team.id, graph);
-    const first = await publishDraft(team.id);
+    await saveDraftGraph(team.id, graph, configRoot);
+    const first = await publishDraft(team.id, configRoot);
 
     // Republish the same unchanged Draft; the first Published revision must
     // remain byte-for-byte the same regardless of later publish activity.
-    await publishDraft(team.id);
+    await publishDraft(team.id, configRoot);
 
     const revision = await getPublishedRevision(team.id, first.revision.id);
     expect(revision?.version).toBe(1);
@@ -330,6 +381,19 @@ describe("publishDraft", () => {
 
   it("throws 404 for publishing a Team with no Draft workflow row somehow removed", async () => {
     await expect(publishDraft(crypto.randomUUID())).rejects.toBeInstanceOf(WorkflowGraphServiceError);
+  });
+
+  it("rejects publishing for a Team that has no canonical team.yaml", async () => {
+    const configRoot = await makeConfigRoot();
+    const [dbOnlyTeam] = await db
+      .insert(teams)
+      .values({ slug: `workflow-graph-publish-db-only-${crypto.randomUUID()}`, name: "DB-only Team" })
+      .returning();
+    createdTeamIds.add(dbOnlyTeam.id);
+
+    await getOrCreateDraft(dbOnlyTeam.id);
+
+    await expect(publishDraft(dbOnlyTeam.id, configRoot)).rejects.toMatchObject({ statusCode: 409 });
   });
 });
 

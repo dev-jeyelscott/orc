@@ -32,6 +32,26 @@ Treat this table as the project baseline, not proof that every item is already i
 - Claude and Codex must stay behind generic harness/runtime interfaces. Provider-specific process logic belongs in harness adapters.
 - Workers operate directly on the selected real repository. Do not introduce worktrees or repository copies unless scope explicitly changes.
 - `.orc/` (under the application repository, e.g. `~/orc/app/.orc`) is the durable, Git-backed authority for operator-managed configuration: Departments, Agents, Skills and their Agent assignments, Teams and membership, Team workflow Draft/Published state, and Project-to-Team assignment plus static Notion/Auto Mode automation config. PostgreSQL projects that configuration for runtime use and remains the sole authority for everything else: Tasks, Runs, Agent Executions, Conversations, domain events, terminal history, and Run workflow snapshots. Project *existence* stays filesystem-backed (direct child `.git` discovery under the configured workspace root), enriched but never created by a Project file. See `apps/server/src/config/` for the config kernel/loader/mutation/sync services backing this.
+- **`.orc/` durability is a *separate* private Git repository, not a tracked path of this (public) application repository.** `~/orc/app/.gitignore` deliberately ignores `.orc/` so operator configuration — which may name internal Departments/Agents/Teams/Projects — never lands in the public `dev-jeyelscott/orc` history. "Git-backed" above means `~/orc/app/.orc` is expected to be its own independently initialized Git repository (`~/orc/app/.orc/.git`), giving the operator independent versioning, backup, clone, and rollback for configuration without exposing it in the application repo. See "`.orc/` Operator Git Setup" below for the exact one-time commands. The dashboard/API never runs `git init`, `git add`, `git commit`, `git remote add`, `git push`, or any GitHub API call against `.orc/` — every canonical mutation is a plain file write (atomic write + rename) through the config kernel; committing and pushing `.orc/` history is always an explicit operator action taken outside ORC. API keys, database credentials, Notion API keys, and other secrets never belong in `.orc/` regardless of which repository (if any) currently contains it.
+
+### `.orc/` Operator Git Setup (Ubuntu/WSL)
+
+Run once, locally, the first time `~/orc/app/.orc` needs its own durable history. ORC never runs these commands for you.
+
+```bash
+cd ~/orc/app/.orc
+git init
+git add -A
+git commit -m "chore: initial .orc configuration snapshot"
+
+# Add your own private remote (GitHub/GitLab/self-hosted, must be private —
+# .orc/ is operator configuration, not public source). Replace the URL below
+# with your actual private remote; ORC never invents or stores this for you.
+git remote add origin <your-private-remote-url>
+git push -u origin main
+```
+
+After the initial commit, treat `.orc/` as an ordinary Git working tree: `git status`/`git diff`/`git add`/`git commit`/`git push` inside `~/orc/app/.orc` whenever you want to snapshot or back up a configuration change the dashboard or a manual edit just made. Nothing in ORC depends on `.orc/` being committed or pushed at any particular time — an uncommitted `.orc/` still works, it just isn't backed up yet.
 - Raw terminal history and domain/business events are separate concepts. Do not use terminal text as workflow state.
 - Agent handoffs should use validated structured results rather than natural-language terminal scraping.
 - The orchestrator supervises system capabilities and must read actual runtime state before reporting progress.

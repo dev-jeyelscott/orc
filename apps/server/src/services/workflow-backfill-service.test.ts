@@ -1,3 +1,7 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -12,6 +16,9 @@ import {
   workflowNodes,
   workflowRevisions,
 } from "../db/schema.js";
+import { createAgent } from "./agent-service.js";
+import { createDepartment } from "./department-service.js";
+import { createTeam } from "./team-service.js";
 import { getPublishedRevision } from "./workflow-graph-service.js";
 import { backfillTeamWorkflow } from "./workflow-backfill-service.js";
 
@@ -19,11 +26,28 @@ const createdAgentIds = new Set<string>();
 const createdDepartmentIds = new Set<string>();
 const createdTeamIds = new Set<string>();
 const createdMemberIds = new Set<string>();
+const createdRoots: string[] = [];
 
-async function createTestDepartment(label: string, enabled = true) {
-  const [department] = await db
-    .insert(departments)
-    .values({
+/**
+ * `backfillTeamWorkflow` now requires canonical file authority (the owning
+ * Team's `team.yaml` + every referenced Agent's `agent.yaml`) before it can
+ * save/publish the converted graph, so Team/Department/Agent *identity* is
+ * created through the file-authoritative services against a private
+ * per-test `.orc/` root. Team membership + `team_member_routes` stay
+ * inserted directly (as before): that's the legacy layer/order/routing data
+ * this backfill reads FROM, not canonical config, and `team.yaml`'s
+ * `members` list plays no part in `backfillTeamWorkflow`'s precondition
+ * check or its DB-driven conversion logic.
+ */
+async function makeConfigRoot(): Promise<string> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "orc-workflow-backfill-test-"));
+  createdRoots.push(root);
+  return root;
+}
+
+async function createTestDepartment(configRoot: string, label: string, enabled = true) {
+  const department = await createDepartment(
+    {
       slug: `backfill-${label}-${crypto.randomUUID()}`,
       name: `${label} Department`,
       role: `${label} Role`,
@@ -32,26 +56,33 @@ async function createTestDepartment(label: string, enabled = true) {
       defaultReasoning: "high",
       systemPrompt: `Act as ${label}.`,
       enabled,
-    })
-    .returning();
+    },
+    configRoot,
+  );
   createdDepartmentIds.add(department.id);
   return department;
 }
 
-async function createTestAgent(departmentId: string, label: string, enabled = true) {
-  const [agent] = await db
-    .insert(agents)
-    .values({ departmentId, slug: `backfill-agent-${label}-${crypto.randomUUID()}`, name: `${label} Agent`, enabled })
-    .returning();
+async function createTestAgent(configRoot: string, departmentId: string, label: string, enabled = true) {
+  const agent = await createAgent(
+    {
+      departmentId,
+      slug: `backfill-agent-${label}-${crypto.randomUUID()}`,
+      name: `${label} Agent`,
+      enabled,
+      additionalPrompt: "",
+    },
+    configRoot,
+  );
   createdAgentIds.add(agent.id);
   return agent;
 }
 
-async function createTestTeam(label: string) {
-  const [team] = await db
-    .insert(teams)
-    .values({ slug: `backfill-team-${label}-${crypto.randomUUID()}`, name: `${label} Team` })
-    .returning();
+async function createTestTeam(configRoot: string, label: string) {
+  const team = await createTeam(
+    { slug: `backfill-team-${label}-${crypto.randomUUID()}`, name: `${label} Team`, description: "", enabled: true },
+    configRoot,
+  );
   createdTeamIds.add(team.id);
   return team;
 }
@@ -113,22 +144,28 @@ afterEach(async () => {
   createdTeamIds.clear();
   createdAgentIds.clear();
   createdDepartmentIds.clear();
+
+  for (const root of createdRoots.splice(0)) {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
 
 describe("backfillTeamWorkflow", () => {
   it("skips a Team with no executable Agents", async () => {
-    const team = await createTestTeam("empty");
-    const result = await backfillTeamWorkflow(team.id);
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "empty");
+    const result = await backfillTeamWorkflow(team.id, configRoot);
     expect(result).toEqual({ teamId: team.id, status: "skipped_no_agents" });
   });
 
   it("converts a single-Agent Team: Start -> Agent -> Complete Run", async () => {
-    const team = await createTestTeam("single");
-    const department = await createTestDepartment("single");
-    const agent = await createTestAgent(department.id, "single");
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "single");
+    const department = await createTestDepartment(configRoot, "single");
+    const agent = await createTestAgent(configRoot, department.id, "single");
     await addMember(team.id, department.id, agent.id, 1);
 
-    const result = await backfillTeamWorkflow(team.id);
+    const result = await backfillTeamWorkflow(team.id, configRoot);
     expect(result.status).toBe("converted");
     if (result.status !== "converted") return;
 
@@ -145,15 +182,16 @@ describe("backfillTeamWorkflow", () => {
   });
 
   it("converts a multi-layer Team, materializing default completed progression in order", async () => {
-    const team = await createTestTeam("multi-layer");
-    const department = await createTestDepartment("multi-layer");
-    const agentA = await createTestAgent(department.id, "multi-layer-a");
-    const departmentB = await createTestDepartment("multi-layer-b");
-    const agentB = await createTestAgent(departmentB.id, "multi-layer-b");
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "multi-layer");
+    const department = await createTestDepartment(configRoot, "multi-layer");
+    const agentA = await createTestAgent(configRoot, department.id, "multi-layer-a");
+    const departmentB = await createTestDepartment(configRoot, "multi-layer-b");
+    const agentB = await createTestAgent(configRoot, departmentB.id, "multi-layer-b");
     await addMember(team.id, department.id, agentA.id, 1);
     await addMember(team.id, departmentB.id, agentB.id, 2);
 
-    const result = await backfillTeamWorkflow(team.id);
+    const result = await backfillTeamWorkflow(team.id, configRoot);
     expect(result.status).toBe("converted");
 
     const publishedRow = await getPublishedRevisionRow(team.id);
@@ -165,13 +203,14 @@ describe("backfillTeamWorkflow", () => {
   });
 
   it("respects an explicit completed override over default next-Agent progression", async () => {
-    const team = await createTestTeam("explicit-override");
-    const departmentA = await createTestDepartment("explicit-override-a");
-    const agentA = await createTestAgent(departmentA.id, "explicit-override-a");
-    const departmentB = await createTestDepartment("explicit-override-b");
-    const agentB = await createTestAgent(departmentB.id, "explicit-override-b");
-    const departmentC = await createTestDepartment("explicit-override-c");
-    const agentC = await createTestAgent(departmentC.id, "explicit-override-c");
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "explicit-override");
+    const departmentA = await createTestDepartment(configRoot, "explicit-override-a");
+    const agentA = await createTestAgent(configRoot, departmentA.id, "explicit-override-a");
+    const departmentB = await createTestDepartment(configRoot, "explicit-override-b");
+    const agentB = await createTestAgent(configRoot, departmentB.id, "explicit-override-b");
+    const departmentC = await createTestDepartment(configRoot, "explicit-override-c");
+    const agentC = await createTestAgent(configRoot, departmentC.id, "explicit-override-c");
 
     const memberA = await addMember(team.id, departmentA.id, agentA.id, 1);
     await addMember(team.id, departmentB.id, agentB.id, 2);
@@ -180,7 +219,7 @@ describe("backfillTeamWorkflow", () => {
     // A's default next would be B (layer 2), but an explicit route sends it to C instead.
     await addRoute(memberA.id, "completed", { targetTeamMemberId: memberC.id });
 
-    const result = await backfillTeamWorkflow(team.id);
+    const result = await backfillTeamWorkflow(team.id, configRoot);
     expect(result.status).toBe("converted");
 
     const publishedRow = await getPublishedRevisionRow(team.id);
@@ -194,11 +233,12 @@ describe("backfillTeamWorkflow", () => {
   });
 
   it("preserves a backward changes_requested loop and blocked/failed terminal routes", async () => {
-    const team = await createTestTeam("loop-terminal");
-    const departmentA = await createTestDepartment("loop-terminal-a");
-    const agentA = await createTestAgent(departmentA.id, "loop-terminal-a");
-    const departmentB = await createTestDepartment("loop-terminal-b");
-    const agentB = await createTestAgent(departmentB.id, "loop-terminal-b");
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "loop-terminal");
+    const departmentA = await createTestDepartment(configRoot, "loop-terminal-a");
+    const agentA = await createTestAgent(configRoot, departmentA.id, "loop-terminal-a");
+    const departmentB = await createTestDepartment(configRoot, "loop-terminal-b");
+    const agentB = await createTestAgent(configRoot, departmentB.id, "loop-terminal-b");
 
     const memberA = await addMember(team.id, departmentA.id, agentA.id, 1);
     const memberB = await addMember(team.id, departmentB.id, agentB.id, 2);
@@ -210,7 +250,7 @@ describe("backfillTeamWorkflow", () => {
     await addRoute(memberB.id, "blocked", { terminalAction: "block_run" });
     await addRoute(memberB.id, "failed", { terminalAction: "fail_run" });
 
-    const result = await backfillTeamWorkflow(team.id);
+    const result = await backfillTeamWorkflow(team.id, configRoot);
     expect(result.status).toBe("converted");
 
     const publishedRow = await getPublishedRevisionRow(team.id);
@@ -228,16 +268,17 @@ describe("backfillTeamWorkflow", () => {
   });
 
   it("filters out a disabled Agent exactly as the legacy runtime does", async () => {
-    const team = await createTestTeam("disabled-filter");
-    const departmentA = await createTestDepartment("disabled-filter-a");
-    const agentA = await createTestAgent(departmentA.id, "disabled-filter-a");
-    const departmentB = await createTestDepartment("disabled-filter-b");
-    const agentB = await createTestAgent(departmentB.id, "disabled-filter-b", false);
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "disabled-filter");
+    const departmentA = await createTestDepartment(configRoot, "disabled-filter-a");
+    const agentA = await createTestAgent(configRoot, departmentA.id, "disabled-filter-a");
+    const departmentB = await createTestDepartment(configRoot, "disabled-filter-b");
+    const agentB = await createTestAgent(configRoot, departmentB.id, "disabled-filter-b", false);
 
     await addMember(team.id, departmentA.id, agentA.id, 1);
     await addMember(team.id, departmentB.id, agentB.id, 2);
 
-    const result = await backfillTeamWorkflow(team.id);
+    const result = await backfillTeamWorkflow(team.id, configRoot);
     expect(result.status).toBe("converted");
 
     const publishedRow = await getPublishedRevisionRow(team.id);
@@ -249,13 +290,14 @@ describe("backfillTeamWorkflow", () => {
   });
 
   it("leaves an unrouted exceptional outcome unconfigured rather than inventing a fallback edge", async () => {
-    const team = await createTestTeam("missing-exceptional");
-    const department = await createTestDepartment("missing-exceptional");
-    const agent = await createTestAgent(department.id, "missing-exceptional");
+    const configRoot = await makeConfigRoot();
+    const team = await createTestTeam(configRoot, "missing-exceptional");
+    const department = await createTestDepartment(configRoot, "missing-exceptional");
+    const agent = await createTestAgent(configRoot, department.id, "missing-exceptional");
     await addMember(team.id, department.id, agent.id, 1);
     // No route rows at all for changes_requested/blocked/failed.
 
-    const result = await backfillTeamWorkflow(team.id);
+    const result = await backfillTeamWorkflow(team.id, configRoot);
     expect(result.status).toBe("converted");
 
     const publishedRow = await getPublishedRevisionRow(team.id);

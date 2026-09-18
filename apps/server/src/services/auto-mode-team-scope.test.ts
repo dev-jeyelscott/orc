@@ -1,3 +1,7 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import {
   eq,
 } from "drizzle-orm";
@@ -12,6 +16,7 @@ import {
 
 import type {
   Project,
+  Team,
 } from "@orc/shared";
 
 vi.mock(
@@ -52,11 +57,15 @@ import {
   teamMembers,
   teams,
 } from "../db/schema.js";
+import { createAgent } from "./agent-service.js";
 import {
   runAutoModeCycle,
   type AutoModeCycleDependencies,
   type AutoModeNotionAdapter,
 } from "./auto-mode-service.js";
+import { createDepartment } from "./department-service.js";
+import { replaceTeamMembers } from "./team-membership.js";
+import { createTeam } from "./team-service.js";
 import {
   upsertProjectTeamAssignment,
 } from "./project-team-assignment-service.js";
@@ -67,6 +76,28 @@ const created = {
   agentIds: new Set<string>(),
   projectPaths: new Set<string>(),
 };
+const createdConfigRoots: string[] = [];
+
+/**
+ * `upsertProjectTeamAssignment` now requires the Team to already have a
+ * canonical `team.yaml` and the Project path to be a discovered filesystem
+ * repository under the configured workspace root (roadmap Spec 6/8, no more
+ * DB-only assignment fallback). `./project-discovery.js` is mocked above to
+ * always resolve any path as discovered, so only the workspace-root
+ * containment math needs to be real: point `orc.yaml`'s `workspaceRoot` at
+ * `os.tmpdir()` so every `/tmp/...` Project fixture path below is a direct
+ * child of it.
+ */
+async function makeConfigRoot(): Promise<string> {
+  const configRoot = await fs.mkdtemp(path.join(os.tmpdir(), "orc-auto-mode-team-scope-test-"));
+  createdConfigRoots.push(configRoot);
+  await fs.writeFile(
+    path.join(configRoot, "orc.yaml"),
+    `version: 1\nworkspaceRoot: ${JSON.stringify(os.tmpdir())}\n`,
+    "utf8",
+  );
+  return configRoot;
+}
 
 let suspendedAssignments:
   Array<{
@@ -122,92 +153,55 @@ async function createRunnableProjectTeam(
   label: string,
 ): Promise<{
   team:
-    typeof teams.$inferSelect;
+    Team;
   projectPath:
     string;
   notionDataSourceId:
     string;
 }> {
-  const [team] =
-    await db
-      .insert(teams)
-      .values({
-        slug:
-          `team-scope-${label}-${crypto.randomUUID()}`,
-        name:
-          `Team Scope ${label}`,
-        description:
-          "",
-        enabled:
-          true,
-      })
-      .returning();
+  const configRoot = await makeConfigRoot();
 
-  created.teamIds.add(
-    team.id,
+  const department = await createDepartment(
+    {
+      slug: `team-scope-department-${label}-${crypto.randomUUID()}`,
+      name: `Team Scope Department ${label}`,
+      role: "Worker",
+      harness: "codex" as const,
+      defaultModel: "default",
+      defaultReasoning: "low",
+      systemPrompt: "Perform the task.",
+    },
+    configRoot,
   );
+  created.departmentIds.add(department.id);
 
-  const [department] =
-    await db
-      .insert(departments)
-      .values({
-        slug:
-          `team-scope-department-${label}-${crypto.randomUUID()}`,
-        name:
-          `Team Scope Department ${label}`,
-        role:
-          "Worker",
-        harness:
-          "codex",
-        defaultModel:
-          "default",
-        defaultReasoning:
-          "low",
-        systemPrompt:
-          "Perform the task.",
-      })
-      .returning();
-
-  created.departmentIds.add(
-    department.id,
+  const agent = await createAgent(
+    {
+      departmentId: department.id,
+      slug: `team-scope-agent-${label}-${crypto.randomUUID()}`,
+      name: `Team Scope Agent ${label}`,
+      enabled: true,
+      additionalPrompt: "",
+    },
+    configRoot,
   );
+  created.agentIds.add(agent.id);
 
-  const [agent] =
-    await db
-      .insert(agents)
-      .values({
-        departmentId:
-          department.id,
-        slug:
-          `team-scope-agent-${label}-${crypto.randomUUID()}`,
-        name:
-          `Team Scope Agent ${label}`,
-        enabled:
-          true,
-      })
-      .returning();
-
-  created.agentIds.add(
-    agent.id,
+  const team = await createTeam(
+    {
+      slug: `team-scope-${label}-${crypto.randomUUID()}`,
+      name: `Team Scope ${label}`,
+      description: "",
+      enabled: true,
+    },
+    configRoot,
   );
+  created.teamIds.add(team.id);
 
-  await db
-    .insert(teamMembers)
-    .values({
-      teamId:
-        team.id,
-      departmentId:
-        department.id,
-      agentId:
-        agent.id,
-      layer:
-        1,
-      executionOrder:
-        1,
-    });
+  await replaceTeamMembers(team.id, [agent.id], null, configRoot);
 
   const projectPath =
-    `/tmp/orc-auto-mode-team-scope-${label}-${crypto.randomUUID()}`;
+    path.join(os.tmpdir(), `orc-auto-mode-team-scope-${label}-${crypto.randomUUID()}`);
 
   created.projectPaths.add(
     projectPath,
@@ -225,6 +219,7 @@ async function createRunnableProjectTeam(
       autoModeEnabled:
         true,
     },
+    configRoot,
   );
 
   return {
@@ -325,6 +320,10 @@ async function cleanup(): Promise<void> {
   created.departmentIds.clear();
   created.agentIds.clear();
   created.projectPaths.clear();
+
+  for (const configRoot of createdConfigRoots.splice(0)) {
+    await fs.rm(configRoot, { recursive: true, force: true });
+  }
 }
 
 afterEach(

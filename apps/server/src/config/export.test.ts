@@ -10,6 +10,7 @@ import { env } from "../config/env.js";
 import { db } from "../db/client.js";
 import { agentSkills, agents, departments, skills } from "../db/schema.js";
 import { ConfigExportError, exportConfigFromDatabase } from "./export.js";
+import { resolveWorkspaceRoot } from "./workspace-root.js";
 
 const createdAgentIds = new Set<string>();
 const createdDepartmentIds = new Set<string>();
@@ -90,6 +91,23 @@ describe("exportConfigFromDatabase", () => {
     expect(agentYaml.skills).toEqual([skill.slug]);
 
     expect(await fs.readFile(agentInstructionsPath, "utf8")).toBe("Exact additional prompt.\nSecond line.");
+  });
+
+  it("exports orc.yaml.workspaceRoot resolvable back to the original absolute workspace root by resolveWorkspaceRoot()", async () => {
+    const outputRoot = await fs.mkdtemp(path.join(os.tmpdir(), "orc-export-test-"));
+    createdOutputRoots.push(outputRoot);
+
+    // Uses env.WORKSPACE_ROOT (not a fresh tmp dir) like the other export
+    // tests: exportConfigFromDatabase reads every existing
+    // project_team_assignments row, including ones this shared dev database
+    // already has under the real workspace root, so an unrelated fake
+    // workspace root would fail their "outside the workspace root" check.
+    await exportConfigFromDatabase({ outputRoot, workspaceRoot: env.WORKSPACE_ROOT });
+
+    // The exported value must be relative to outputRoot's *parent* (the app
+    // root), not to outputRoot itself -- resolveWorkspaceRoot() resolves it
+    // from there per roadmap Vertical Spec 6, section 5.1.
+    expect(await resolveWorkspaceRoot(outputRoot)).toBe(path.resolve(env.WORKSPACE_ROOT));
   });
 
   it("refuses to silently overwrite an existing canonical file", async () => {

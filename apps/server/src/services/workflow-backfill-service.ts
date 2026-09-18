@@ -9,6 +9,7 @@ import type {
   WorkflowValidationIssue,
 } from "@orc/shared";
 
+import { env } from "../config/env.js";
 import { db } from "../db/client.js";
 import { agents, departments, teamMemberRoutes, teamMembers, teams } from "../db/schema.js";
 import { orderWorkflowAgents } from "./workflow-service.js";
@@ -41,7 +42,10 @@ export type BackfillSummary = {
  *      fabricated terminal edge, since that fallback existed at runtime
  *      only because the route was missing in the first place.
  */
-export async function backfillTeamWorkflow(teamId: string): Promise<BackfillTeamResult> {
+export async function backfillTeamWorkflow(
+  teamId: string,
+  configRoot: string = env.ORC_CONFIG_ROOT,
+): Promise<BackfillTeamResult> {
   const memberRows = await db
     .select()
     .from(teamMembers)
@@ -135,13 +139,13 @@ export async function backfillTeamWorkflow(teamId: string): Promise<BackfillTeam
 
   const graph: WorkflowGraph = { nodes: [...draft.graph.nodes, ...agentNodes], edges };
 
-  const saveResult = await saveDraftGraph(teamId, graph);
+  const saveResult = await saveDraftGraph(teamId, graph, configRoot);
 
   if (!saveResult.validation.publishable) {
     return { teamId, status: "aborted", errors: saveResult.validation.errors };
   }
 
-  const publishResult = await publishDraft(teamId);
+  const publishResult = await publishDraft(teamId, configRoot);
 
   return { teamId, status: "converted", publishedVersion: publishResult.revision.version };
 }
@@ -151,13 +155,13 @@ export async function backfillTeamWorkflow(teamId: string): Promise<BackfillTeam
  * failure block the rest -- each Team's Draft save + publish is its own
  * pair of transactions, so one bad Team's conversion is fully isolated.
  */
-export async function backfillAllTeams(): Promise<BackfillSummary> {
+export async function backfillAllTeams(configRoot: string = env.ORC_CONFIG_ROOT): Promise<BackfillSummary> {
   const teamRows = await db.select({ id: teams.id }).from(teams);
   const results: BackfillTeamResult[] = [];
 
   for (const team of teamRows) {
     try {
-      results.push(await backfillTeamWorkflow(team.id));
+      results.push(await backfillTeamWorkflow(team.id, configRoot));
     } catch (error) {
       results.push({
         teamId: team.id,

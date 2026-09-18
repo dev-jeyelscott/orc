@@ -281,9 +281,13 @@ export async function exportConfigFromDatabase(options: ExportOptions): Promise<
     });
   }
 
+  // `orc.yaml.workspaceRoot` resolves relative to the app root (`outputRoot`'s
+  // parent directory), never `.orc/` itself, matching `resolveWorkspaceRoot()`
+  // (roadmap Vertical Spec 6, section 5.1). `path.relative(outputRoot, ...)`
+  // would be one directory level too shallow.
   plannedFiles.push({
     filePath: path.join(outputRoot, "orc.yaml"),
-    content: stringifyYaml({ version: 1, workspaceRoot: path.relative(outputRoot, workspaceRoot) || "." }),
+    content: stringifyYaml({ version: 1, workspaceRoot: path.relative(path.dirname(outputRoot), workspaceRoot) || "." }),
   });
 
   for (const file of plannedFiles) {

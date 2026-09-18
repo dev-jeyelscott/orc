@@ -1,3 +1,7 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { and, eq, inArray } from "drizzle-orm";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -191,8 +195,32 @@ const { getRunMonitoringDetail } = await import("./run-monitoring-service.js");
 
 const { backfillTeamWorkflow } = await import("./workflow-backfill-service.js");
 
+const { createDepartment } = await import("./department-service.js");
+const { createAgent } = await import("./agent-service.js");
+const { createTeam } = await import("./team-service.js");
+
 const createdAgentIds = new Set<string>();
 const createdDepartmentIds = new Set<string>();
+const createdRoots: string[] = [];
+
+/**
+ * `saveDraftGraph`/`publishDraft` (via `backfillTeamWorkflow`) now require
+ * canonical file authority (roadmap Spec 5/8): the owning Team must have
+ * `.orc/teams/<slug>/team.yaml` and every referenced Agent must resolve to
+ * `.orc/agents/<slug>/agent.yaml`. This suite reuses the real seeded
+ * `RESOLUTION_TEAM_ID` row (slug `beta`) rather than creating a Team, so
+ * each test gets its own private `.orc/` root -- never the real app
+ * `.orc/` -- materializes a matching `beta` team.yaml in it (via
+ * `createTeam`, which upserts the existing "beta" row by slug without
+ * touching its id or membership), and creates every Agent/Department
+ * fixture through the file-authoritative services against that same root.
+ */
+async function makeConfigRoot(): Promise<string> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "orc-project-doc-regression-test-"));
+  createdRoots.push(root);
+  await createTeam({ slug: "beta", name: "Beta", description: "", enabled: true }, root);
+  return root;
+}
 
 let originalAgentStates: Array<{
   id: string;

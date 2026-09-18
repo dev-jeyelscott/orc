@@ -3,7 +3,7 @@ import path from "node:path";
 import { eq } from "drizzle-orm";
 
 import { env } from "../config/env.js";
-import { clearConfigOutOfSync } from "../config/health-state.js";
+import { clearConfigOutOfSync, markConfigOutOfSync } from "../config/health-state.js";
 import { loadConfigGraph, type ConfigGraph } from "../config/loader.js";
 import {
   removeAgentProjection,
@@ -76,53 +76,70 @@ async function performSync(configRoot: string): Promise<ConfigSyncResult> {
     return { status: "invalid", errorCount: graph.issues.length };
   }
 
-  await db.transaction(async (tx) => {
-    for (const skill of graph.skills) {
-      await syncSkillProjection(skill.data, skill.instructions, tx);
-    }
+  // Once the canonical graph is confirmed valid, any failure below -- DB
+  // transaction, workflow reconstruction, anything -- must mark
+  // configuration out-of-sync before rethrowing rather than letting a valid
+  // `.orc/` graph combined with a failed projection be mistaken for "ready"
+  // (roadmap invariant #4). Only a fully successful run below reaches
+  // `clearConfigOutOfSync()`. This applies uniformly whether the failure is
+  // triggered by startup, the explicit sync route/CLI, or a dashboard
+  // mutation's own projection sync.
+  try {
+    await db.transaction(async (tx) => {
+      for (const skill of graph.skills) {
+        await syncSkillProjection(skill.data, skill.instructions, tx);
+      }
 
-    for (const department of graph.departments) {
-      await syncDepartmentProjection(department.data, department.prompt, tx);
-    }
+      for (const department of graph.departments) {
+        await syncDepartmentProjection(department.data, department.prompt, tx);
+      }
 
-    for (const agent of graph.agents) {
-      const row = await syncAgentProjection(agent.data, agent.instructions, tx);
-      await syncAgentSkillAssignments(row.id, agent.data.skills, tx);
-    }
+      for (const agent of graph.agents) {
+        const row = await syncAgentProjection(agent.data, agent.instructions, tx);
+        await syncAgentSkillAssignments(row.id, agent.data.skills, tx);
+      }
 
+      for (const team of graph.teams) {
+        await syncTeamProjection(team.data, tx);
+      }
+
+      for (const team of graph.teams) {
+        const [row] = await tx.select({ id: teams.id }).from(teams).where(eq(teams.slug, team.data.slug));
+        if (row) {
+          await syncTeamMembershipProjection(row.id, team.data.members, tx);
+        }
+      }
+
+      const workspaceRoot = await resolveWorkspaceRoot(configRoot);
+
+      for (const project of graph.projects) {
+        const absolutePath = path.resolve(workspaceRoot, project.data.path);
+        // A Project file never creates a Project by itself: a stale file for a
+        // now-missing filesystem repository is left unprojected here, and
+        // still surfaces as a removal candidate via `getConfigRemovalCandidates`.
+        const discovered = await getProjectByPath(workspaceRoot, absolutePath);
+        if (!discovered) continue;
+
+        await syncProjectAssignmentProjection(project.data, absolutePath, tx);
+      }
+    });
+
+    // Workflow Draft/Published reconstruction runs after the main transaction
+    // commits: it needs the just-synced `agents`/`teams` rows to resolve
+    // canonical slugs, and uses its own table lock per Team.
     for (const team of graph.teams) {
-      await syncTeamProjection(team.data, tx);
-    }
-
-    for (const team of graph.teams) {
-      const [row] = await tx.select({ id: teams.id }).from(teams).where(eq(teams.slug, team.data.slug));
+      const [row] = await db.select({ id: teams.id }).from(teams).where(eq(teams.slug, team.data.slug));
       if (row) {
-        await syncTeamMembershipProjection(row.id, team.data.members, tx);
+        await reconstructTeamWorkflowProjection(row.id, configRoot);
       }
     }
-
-    const workspaceRoot = await resolveWorkspaceRoot(configRoot);
-
-    for (const project of graph.projects) {
-      const absolutePath = path.resolve(workspaceRoot, project.data.path);
-      // A Project file never creates a Project by itself: a stale file for a
-      // now-missing filesystem repository is left unprojected here, and
-      // still surfaces as a removal candidate via `getConfigRemovalCandidates`.
-      const discovered = await getProjectByPath(workspaceRoot, absolutePath);
-      if (!discovered) continue;
-
-      await syncProjectAssignmentProjection(project.data, absolutePath, tx);
-    }
-  });
-
-  // Workflow Draft/Published reconstruction runs after the main transaction
-  // commits: it needs the just-synced `agents`/`teams` rows to resolve
-  // canonical slugs, and uses its own table lock per Team.
-  for (const team of graph.teams) {
-    const [row] = await db.select({ id: teams.id }).from(teams).where(eq(teams.slug, team.data.slug));
-    if (row) {
-      await reconstructTeamWorkflowProjection(row.id, configRoot);
-    }
+  } catch (error) {
+    markConfigOutOfSync({
+      reason: "Configuration projection synchronization failed against a valid canonical graph",
+      resourceType: "sync",
+      resourceId: configRoot,
+    });
+    throw error;
   }
 
   clearConfigOutOfSync();

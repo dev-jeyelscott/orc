@@ -1,3 +1,7 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import {
   eq,
 } from "drizzle-orm";
@@ -52,10 +56,14 @@ import {
   teamMembers,
   teams,
 } from "../db/schema.js";
+import { createAgent } from "./agent-service.js";
 import {
   runAutoModeCycle,
   type AutoModeNotionAdapter,
 } from "./auto-mode-service.js";
+import { createDepartment } from "./department-service.js";
+import { replaceTeamMembers } from "./team-membership.js";
+import { createTeam } from "./team-service.js";
 import {
   upsertProjectTeamAssignment,
 } from "./project-team-assignment-service.js";
@@ -81,96 +89,81 @@ let projectPath: string;
 
 let notionDataSourceId: string;
 
+let configRoot: string;
+const createdRoots: string[] = [];
+
+/**
+ * Creates a private `.orc/` root whose `workspaceRoot` contains
+ * `projectPath` as a direct child -- `upsertProjectTeamAssignment`'s
+ * workspace-containment check is real even though `./project-discovery.js`
+ * (mocked above) always reports the path as discovered.
+ */
+async function makeConfigRoot(): Promise<string> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "orc-auto-mode-test-"));
+  createdRoots.push(root);
+  await fs.writeFile(
+    path.join(root, "orc.yaml"),
+    `version: 1\nworkspaceRoot: ${JSON.stringify(os.tmpdir())}\n`,
+    "utf8",
+  );
+  return root;
+}
+
 /**
  * Creates one fully-runnable Team (enabled Agent under an enabled Department)
- * and assigns it to a dedicated Project path with Auto Mode enabled.
+ * and assigns it to a dedicated Project path with Auto Mode enabled. Built
+ * through the file-authoritative services (roadmap Spec 2/4/6/8): Team/Agent/
+ * Project-assignment mutations now require canonical `.orc/` file authority,
+ * so plain `db.insert` fixtures no longer satisfy `upsertProjectTeamAssignment`.
  */
 async function createRunnableProjectTeam(): Promise<
   void
 > {
-  const [createdTeam] =
-    await db
-      .insert(teams)
-      .values({
-        slug:
-          `auto-mode-service-${crypto.randomUUID()}`,
-        name:
-          "Auto Mode Service Test Team",
-        description:
-          "",
-        enabled:
-          true,
-      })
-      .returning();
+  configRoot = await makeConfigRoot();
 
-  team =
-    createdTeam;
+  const department = await createDepartment(
+    {
+      slug: `auto-mode-service-department-${crypto.randomUUID()}`,
+      name: "Auto Mode Service Test Department",
+      role: "Worker",
+      harness: "codex" as const,
+      defaultModel: "default",
+      defaultReasoning: "low",
+      systemPrompt: "Perform the task.",
+    },
+    configRoot,
+  );
+  created.departmentIds.add(department.id);
 
-  created.teamIds.add(
-    team.id,
+  const agent = await createAgent(
+    {
+      departmentId: department.id,
+      slug: `auto-mode-service-agent-${crypto.randomUUID()}`,
+      name: "Auto Mode Service Test Agent",
+      enabled: true,
+      additionalPrompt: "",
+    },
+    configRoot,
+  );
+  created.agentIds.add(agent.id);
+
+  const createdTeam = await createTeam(
+    {
+      slug: `auto-mode-service-${crypto.randomUUID()}`,
+      name: "Auto Mode Service Test Team",
+      description: "",
+      enabled: true,
+    },
+    configRoot,
   );
 
-  const [department] =
-    await db
-      .insert(departments)
-      .values({
-        slug:
-          `auto-mode-service-department-${crypto.randomUUID()}`,
-        name:
-          "Auto Mode Service Test Department",
-        role:
-          "Worker",
-        harness:
-          "codex",
-        defaultModel:
-          "default",
-        defaultReasoning:
-          "low",
-        systemPrompt:
-          "Perform the task.",
-      })
-      .returning();
+  team = createdTeam as unknown as typeof teams.$inferSelect;
+  created.teamIds.add(team.id);
 
-  created.departmentIds.add(
-    department.id,
-  );
-
-  const [agent] =
-    await db
-      .insert(agents)
-      .values({
-        departmentId:
-          department.id,
-        slug:
-          `auto-mode-service-agent-${crypto.randomUUID()}`,
-        name:
-          "Auto Mode Service Test Agent",
-        enabled:
-          true,
-      })
-      .returning();
-
-  created.agentIds.add(
-    agent.id,
-  );
-
-  await db
-    .insert(teamMembers)
-    .values({
-      teamId:
-        team.id,
-      departmentId:
-        department.id,
-      agentId:
-        agent.id,
-      layer:
-        1,
-      executionOrder:
-        1,
-    });
+  await replaceTeamMembers(team.id, [agent.id], null, configRoot);
 
   projectPath =
-    `/tmp/orc-auto-mode-${crypto.randomUUID()}`;
+    path.join(os.tmpdir(), `orc-auto-mode-${crypto.randomUUID()}`);
 
   notionDataSourceId =
     `auto-mode-service-source-${crypto.randomUUID()}`;
@@ -184,6 +177,7 @@ async function createRunnableProjectTeam(): Promise<
       autoModeEnabled:
         true,
     },
+    configRoot,
   );
 }
 
@@ -455,6 +449,10 @@ afterEach(
     created.teamIds.clear();
     created.departmentIds.clear();
     created.agentIds.clear();
+
+    for (const root of createdRoots.splice(0)) {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   },
 );
 
@@ -926,6 +924,7 @@ describe.sequential(
             autoModeEnabled:
               false,
           },
+          configRoot,
         );
 
         const startExistingTask =
