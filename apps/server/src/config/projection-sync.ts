@@ -1,8 +1,8 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { db } from "../db/client.js";
-import { agents, departments } from "../db/schema.js";
-import type { AgentConfig, DepartmentConfig } from "./schemas.js";
+import { agents, agentSkills, departments, skills } from "../db/schema.js";
+import type { AgentConfig, DepartmentConfig, SkillConfig } from "./schemas.js";
 
 /** Accepts either the top-level `db` handle or an in-flight `db.transaction` callback's `tx`. */
 type DbOrTx = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -49,11 +49,71 @@ export async function removeDepartmentProjection(slug: string, tx: DbOrTx = db):
 }
 
 /**
+ * Upserts one canonical Skill file into its PostgreSQL projection row, keyed
+ * by slug. `instructions` is the resource's optional `SKILL.md` content --
+ * only its presence (`hasInstructions`) is projected, since `search_skills`/
+ * `load_skill` read frozen Run-owned content rather than this row.
+ */
+export async function syncSkillProjection(
+  config: SkillConfig,
+  instructions: string | null,
+  tx: DbOrTx = db,
+): Promise<typeof skills.$inferSelect> {
+  const values = {
+    slug: config.slug,
+    name: config.name,
+    description: config.description,
+    enabled: config.enabled,
+    tags: config.tags,
+    domains: config.domains,
+    hasInstructions: instructions !== null && instructions.trim().length > 0,
+  };
+
+  const [row] = await tx
+    .insert(skills)
+    .values(values)
+    .onConflictDoUpdate({ target: skills.slug, set: { ...values, updatedAt: new Date() } })
+    .returning();
+
+  return row;
+}
+
+/** Removes a Skill's PostgreSQL projection row by slug. A no-op if it was never synced. */
+export async function removeSkillProjection(slug: string, tx: DbOrTx = db): Promise<void> {
+  await tx.delete(skills).where(eq(skills.slug, slug));
+}
+
+/**
+ * Replaces one Agent's Skill assignment projection to match `agent.yaml.skills`
+ * exactly, resolving each canonical slug to its projected Skill row. Every
+ * referenced slug must already be projected -- callers sync Skills before
+ * Agents, per the roadmap's deterministic sync ordering.
+ */
+export async function syncAgentSkillAssignments(
+  agentId: string,
+  skillSlugs: readonly string[],
+  tx: DbOrTx = db,
+): Promise<void> {
+  await tx.delete(agentSkills).where(eq(agentSkills.agentId, agentId));
+  if (!skillSlugs.length) return;
+
+  const rows = await tx.select({ id: skills.id, slug: skills.slug }).from(skills).where(inArray(skills.slug, [...skillSlugs]));
+  const idBySlug = new Map(rows.map((row) => [row.slug, row.id]));
+
+  const missing = skillSlugs.filter((slug) => !idBySlug.has(slug));
+  if (missing.length) {
+    throw new Error(`Cannot project Agent Skill assignment: Skill(s) not synced yet: ${missing.join(", ")}`);
+  }
+
+  await tx.insert(agentSkills).values(skillSlugs.map((slug) => ({ agentId, skillId: idBySlug.get(slug)! })));
+}
+
+/**
  * Upserts one canonical Agent file into its PostgreSQL projection row. The
  * owning Department must already be projected (its row is looked up by
- * slug). Skill assignment projection is intentionally out of scope here: it
- * remains owned by the existing `/api/agents/:id/skills` DB-direct path
- * until Skills become file-authoritative (roadmap Vertical Spec 3).
+ * slug). Skill assignment projection is a separate step
+ * (`syncAgentSkillAssignments`) so a caller can run both inside one
+ * transaction after the Agent row exists.
  */
 export async function syncAgentProjection(
   config: AgentConfig,

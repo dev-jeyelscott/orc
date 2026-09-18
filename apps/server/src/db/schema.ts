@@ -304,15 +304,52 @@ export const skills = pgTable("skills", {
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
   enabled: boolean("enabled").notNull().default(true),
+  tags: jsonb("tags").notNull().default([]),
+  domains: jsonb("domains").notNull().default([]),
+  /** True only when the canonical `SKILL.md` currently has loadable runtime instructions. */
+  hasInstructions: boolean("has_instructions").notNull().default(false),
   ...timestamps,
 });
 
-/** Many-to-many Agent capability assignments. */
+/** Many-to-many Agent capability assignments. Canonical assignment lives in `agent.yaml.skills`; this is its projection. */
 export const agentSkills = pgTable("agent_skills", {
   agentId: uuid("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
   skillId: uuid("skill_id").notNull().references(() => skills.id, { onDelete: "restrict" }),
   ...timestamps,
 }, (table) => [unique("agent_skills_agent_id_skill_id_unique").on(table.agentId, table.skillId), index("agent_skills_skill_id_idx").on(table.skillId)]);
+
+/**
+ * Content-addressed Skill instruction bodies. Deduplicated by SHA-256 so many
+ * Runs/Agents freezing the same unchanged `SKILL.md` share one row.
+ */
+export const skillVersions = pgTable("skill_versions", {
+  contentHash: text("content_hash").primaryKey(),
+  content: text("content").notNull(),
+  ...timestamps,
+}, (table) => [check("skill_versions_content_hash_check", sql`${table.contentHash} ~ '^[0-9a-f]{64}$'`)]);
+
+/**
+ * One Run's frozen Skill assignment for one Agent, captured at Run creation
+ * from the canonical `.orc/skills` tree so later edits to a Skill (or its
+ * Agent assignment) never alter an in-flight or historical Run. `search_skills`/
+ * `load_skill` (roadmap Vertical Spec 3) read only from this table, scoped to
+ * the executing Run + Agent -- never the live configuration graph.
+ */
+export const runAgentSkills = pgTable("run_agent_skills", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  agentId: uuid("agent_id").notNull().references(() => agents.id, { onDelete: "restrict" }),
+  skillSlug: text("skill_slug").notNull(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  tags: jsonb("tags").notNull().default([]),
+  domains: jsonb("domains").notNull().default([]),
+  contentHash: text("content_hash").notNull().references(() => skillVersions.contentHash, { onDelete: "restrict" }),
+  ...timestamps,
+}, (table) => [
+  unique("run_agent_skills_run_id_agent_id_skill_slug_unique").on(table.runId, table.agentId, table.skillSlug),
+  index("run_agent_skills_run_id_agent_id_idx").on(table.runId, table.agentId),
+]);
 
 /**
  * Department-declared primary Knowledge Categories. Recommendation/discovery metadata

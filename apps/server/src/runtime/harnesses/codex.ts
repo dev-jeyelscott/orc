@@ -5,8 +5,10 @@ import type {
 } from "../contracts.js";
 
 import { getKnowledgeMcpServerConfig } from "../../services/knowledge-mcp-client.js";
+import { getSkillsMcpServerConfig, type SkillsMcpServerConfig } from "../../mcp/skills-mcp-client-config.js";
 
 const KNOWLEDGE_MCP_SERVER_NAME = "knowledge_vault";
+const SKILLS_MCP_SERVER_NAME = "orc_skills";
 
 /** Serializes one string as a quoted TOML value for a `-c key=value` override. */
 function tomlString(value: string): string {
@@ -47,6 +49,27 @@ function knowledgeMcpConfigArgs(): string[] {
   }
 
   return args;
+}
+
+/**
+ * Builds the `-c mcp_servers.<name>.*` overrides that grant this Codex
+ * invocation ORC's own generic Skill capability (roadmap Vertical Spec 3),
+ * scoped to the current Run + Agent's frozen assignment. Returns an empty
+ * array outside a Run (`skillScope` absent).
+ */
+function skillsMcpConfigArgs(skillsServer: SkillsMcpServerConfig | null): string[] {
+  if (!skillsServer) {
+    return [];
+  }
+
+  return [
+    "-c",
+    `mcp_servers.${SKILLS_MCP_SERVER_NAME}.command=${tomlString(skillsServer.command)}`,
+    "-c",
+    `mcp_servers.${SKILLS_MCP_SERVER_NAME}.args=${JSON.stringify(skillsServer.args)}`,
+    "-c",
+    `mcp_servers.${SKILLS_MCP_SERVER_NAME}.env=${tomlInlineTable(skillsServer.env)}`,
+  ];
 }
 
 const CODEX_REASONING_LEVELS = new Set([
@@ -144,6 +167,10 @@ export const codexHarness: HarnessAdapter = {
         ? "workspace-write"
         : "read-only");
 
+    const skillsServer = input.skillScope
+      ? getSkillsMcpServerConfig(input.skillScope.runId, input.skillScope.agentId)
+      : null;
+
     return {
       command: "codex",
       args: [
@@ -160,6 +187,9 @@ export const codexHarness: HarnessAdapter = {
         // sandbox/write/command capability. Absent when no knowledge MCP command is
         // configured.
         ...knowledgeMcpConfigArgs(),
+        // Generic lazy Skill discovery (roadmap Vertical Spec 3), scoped to
+        // the current Run + Agent's frozen assignment. Absent outside a Run.
+        ...skillsMcpConfigArgs(skillsServer),
         prompt,
       ],
       cwd: input.projectPath,

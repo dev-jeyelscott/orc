@@ -17,10 +17,22 @@ export type WorkerConfiguration = RuntimeCapabilities & {
   systemPrompt: string;
 };
 
+/**
+ * Identifies the Run + Agent an invocation belongs to so a harness adapter
+ * can grant the generic ORC-owned Skill capability (roadmap Vertical Spec 3)
+ * scoped to exactly that Run's frozen Skill assignment. Absent for
+ * invocations outside a Run (there is no frozen Skill scope to expose).
+ */
+export type SkillScope = {
+  runId: string;
+  agentId: string;
+};
+
 export type StartWorkerInput = {
   projectPath: string;
   agent: WorkerConfiguration;
   instruction: string;
+  skillScope?: SkillScope | null;
 };
 
 export type SessionState =

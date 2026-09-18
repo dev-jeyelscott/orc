@@ -56,7 +56,19 @@ function draftFrom(
       skill?.description ?? "",
     enabled:
       skill?.enabled ?? true,
+    tags:
+      skill?.tags ?? [],
+    domains:
+      skill?.domains ?? [],
   };
+}
+
+/** Parses a comma-separated tag/domain input field into a trimmed, non-empty list. */
+function parseTagList(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 /**
@@ -348,6 +360,32 @@ export function SkillConfigDrawer({
                     }
                     /2000
                   </span>
+                </span>
+              </Field>
+
+              <Field label="Tags">
+                <Input
+                  value={draft.tags.join(", ")}
+                  onChange={(event) => update("tags", parseTagList(event.target.value))}
+                  disabled={saving}
+                  placeholder="database, migrations, schema"
+                />
+
+                <span className="text-xs text-text-muted">
+                  Comma-separated. Used to help Agents discover this Skill.
+                </span>
+              </Field>
+
+              <Field label="Domains">
+                <Input
+                  value={draft.domains.join(", ")}
+                  onChange={(event) => update("domains", parseTagList(event.target.value))}
+                  disabled={saving}
+                  placeholder="backend, database"
+                />
+
+                <span className="text-xs text-text-muted">
+                  Comma-separated broad capability areas.
                 </span>
               </Field>
 

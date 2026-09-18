@@ -1014,6 +1014,10 @@ export async function startSnapshotAgentExecution(
       agent:
         workerConfig,
       instruction,
+      skillScope: {
+        runId: run.id,
+        agentId: agent.id,
+      },
     });
 
   const liveState:

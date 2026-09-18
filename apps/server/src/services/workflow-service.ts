@@ -50,6 +50,10 @@ import {
 } from "./agent-config-resolver.js";
 
 import {
+  freezeRunAgentSkills,
+} from "./skill-freeze-service.js";
+
+import {
   composeHandoffNote,
   composeKnowledgeContext,
   composeKnowledgeRequirementNote,
@@ -530,6 +534,29 @@ async function snapshotFromGraphV2(
     knowledgeContext: knowledgeContext.map((ref) => ({ ...ref })),
     taskDocumentContext: taskDocumentContext.map((ref) => ({ ...ref })),
   };
+}
+
+/**
+ * Freezes a newly created Run's per-Agent assigned Skill scope from the
+ * snapshot's Agent ids, resolving each back to its canonical Agent slug so
+ * `.orc/skills` assignment can be looked up. Called after the Run row exists
+ * so freezing failures can never block a Run whose workflow otherwise
+ * started successfully -- this data is discoverability, not execution.
+ */
+async function freezeSnapshotAgentSkills(
+  tx: WorkflowDbClient,
+  runId: string,
+  snapshot: WorkflowSnapshot,
+): Promise<void> {
+  const agentIds = snapshot.agents.map((agent) => agent.id);
+  if (!agentIds.length) return;
+
+  const rows = await tx.select({ id: agents.id, slug: agents.slug }).from(agents).where(inArray(agents.id, agentIds));
+  await freezeRunAgentSkills(
+    tx,
+    runId,
+    rows.map((row) => ({ agentId: row.id, agentSlug: row.slug })),
+  );
 }
 
 /**
@@ -2503,6 +2530,8 @@ export async function startTask(
             })
             .returning();
 
+        await freezeSnapshotAgentSkills(tx, run.id, workflowSnapshot);
+
         await tx
           .insert(
             domainEvents,
@@ -2729,6 +2758,8 @@ export async function createAndStartTask(
                 now,
             })
             .returning();
+
+        await freezeSnapshotAgentSkills(tx, run.id, workflowSnapshot);
 
         await tx
           .insert(

@@ -24,7 +24,11 @@ import {
 } from "../config/config-mutation-service.js";
 import { markConfigOutOfSync } from "../config/health-state.js";
 import { loadConfigGraph } from "../config/loader.js";
-import { removeAgentProjection, syncAgentProjection } from "../config/projection-sync.js";
+import {
+  removeAgentProjection,
+  syncAgentProjection,
+  syncAgentSkillAssignments,
+} from "../config/projection-sync.js";
 import type { AgentConfig } from "../config/schemas.js";
 import {
   db,
@@ -201,29 +205,80 @@ async function loadSkillsByAgentId(agentIds: string[]): Promise<Map<string, Skil
 }
 
 /**
- * Replaces an Agent's Skill assignments after ensuring every referenced Skill exists.
- *
- * Skill assignment stays a direct PostgreSQL write for this slice: canonical
- * Skill/Agent-Skill file authority is roadmap Vertical Spec 3 scope. The
- * `agent.yaml.skills` list is refreshed as a descriptive mirror the next time
- * the Agent's core fields are saved through `updateAgent`, but is not yet the
- * write path for assignment itself.
+ * Replaces an Agent's Skill assignments. `agent.yaml.skills` is the
+ * canonical assignment (roadmap Vertical Spec 3): the selected Skill DB ids
+ * are resolved to slugs, written into the Agent's canonical file first, then
+ * the `agent_skills` projection is synchronized to match.
  */
-export async function replaceAgentSkills(agentId: string, skillIds: string[]): Promise<Agent | null> {
+export async function replaceAgentSkills(
+  agentId: string,
+  skillIds: string[],
+  configRoot: string = env.ORC_CONFIG_ROOT,
+): Promise<Agent | null> {
+  if (new Set(skillIds).size !== skillIds.length) throw new AgentServiceError("Each Skill may only be assigned once", 400);
+
+  const [existing] = await db.select().from(agents).where(eq(agents.id, agentId));
+  if (!existing) return null;
+
+  const assignedSkills = skillIds.length ? await getSkillsByIds(skillIds) : [];
+  if (assignedSkills.length !== skillIds.length) throw new AgentServiceError("One or more selected Skills do not exist", 400);
+
+  const [department] = await db.select().from(departments).where(eq(departments.id, existing.departmentId));
+  if (!department) throw new AgentServiceError("The selected Department does not exist", 400);
+
+  const graph = await loadConfigGraph(configRoot);
+  const existingResource = graph.agents.find((resource) => resource.data.slug === existing.slug);
+  const currentSkillSlugs = (await loadSkillsByAgentId([agentId])).get(agentId)?.map((skill) => skill.slug) ?? [];
+
+  const baseConfig: AgentConfig = existingResource
+    ? existingResource.data
+    : toAgentConfig(
+        {
+          departmentId: existing.departmentId,
+          slug: existing.slug,
+          name: existing.name,
+          enabled: existing.enabled,
+          harnessOverride: existing.harnessOverride,
+          modelOverride: existing.modelOverride,
+          reasoningOverride: existing.reasoningOverride,
+          canWriteOverride: existing.canWriteOverride,
+          canRunCommandsOverride: existing.canRunCommandsOverride,
+          sandboxModeOverride: existing.sandboxModeOverride,
+          canCommitOverride: existing.canCommitOverride,
+          additionalPrompt: existing.additionalPrompt,
+        },
+        department.slug,
+        currentSkillSlugs,
+      );
+  const instructions = existingResource?.instructions ?? existing.additionalPrompt;
+
+  const merged: AgentConfig = { ...baseConfig, skills: [...new Set(assignedSkills.map((skill) => skill.slug))].sort() };
+
+  let written;
   try {
-    if (new Set(skillIds).size !== skillIds.length) throw new AgentServiceError("Each Skill may only be assigned once", 400);
-    return await db.transaction(async (tx) => {
-      const [existing] = await tx.select().from(agents).where(eq(agents.id, agentId));
-      if (!existing) return null;
-      const assignedSkills = await getSkillsByIds(skillIds);
-      if (assignedSkills.length !== skillIds.length) throw new AgentServiceError("One or more selected Skills do not exist", 400);
-      await tx.delete(agentSkills).where(eq(agentSkills.agentId, agentId));
-      if (skillIds.length) await tx.insert(agentSkills).values(skillIds.map((skillId) => ({ agentId, skillId })));
-      const [department] = await tx.select().from(departments).where(eq(departments.id, existing.departmentId));
-      if (!department) throw new AgentServiceError("The selected Department does not exist", 400);
-      return serializeAgent(existing, department, (await tx.select({ teamId: teamMembers.teamId }).from(teamMembers).where(eq(teamMembers.agentId, agentId)))[0]?.teamId ?? null, assignedSkills);
+    written = await writeAgentFile(configRoot, merged, instructions, {
+      previousSlug: existingResource ? existing.slug : null,
+      expectedRevision: null,
     });
-  } catch (error) { return translateDatabaseError(error); }
+  } catch (error) {
+    translateConfigError(error);
+  }
+
+  try {
+    return await db.transaction(async (tx) => {
+      await syncAgentSkillAssignments(agentId, written.data.skills, tx);
+      return serializeAgent(
+        existing,
+        department,
+        (await tx.select({ teamId: teamMembers.teamId }).from(teamMembers).where(eq(teamMembers.agentId, agentId)))[0]?.teamId ?? null,
+        assignedSkills,
+        written.configRevision,
+      );
+    });
+  } catch (error) {
+    markConfigOutOfSync({ reason: "Agent Skill assignment projection sync failed after canonical file write", resourceType: "agent", resourceId: existing.slug });
+    return translateDatabaseError(error);
+  }
 }
 
 /**
@@ -506,7 +561,11 @@ export async function createAgent(
   }
 
   try {
-    const row = await syncAgentProjection(written.data, written.instructions);
+    const row = await db.transaction(async (tx) => {
+      const inserted = await syncAgentProjection(written.data, written.instructions, tx);
+      await syncAgentSkillAssignments(inserted.id, written.data.skills, tx);
+      return inserted;
+    });
     return serializeAgent(row, department, null, [], written.configRevision);
   } catch (error) {
     markConfigOutOfSync({ reason: "Agent projection sync failed after canonical file write", resourceType: "agent", resourceId: config.slug });
@@ -589,7 +648,11 @@ export async function updateAgent(
       sandboxMode: input.sandboxModeOverride !== undefined ? input.sandboxModeOverride : baseConfig.permissions.sandboxMode,
       commit: input.canCommitOverride !== undefined ? input.canCommitOverride : baseConfig.permissions.commit,
     },
-    skills: [...currentSkillSlugs].sort(),
+    // Canonical assignment lives in `agent.yaml.skills`; `updateAgent` never
+    // changes it (only `replaceAgentSkills` does), so it carries the current
+    // file value forward unchanged even for a first-write Agent (`toAgentConfig`
+    // above seeds it from the current DB projection in that case).
+    skills: baseConfig.skills,
   };
   const mergedInstructions = input.additionalPrompt ?? baseInstructions;
 
@@ -607,7 +670,11 @@ export async function updateAgent(
   }
 
   try {
-    const row = await syncAgentProjection(written.data, written.instructions);
+    const row = await db.transaction(async (tx) => {
+      const updated = await syncAgentProjection(written.data, written.instructions, tx);
+      await syncAgentSkillAssignments(id, written.data.skills, tx);
+      return updated;
+    });
     const skillsByAgentId = await loadSkillsByAgentId([id]);
     return serializeAgent(row, department, teamId, skillsByAgentId.get(id) ?? [], written.configRevision);
   } catch (error) {

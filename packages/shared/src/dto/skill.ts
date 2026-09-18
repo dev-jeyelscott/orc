@@ -6,12 +6,21 @@ const skillFieldsSchema = z.object({
   name: z.string().trim().min(1).max(160),
   description: z.string().trim().max(2_000).default(""),
   enabled: z.boolean().default(true),
+  tags: z.array(z.string().trim().min(1).max(60)).max(50).default([]),
+  domains: z.array(z.string().trim().min(1).max(60)).max(50).default([]),
 });
 
 export const createSkillSchema = skillFieldsSchema;
 export const updateSkillSchema = skillFieldsSchema.partial();
 export const skillSchema = skillFieldsSchema.extend({
   id: z.string().uuid(),
+  /** True only when the canonical `SKILL.md` has loadable runtime instructions. */
+  hasInstructions: z.boolean(),
+  /**
+   * The canonical `.orc/skills/<slug>/skill.yaml` content hash at read time.
+   * Update/delete requests echo this back as `expectedRevision`.
+   */
+  configRevision: z.string(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

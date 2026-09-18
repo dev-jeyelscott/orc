@@ -97,7 +97,14 @@ async function loadTeamWorkflow(
     : [];
   const skillsByAgentId = new Map<string, import("@orc/shared").Skill[]>();
   for (const row of skillRows) {
-    const skill = { ...row.skill, createdAt: row.skill.createdAt.toISOString(), updatedAt: row.skill.updatedAt.toISOString() };
+    const skill: import("@orc/shared").Skill = {
+      ...row.skill,
+      tags: (row.skill.tags as string[] | null) ?? [],
+      domains: (row.skill.domains as string[] | null) ?? [],
+      configRevision: "",
+      createdAt: row.skill.createdAt.toISOString(),
+      updatedAt: row.skill.updatedAt.toISOString(),
+    };
     skillsByAgentId.set(row.agentId, [...(skillsByAgentId.get(row.agentId) ?? []), skill]);
   }
   for (const assigned of skillsByAgentId.values()) assigned.sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));

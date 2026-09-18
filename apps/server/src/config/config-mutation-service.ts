@@ -13,8 +13,16 @@ import {
   type ConfigGraph,
   type ConfigIssue,
   type DepartmentResource,
+  type SkillResource,
 } from "./loader.js";
-import { agentConfigSchema, departmentConfigSchema, type AgentConfig, type DepartmentConfig } from "./schemas.js";
+import {
+  agentConfigSchema,
+  departmentConfigSchema,
+  skillConfigSchema,
+  type AgentConfig,
+  type DepartmentConfig,
+  type SkillConfig,
+} from "./schemas.js";
 
 /** A save/delete arrived with a stale or missing expected `configRevision`. */
 export class ConfigConflictError extends Error {
@@ -43,6 +51,13 @@ export interface WrittenDepartmentFile {
 export interface WrittenAgentFile {
   data: AgentConfig;
   instructions: string;
+  configRevision: string;
+}
+
+export interface WrittenSkillFile {
+  data: SkillConfig;
+  /** Null when the Skill remains metadata-only (no loadable `SKILL.md`). */
+  instructions: string | null;
   configRevision: string;
 }
 
@@ -289,6 +304,124 @@ export async function deleteAgentFile(
 
   await fs.rm(path.join(configRoot, "agents", slug), { recursive: true, force: true });
   return true;
+}
+
+/**
+ * Writes one canonical Skill resource. `instructions: null` keeps the Skill
+ * metadata-only (no `SKILL.md` written); an empty or whitespace-only string
+ * is treated the same way so a blank editor field never creates a
+ * technically-non-null-but-useless file.
+ */
+export async function writeSkillFile(
+  configRoot: string,
+  data: SkillConfig,
+  instructions: string | null,
+  options: { previousSlug: string | null; expectedRevision: string | null },
+): Promise<WrittenSkillFile> {
+  const parsed = skillConfigSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new ConfigValidationError(
+      parsed.error.issues.map((issue) => ({
+        filePath: path.join(configRoot, "skills", data.slug, "skill.yaml"),
+        resourceType: "skill",
+        resourceId: data.slug,
+        field: issue.path.join(".") || null,
+        message: issue.message,
+      })),
+    );
+  }
+
+  const graph = await loadCleanGraph(configRoot);
+
+  let existing: SkillResource | null = null;
+  if (options.previousSlug === null) {
+    if (graph.skills.some((resource) => resource.data.slug === data.slug)) {
+      throw new ConfigConflictError(`Skill "${data.slug}" already exists`);
+    }
+  } else {
+    existing = graph.skills.find((resource) => resource.data.slug === options.previousSlug) ?? null;
+    if (!existing) {
+      throw new ConfigConflictError(`Skill "${options.previousSlug}" no longer exists`);
+    }
+    if (options.expectedRevision !== null && existing.contentHash !== options.expectedRevision) {
+      throw new ConfigConflictError("Skill was modified by another edit; reload and retry");
+    }
+  }
+
+  const dir = path.join(configRoot, "skills", data.slug);
+  if (!existing || existing.data.slug !== data.slug) {
+    if (await pathExists(dir)) {
+      throw new ConfigConflictError(`Skill "${data.slug}" already exists`);
+    }
+  }
+
+  const normalizedInstructions = instructions && instructions.trim() ? instructions : null;
+
+  const proposedResource: SkillResource = {
+    filePath: path.join(dir, "skill.yaml"),
+    contentHash: "",
+    data: parsed.data,
+    instructions: normalizedInstructions,
+  };
+  const proposedSkills = existing
+    ? graph.skills.map((resource) => (resource === existing ? proposedResource : resource))
+    : [...graph.skills, proposedResource];
+
+  const issues = runGraphValidation({ ...graph, skills: proposedSkills });
+  if (issues.length) {
+    throw new ConfigValidationError(issues);
+  }
+
+  const previousDir = existing && existing.data.slug !== data.slug ? path.join(configRoot, "skills", existing.data.slug) : null;
+  if (previousDir && (await pathExists(previousDir))) {
+    await fs.rename(previousDir, dir);
+  }
+
+  const yamlContent = stringifyYaml(parsed.data);
+  await atomicWriteFile(path.join(dir, "skill.yaml"), yamlContent);
+
+  const skillMdPath = path.join(dir, "SKILL.md");
+  if (normalizedInstructions !== null) {
+    await atomicWriteFile(skillMdPath, normalizedInstructions);
+  } else if (await pathExists(skillMdPath)) {
+    await fs.rm(skillMdPath, { force: true });
+  }
+
+  return { data: parsed.data, instructions: normalizedInstructions, configRevision: sha256(normalizeText(yamlContent)) };
+}
+
+/**
+ * Deletes one canonical Skill resource. Refuses when any Agent file still
+ * assigns it, so a safe removal never orphans an Agent's Skill reference.
+ */
+export async function deleteSkillFile(
+  configRoot: string,
+  slug: string,
+  expectedRevision: string | null,
+): Promise<boolean> {
+  const graph = await loadCleanGraph(configRoot);
+  const existing = graph.skills.find((resource) => resource.data.slug === slug);
+  if (!existing) return false;
+
+  if (expectedRevision !== null && existing.contentHash !== expectedRevision) {
+    throw new ConfigConflictError("Skill was modified by another edit; reload and retry");
+  }
+
+  const referencingAgent = graph.agents.find((resource) => resource.data.skills.includes(slug));
+  if (referencingAgent) {
+    throw new ConfigReferentialError(
+      `Skill "${slug}" cannot be deleted because Agent "${referencingAgent.data.slug}" still assigns it`,
+    );
+  }
+
+  await fs.rm(path.join(configRoot, "skills", slug), { recursive: true, force: true });
+  return true;
+}
+
+/** Reads one Skill's current canonical `configRevision`, or null if the file does not exist. */
+export async function getSkillRevision(configRoot: string, slug: string): Promise<string | null> {
+  const graph = await loadConfigGraph(configRoot);
+  return graph.skills.find((resource) => resource.data.slug === slug)?.contentHash ?? null;
 }
 
 /** Reads one Department's current canonical `configRevision`, or null if the file does not exist. */
