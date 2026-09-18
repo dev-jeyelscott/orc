@@ -26,7 +26,6 @@ const { db } = await import("../db/client.js");
 const { RESOLUTION_TEAM_ID } = await import("../db/seed-ids.js");
 const {
   agents,
-  departments,
   domainEvents,
   runs,
   tasks,
@@ -40,6 +39,8 @@ const { createKnowledgeCategory, deleteKnowledgeCategory } = await import(
   "./knowledge-category-service.js"
 );
 const { backfillTeamWorkflow } = await import("./workflow-backfill-service.js");
+const { createDepartment, deleteDepartment } = await import("./department-service.js");
+const { createAgent, deleteAgent } = await import("./agent-service.js");
 
 const project = {
   id: "phase9-knowledge-gate-project",
@@ -102,60 +103,55 @@ beforeEach(async () => {
   originalAgentStates = await db.select({ id: agents.id, enabled: agents.enabled }).from(agents);
   await db.update(agents).set({ enabled: false });
 
-  const [department] = await db
-    .insert(departments)
-    .values({
-      slug: `phase9-knowledge-gate-department-${crypto.randomUUID()}`,
-      name: "Knowledge Gate Department",
-      role: "Custom Engineering Role",
-      harness: "codex",
-      defaultModel: "default",
-      defaultReasoning: "medium",
-      systemPrompt: "Complete the supplied task generically.",
-      canWrite: false,
-      canRunCommands: true,
-      canCommit: false,
-    })
-    .returning();
+  // Created through the file-authoritative services (not raw `db.insert`)
+  // against the real `.orc/` root: `RESOLUTION_TEAM_ID` resolves to the
+  // already file-backed "beta" Team (`.orc/teams/beta/team.yaml`), and
+  // `backfillTeamWorkflow` below now requires every Agent node to resolve
+  // to a canonical `.orc/agents/<slug>/agent.yaml` too (roadmap Spec 8).
+  const department = await createDepartment({
+    slug: `phase9-knowledge-gate-department-${crypto.randomUUID()}`,
+    name: "Knowledge Gate Department",
+    role: "Custom Engineering Role",
+    harness: "codex" as const,
+    defaultModel: "default",
+    defaultReasoning: "medium",
+    systemPrompt: "Complete the supplied task generically.",
+    canWrite: false,
+    canRunCommands: true,
+    canCommit: false,
+  });
   departmentId = department.id;
 
-  const [secondDepartment] = await db
-    .insert(departments)
-    .values({
-      slug: `phase9-knowledge-gate-department-2-${crypto.randomUUID()}`,
-      name: "Knowledge Gate Department 2",
-      role: "Custom Engineering Role",
-      harness: "codex",
-      defaultModel: "default",
-      defaultReasoning: "medium",
-      systemPrompt: "Complete the supplied task generically.",
-      canWrite: false,
-      canRunCommands: true,
-      canCommit: false,
-    })
-    .returning();
+  const secondDepartment = await createDepartment({
+    slug: `phase9-knowledge-gate-department-2-${crypto.randomUUID()}`,
+    name: "Knowledge Gate Department 2",
+    role: "Custom Engineering Role",
+    harness: "codex" as const,
+    defaultModel: "default",
+    defaultReasoning: "medium",
+    systemPrompt: "Complete the supplied task generically.",
+    canWrite: false,
+    canRunCommands: true,
+    canCommit: false,
+  });
   secondDepartmentId = secondDepartment.id;
 
-  const [first] = await db
-    .insert(agents)
-    .values({
-      departmentId: department.id,
-      slug: `phase9-knowledge-gate-first-${crypto.randomUUID()}`,
-      name: "First Agent",
-      enabled: true,
-    })
-    .returning();
+  const first = await createAgent({
+    departmentId: department.id,
+    slug: `phase9-knowledge-gate-first-${crypto.randomUUID()}`,
+    name: "First Agent",
+    enabled: true,
+    additionalPrompt: "",
+  });
   firstAgentId = first.id;
 
-  const [second] = await db
-    .insert(agents)
-    .values({
-      departmentId: secondDepartment.id,
-      slug: `phase9-knowledge-gate-second-${crypto.randomUUID()}`,
-      name: "Second Agent",
-      enabled: true,
-    })
-    .returning();
+  const second = await createAgent({
+    departmentId: secondDepartment.id,
+    slug: `phase9-knowledge-gate-second-${crypto.randomUUID()}`,
+    name: "Second Agent",
+    enabled: true,
+    additionalPrompt: "",
+  });
   secondAgentId = second.id;
 
   const baseLayer = 1_600_000 + Math.floor(Math.random() * 100_000);
@@ -237,12 +233,12 @@ afterEach(async () => {
   for (const id of [firstAgentId, secondAgentId]) {
     if (!id) continue;
     await db.delete(teamMembers).where(eq(teamMembers.agentId, id));
-    await db.delete(agents).where(eq(agents.id, id));
+    await deleteAgent(id);
   }
 
   for (const id of [departmentId, secondDepartmentId]) {
     if (!id) continue;
-    await db.delete(departments).where(eq(departments.id, id));
+    await deleteDepartment(id);
   }
 
   for (const state of originalAgentStates) {

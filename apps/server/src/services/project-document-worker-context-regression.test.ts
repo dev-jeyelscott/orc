@@ -281,45 +281,50 @@ function executionStatusForResult(
 }
 
 /**
- * Creates one enabled generic Resolution Team worker with deterministic ordering.
+ * Creates one enabled generic Resolution Team worker with deterministic
+ * ordering, through the file-authoritative Department/Agent services
+ * against the test's private `.orc/` root. Team membership itself
+ * (`team_members`) is unrelated to workflow file authority, so it is still
+ * attached with a direct insert against the fixed seeded `RESOLUTION_TEAM_ID`.
  */
 async function createTestAgent(input: {
   label: string;
   relativeLayer: number;
+  configRoot: string;
 }) {
-  const [department] = await db
-    .insert(departments)
-    .values({
-      slug: `project-document-worker-context-department-${input.label
-        .toLowerCase()
-        .replaceAll(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "")}-${crypto.randomUUID()}`,
+  const labelSlug = input.label
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  const department = await createDepartment(
+    {
+      slug: `project-document-worker-context-department-${labelSlug}-${crypto.randomUUID()}`,
       name: `${input.label} Department`,
       role: `${input.label} Generic Role`,
-      harness: "codex",
+      harness: "codex" as const,
       defaultModel: "default",
       defaultReasoning: "medium",
       systemPrompt: `Act as ${input.label}.`,
       canWrite: false,
       canRunCommands: true,
       canCommit: false,
-    })
-    .returning();
+    },
+    input.configRoot,
+  );
 
   createdDepartmentIds.add(department.id);
 
-  const [agent] = await db
-    .insert(agents)
-    .values({
+  const agent = await createAgent(
+    {
       departmentId: department.id,
-      slug: `project-document-worker-context-${input.label
-        .toLowerCase()
-        .replaceAll(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "")}-${crypto.randomUUID()}`,
+      slug: `project-document-worker-context-${labelSlug}-${crypto.randomUUID()}`,
       name: input.label,
       enabled: true,
-    })
-    .returning();
+      additionalPrompt: "",
+    },
+    input.configRoot,
+  );
 
   createdAgentIds.add(agent.id);
 
@@ -406,8 +411,8 @@ function queueCreateStartTurns(): void {
 /**
  * Creates one Conversation and drives it through the real trusted Task and Run creation path.
  */
-async function createConversationTaskRun(documentIds: string[]) {
-  await backfillTeamWorkflow(RESOLUTION_TEAM_ID);
+async function createConversationTaskRun(documentIds: string[], configRoot: string) {
+  await backfillTeamWorkflow(RESOLUTION_TEAM_ID, configRoot);
 
   const conversation = await createConversation(
     testState.project!.path,
@@ -740,6 +745,10 @@ afterEach(async () => {
   testState.supervisorTurns.length = 0;
 
   testState.workerLaunches.length = 0;
+
+  for (const root of createdRoots.splice(0)) {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
 
 describe("Project Documents -> worker context regression", () => {
@@ -747,26 +756,31 @@ describe("Project Documents -> worker context regression", () => {
    * Proves the full same-scope attachment path, bounded snapshot selection, worker propagation, and immutable monitoring history.
    */
   it("carries attached Project Documents through Task creation and every forward worker from one immutable bounded Run snapshot", async () => {
+    const configRoot = await makeConfigRoot();
+
     const first = await createTestAgent({
       label: "First Worker",
       relativeLayer: 1,
+      configRoot,
     });
 
     const second = await createTestAgent({
       label: "Second Worker",
       relativeLayer: 2,
+      configRoot,
     });
 
     const third = await createTestAgent({
       label: "Third Worker",
       relativeLayer: 3,
+      configRoot,
     });
 
     const uploaded = await createTestDocument();
 
     expect(uploaded.chunkCount).toBe(MAX_PROJECT_DOCUMENT_CONTEXT_ITEMS + 1);
 
-    const flow = await createConversationTaskRun([uploaded.document.id]);
+    const flow = await createConversationTaskRun([uploaded.document.id], configRoot);
 
     const userMessage = await loadUserMessage(flow.conversation.id);
 
@@ -908,19 +922,24 @@ describe("Project Documents -> worker context regression", () => {
    * Proves configured changes_requested routing reuses the original Project Document snapshot after mutable source rows change.
    */
   it("preserves the same snapshotted context through a configured changes_requested routing loop", async () => {
+    const configRoot = await makeConfigRoot();
+
     const first = await createTestAgent({
       label: "Planning Worker",
       relativeLayer: 1,
+      configRoot,
     });
 
     const implementer = await createTestAgent({
       label: "Implementation Worker",
       relativeLayer: 2,
+      configRoot,
     });
 
     const reviewer = await createTestAgent({
       label: "Review Worker",
       relativeLayer: 3,
+      configRoot,
     });
 
     const [reviewerMember] = await db
@@ -943,7 +962,7 @@ describe("Project Documents -> worker context regression", () => {
 
     const uploaded = await createTestDocument();
 
-    const flow = await createConversationTaskRun([uploaded.document.id]);
+    const flow = await createConversationTaskRun([uploaded.document.id], configRoot);
 
     const originalSnapshot = await loadRunDocumentContext(flow.runId);
 
@@ -1034,14 +1053,18 @@ describe("Project Documents -> worker context regression", () => {
    * Proves an existing same-scope Project Document is never treated as ambient worker context unless the user attached it.
    */
   it("keeps unattached Project Documents out of Task, Run, worker, event, and monitoring context", async () => {
+    const configRoot = await makeConfigRoot();
+
     const first = await createTestAgent({
       label: "Unattached First Worker",
       relativeLayer: 1,
+      configRoot,
     });
 
     const second = await createTestAgent({
       label: "Unattached Second Worker",
       relativeLayer: 2,
+      configRoot,
     });
 
     const uploaded = await createTestDocument(
@@ -1051,7 +1074,7 @@ describe("Project Documents -> worker context regression", () => {
       ].join("\n"),
     );
 
-    const flow = await createConversationTaskRun([]);
+    const flow = await createConversationTaskRun([], configRoot);
 
     const userMessage = await loadUserMessage(flow.conversation.id);
 

@@ -68,7 +68,6 @@ const {
 
 const {
   agents,
-  departments,
   domainEvents,
   knowledgeCategories,
   runs,
@@ -120,6 +119,13 @@ const {
     "./agent-service.js"
   );
 
+const {
+  replaceTeamMembers,
+} =
+  await import(
+    "./team-membership.js"
+  );
+
 const project = {
   id:
     "phase8-workflow-project",
@@ -163,6 +169,9 @@ let originalAgentStates:
     enabled:
       boolean;
   }> = [];
+
+let originalMemberAgentIds:
+  string[] = [];
 
 /**
  * Creates the generic completed structured result returned by the fake runtime.
@@ -282,72 +291,90 @@ beforeEach(
           false,
       });
 
-    const [department] =
-      await db
-        .insert(departments)
-        .values({
-          slug:
-            `phase8-context-synthesizer-department-${crypto.randomUUID()}`,
-          name:
-            "Context Synthesizer Department",
-          role:
-            "Custom Engineering Role",
-          harness:
-            "codex",
-          defaultModel:
-            "default",
-          defaultReasoning:
-            "medium",
-          systemPrompt:
-            "Complete the supplied task generically.",
-          canWrite:
-            false,
-          canRunCommands:
-            true,
-          canCommit:
-            false,
-        })
-        .returning();
+    // Created through the file-authoritative services (not a raw db.insert)
+    // against the real `.orc/` root, since `backfillTeamWorkflow` ->
+    // `saveDraftGraph`/`publishDraft` now require every Agent node to
+    // resolve to a canonical `.orc/agents/<slug>/agent.yaml` (roadmap Spec
+    // 8). `RESOLUTION_TEAM_ID` ("beta") already has a real `team.yaml`, so
+    // no temp config root is needed here -- only real per-test Department/
+    // Agent files, removed again in `afterEach` via `deleteAgent`/
+    // `deleteDepartment`.
+    const department =
+      await createDepartment({
+        slug:
+          `phase8-context-synthesizer-department-${crypto.randomUUID()}`,
+        name:
+          "Context Synthesizer Department",
+        role:
+          "Custom Engineering Role",
+        harness:
+          "codex" as const,
+        defaultModel:
+          "default",
+        defaultReasoning:
+          "medium",
+        systemPrompt:
+          "Complete the supplied task generically.",
+        canWrite:
+          false,
+        canRunCommands:
+          true,
+        canCommit:
+          false,
+      });
 
     departmentId =
       department.id;
 
-    const [agent] =
-      await db
-        .insert(agents)
-        .values({
-          departmentId:
-            department.id,
-          slug:
-            `phase8-context-synthesizer-${crypto.randomUUID()}`,
-          name:
-            "Context Synthesizer",
-          enabled:
-            true,
-        })
-        .returning();
+    const agent =
+      await createAgent({
+        departmentId:
+          department.id,
+        slug:
+          `phase8-context-synthesizer-${crypto.randomUUID()}`,
+        name:
+          "Context Synthesizer",
+        enabled:
+          true,
+        additionalPrompt:
+          "",
+      });
 
     agentId =
       agent.id;
 
-    await db
-      .insert(teamMembers)
-      .values({
-        teamId:
-          RESOLUTION_TEAM_ID,
-        departmentId:
-          agent.departmentId,
-        agentId:
-          agent.id,
-        layer:
-          1_500_000 +
-          Math.floor(
-            Math.random() *
-              100_000,
+    // `team.yaml`'s cross-reference validation requires every Agent a
+    // workflow node targets to already be a canonical Team member, so the
+    // real "beta" team's file membership list must include this test Agent
+    // for the duration of the test -- captured here and restored in
+    // `afterEach` rather than left mutated.
+    const existingMemberRows =
+      await db
+        .select({
+          agentId:
+            teamMembers.agentId,
+        })
+        .from(teamMembers)
+        .where(
+          eq(
+            teamMembers.teamId,
+            RESOLUTION_TEAM_ID,
           ),
-        executionOrder:
-          1,
-      });
+        );
+
+    originalMemberAgentIds =
+      existingMemberRows.map(
+        (row) => row.agentId,
+      );
+
+    await replaceTeamMembers(
+      RESOLUTION_TEAM_ID,
+      [
+        ...originalMemberAgentIds,
+        agent.id,
+      ],
+      null,
+    );
 
     await backfillTeamWorkflow(
       RESOLUTION_TEAM_ID,
@@ -477,39 +504,26 @@ afterEach(
         ),
       );
 
+    await replaceTeamMembers(
+      RESOLUTION_TEAM_ID,
+      originalMemberAgentIds,
+      null,
+    );
+
     if (
       agentId
     ) {
-      await db
-        .delete(teamMembers)
-        .where(
-          eq(
-            teamMembers.agentId,
-            agentId,
-          ),
-        );
-
-      await db
-        .delete(agents)
-        .where(
-          eq(
-            agents.id,
-            agentId,
-          ),
-        );
+      await deleteAgent(
+        agentId,
+      );
     }
 
     if (
       departmentId
     ) {
-      await db
-        .delete(departments)
-        .where(
-          eq(
-            departments.id,
-            departmentId,
-          ),
-        );
+      await deleteDepartment(
+        departmentId,
+      );
     }
 
     for (
@@ -540,6 +554,9 @@ afterEach(
       null;
 
     originalAgentStates =
+      [];
+
+    originalMemberAgentIds =
       [];
   },
 );
