@@ -104,6 +104,22 @@ const {
     "./department-knowledge-service.js"
   );
 
+const {
+  createDepartment,
+  deleteDepartment,
+} =
+  await import(
+    "./department-service.js"
+  );
+
+const {
+  createAgent,
+  deleteAgent,
+} =
+  await import(
+    "./agent-service.js"
+  );
+
 const project = {
   id:
     "phase8-workflow-project",
