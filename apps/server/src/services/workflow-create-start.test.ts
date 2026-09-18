@@ -1,3 +1,7 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import {
   eq,
 } from "drizzle-orm";
@@ -80,6 +84,9 @@ import {
 import {
   backfillTeamWorkflow,
 } from "./workflow-backfill-service.js";
+import { createDepartment } from "./department-service.js";
+import { createAgent } from "./agent-service.js";
+import { writeTeamFile } from "../config/config-mutation-service.js";
 
 const project = {
   id:
@@ -131,6 +138,20 @@ let resolutionAgentId:
 const testConfigRoots: string[] = [];
 
 /**
+ * The isolated `.orc/` root this test run's fixtures live in. Never the
+ * real application `.orc/` -- the seed Teams behind `RESOLUTION_TEAM_ID`
+ * (slug `beta`) and `DEVELOPMENT_TEAM_ID` (slug `development`) are
+ * shadowed here with a matching `team.yaml` (file-only, never DB-synced,
+ * so the real seed Team's actual PostgreSQL membership is never touched)
+ * so `saveDraftGraph`/`publishDraft`/`backfillTeamWorkflow` -- which now
+ * require canonical file authority for both the Team and every referenced
+ * Agent -- can run without writing into the real repository `.orc/`.
+ */
+let currentConfigRoot = "";
+
+const RESOLUTION_TEAM_SLUG = "beta";
+
+/**
  * Builds a successful structured worker result for Team-scoped workflow regression tests.
  */
 function completedResult(): AgentResult {
@@ -150,59 +171,51 @@ function completedResult(): AgentResult {
 }
 
 /**
- * Creates one enabled generic worker for a specific Team.
+ * Creates one enabled generic worker for a specific Team, file-authoritative
+ * (roadmap Spec 2/8): the Department and Agent are written through the
+ * canonical services into `configRoot` (the isolated shadow `.orc/` root),
+ * so any Agent added to the Resolution Team resolves to a real canonical
+ * slug when `saveDraftGraph`/`publishDraft`/`backfillTeamWorkflow` require
+ * one. The real seed Team's `team_members` row is still added directly --
+ * that projection is additive and always safe to clean up by id, unlike
+ * `replaceTeamMembers`, which would replace the real seed Team's entire
+ * membership and is never used against the shared seed Teams here.
  */
 async function createTestAgent(
+  configRoot:
+    string,
   teamId:
     string,
   label:
     string,
 ) {
-  const [department] =
-    await db
-      .insert(departments)
-      .values({
-        slug:
-          `workflow-start-department-${label}-${crypto.randomUUID()}`,
-        name:
-          `${label} Department`,
-        role:
-          "Generic Engineering Role",
-        harness:
-          "codex",
-        defaultModel:
-          "default",
-        defaultReasoning:
-          "medium",
-        systemPrompt:
-          "Complete the supplied task.",
-        canWrite:
-          false,
-        canRunCommands:
-          true,
-        canCommit:
-          false,
-      })
-      .returning();
+  const department = await createDepartment(
+    {
+      slug: `workflow-start-department-${label}-${crypto.randomUUID()}`,
+      name: `${label} Department`,
+      role: "Generic Engineering Role",
+      harness: "codex" as const,
+      defaultModel: "default",
+      defaultReasoning: "medium",
+      systemPrompt: "Complete the supplied task.",
+    },
+    configRoot,
+  );
 
   createdDepartmentIds.add(
     department.id,
   );
 
-  const [agent] =
-    await db
-      .insert(agents)
-      .values({
-        departmentId:
-          department.id,
-        slug:
-          `workflow-start-${label}-${crypto.randomUUID()}`,
-        name:
-          `${label} Worker`,
-        enabled:
-          true,
-      })
-      .returning();
+  const agent = await createAgent(
+    {
+      departmentId: department.id,
+      slug: `workflow-start-${label}-${crypto.randomUUID()}`,
+      name: `${label} Worker`,
+      enabled: true,
+      additionalPrompt: "",
+    },
+    configRoot,
+  );
 
   createdAgentIds.add(
     agent.id,
@@ -234,6 +247,29 @@ async function createTestAgent(
     executionOrder:
       1,
   };
+}
+
+/**
+ * Writes a file-only `team.yaml` shadow for the Resolution seed Team (slug
+ * `beta`) into the isolated `configRoot`, declaring `agentSlug` as its sole
+ * member so `validateWorkflowGraph`'s file-level "Agent must be a Team
+ * member" check passes. This never touches the real `.orc/teams/beta/` or
+ * runs any DB projection -- the real seed Team's actual membership lives
+ * only in the shared PostgreSQL `team_members` table, untouched here.
+ */
+async function shadowResolutionTeamFile(configRoot: string, agentSlug: string): Promise<void> {
+  await writeTeamFile(
+    configRoot,
+    {
+      version: 1,
+      slug: RESOLUTION_TEAM_SLUG,
+      name: "Beta",
+      description: "",
+      enabled: true,
+      members: [agentSlug],
+    },
+    { previousSlug: null, expectedRevision: null },
+  );
 }
 
 /**
@@ -351,8 +387,15 @@ beforeEach(
           true,
       });
 
+    currentConfigRoot =
+      await fs.mkdtemp(
+        path.join(os.tmpdir(), "orc-workflow-start-test-"),
+      );
+    testConfigRoots.push(currentConfigRoot);
+
     const agent =
       await createTestAgent(
+        currentConfigRoot,
         RESOLUTION_TEAM_ID,
         "resolution",
       );
@@ -360,8 +403,11 @@ beforeEach(
     resolutionAgentId =
       agent.id;
 
+    await shadowResolutionTeamFile(currentConfigRoot, agent.slug);
+
     await backfillTeamWorkflow(
       RESOLUTION_TEAM_ID,
+      currentConfigRoot,
     );
 
     mocks.startSnapshotAgentExecution
@@ -558,7 +604,6 @@ afterEach(
     originalTeamStates =
       [];
 
-    const fs = await import("node:fs/promises");
     for (const root of testConfigRoots.splice(0)) await fs.rm(root, { recursive: true, force: true });
   },
 );
@@ -569,17 +614,10 @@ describe(
     it("freezes resolved overrides for active and historical Runs while future Runs see edits", async () => {
       const { updateAgent } = await import("./agent-service.js");
       const { updateDepartment } = await import("./department-service.js");
-      const fs = await import("node:fs/promises");
-      const os = await import("node:os");
-      const path = await import("node:path");
-      // Isolates canonical `.orc/` file writes from the real repository configuration root.
-      const configRoot = await fs.mkdtemp(path.join(os.tmpdir(), "orc-workflow-start-test-"));
-      testConfigRoots.push(configRoot);
-      // The fixture Agent/Department in this suite are raw DB rows with no
-      // canonical file yet; self-heal the Department's file first so the
-      // Agent's own self-heal below passes cross-graph validation.
-      const [fixtureAgentRow] = await db.select().from(agents).where(eq(agents.id, resolutionAgentId!));
-      await updateDepartment(fixtureAgentRow.departmentId, {}, null, configRoot);
+      // Reuses this test run's isolated shadow `.orc/` root (created in
+      // `beforeEach`), where the fixture Department/Agent's canonical files
+      // already live -- not a separate root, which would no longer see them.
+      const configRoot = currentConfigRoot;
       const source = await updateAgent(resolutionAgentId!, { harnessOverride: "claude", modelOverride: "claude-sonnet-5", reasoningOverride: "low", canWriteOverride: true, canRunCommandsOverride: false, canCommitOverride: true, sandboxModeOverride: "workspace-write", additionalPrompt: "Reusable specialization." }, null, configRoot);
       let finish: ((value: ExecutionFinalization) => void | Promise<void>) | undefined;
       mocks.startSnapshotAgentExecution.mockImplementationOnce(async (_run, snapshot, _instruction, onFinalized) => {
@@ -609,6 +647,7 @@ describe(
       async () => {
         const developmentAgent =
           await createTestAgent(
+            currentConfigRoot,
             DEVELOPMENT_TEAM_ID,
             "development",
           );
@@ -693,6 +732,7 @@ describe(
       async () => {
         const developmentAgent =
           await createTestAgent(
+            currentConfigRoot,
             DEVELOPMENT_TEAM_ID,
             "development-start-existing",
           );
@@ -838,6 +878,7 @@ describe(
           );
 
         await createTestAgent(
+          currentConfigRoot,
           DEVELOPMENT_TEAM_ID,
           "development-active-conflict",
         );

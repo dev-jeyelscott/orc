@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { WorkflowGraph } from "@orc/shared";
@@ -17,7 +17,6 @@ import {
   WorkflowGraphServiceError,
   getOrCreateDraft,
   getPublishedRevision,
-  getWorkflowAggregate,
   publishDraft,
   saveDraftGraph,
   validateGraph,
@@ -295,7 +294,7 @@ describe("publishDraft", () => {
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  it("blocks publish for an unreachable Agent", async () => {
+  it("rejects saving a Draft that references an Agent who is not a Team member", async () => {
     const configRoot = await makeConfigRoot();
     const team = await createTestTeam(configRoot, "unreachable");
     const department = await createTestDepartment(configRoot, "unreachable");
@@ -311,21 +310,23 @@ describe("publishDraft", () => {
     )!;
 
     const nodeA = { id: crypto.randomUUID(), kind: "agent" as const, agentId: agentA.id, position: { x: 100, y: 0 } };
+    // agentB (departmentB) is deliberately never added as a Team member.
+    // Canonical `workflow.yaml` cross-reference validation (roadmap Spec 5)
+    // requires every workflow Agent node to already be a `team.yaml` member,
+    // so this save must be rejected outright now that file authority is
+    // always required -- it can no longer be silently persisted to only
+    // surface as a softer "agent_not_team_member" validation error later.
     const nodeB = { id: crypto.randomUUID(), kind: "agent" as const, agentId: agentB.id, position: { x: 200, y: 0 } };
 
-    await saveDraftGraph(team.id, {
-      nodes: [...draft.graph.nodes, nodeA, nodeB],
-      edges: [
-        { id: crypto.randomUUID(), sourceNodeId: start.id, targetNodeId: nodeA.id, outcome: null },
-        { id: crypto.randomUUID(), sourceNodeId: nodeA.id, targetNodeId: completeRun.id, outcome: "completed" },
-      ],
-    }, configRoot);
-
-    // nodeB (agentB) has no route in and is not a Team member either -- assert
-    // the unreachable code specifically by making it a member but disconnected.
-    void nodeB;
-    const result = await getWorkflowAggregate(team.id);
-    expect(result?.validation.errors.some((issue) => issue.code === "agent_not_team_member")).toBe(true);
+    await expect(
+      saveDraftGraph(team.id, {
+        nodes: [...draft.graph.nodes, nodeA, nodeB],
+        edges: [
+          { id: crypto.randomUUID(), sourceNodeId: start.id, targetNodeId: nodeA.id, outcome: null },
+          { id: crypto.randomUUID(), sourceNodeId: nodeA.id, targetNodeId: completeRun.id, outcome: "completed" },
+        ],
+      }, configRoot),
+    ).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it("allows publish with only warnings for missing outcome edges and self-loops", async () => {
@@ -391,7 +392,38 @@ describe("publishDraft", () => {
       .returning();
     createdTeamIds.add(dbOnlyTeam.id);
 
-    await getOrCreateDraft(dbOnlyTeam.id);
+    // `saveDraftGraph` now shares the same file-authority precondition as
+    // `publishDraft`, so a Draft can no longer reach the DB through the
+    // normal save path for a Team lacking `team.yaml` at all (see "rejects
+    // saving a Draft..." above). To exercise `publishDraft`'s own check
+    // specifically, build the DB Draft row directly -- reproducing the
+    // legacy/pre-file-authority residual data shape a real deployment could
+    // still have lying around -- bypassing `saveDraftGraph` entirely.
+    const department = await createTestDepartment(configRoot, "publish-db-only");
+    const agent = await createTestAgent(configRoot, department.id, "publish-db-only");
+    await db.insert(teamMembers).values({ teamId: dbOnlyTeam.id, departmentId: department.id, agentId: agent.id, layer: 1, executionOrder: 1 });
+
+    const draft = await getOrCreateDraft(dbOnlyTeam.id);
+    const start = draft.graph.nodes.find((node) => node.kind === "start")!;
+    const completeRun = draft.graph.nodes.find(
+      (node) => node.kind === "terminal" && node.terminalAction === "complete_run",
+    )!;
+    await db.insert(workflowNodes).values({
+      id: crypto.randomUUID(),
+      revisionId: draft.id,
+      kind: "agent",
+      agentId: agent.id,
+      positionX: 100,
+      positionY: 0,
+    });
+    const [agentNodeRow] = await db
+      .select()
+      .from(workflowNodes)
+      .where(and(eq(workflowNodes.revisionId, draft.id), eq(workflowNodes.kind, "agent")));
+    await db.insert(workflowEdges).values([
+      { revisionId: draft.id, sourceNodeId: start.id, targetNodeId: agentNodeRow.id, outcome: null },
+      { revisionId: draft.id, sourceNodeId: agentNodeRow.id, targetNodeId: completeRun.id, outcome: "completed" },
+    ]);
 
     await expect(publishDraft(dbOnlyTeam.id, configRoot)).rejects.toMatchObject({ statusCode: 409 });
   });

@@ -1,3 +1,7 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import {
   eq,
 } from "drizzle-orm";
@@ -60,19 +64,13 @@ const {
   );
 
 const {
-  RESOLUTION_TEAM_ID,
-} =
-  await import(
-    "../db/seed-ids.js"
-  );
-
-const {
   agents,
   domainEvents,
   knowledgeCategories,
   runs,
   tasks,
   teamMembers,
+  teams,
   workflowEdges,
   workflowNodes,
   workflowRevisions,
@@ -126,6 +124,13 @@ const {
     "./team-membership.js"
   );
 
+const {
+  createTeam,
+} =
+  await import(
+    "./team-service.js"
+  );
+
 const project = {
   id:
     "phase8-workflow-project",
@@ -154,6 +159,14 @@ let departmentId:
   string | null =
     null;
 
+let teamId:
+  string | null =
+    null;
+
+let configRoot:
+  string | null =
+    null;
+
 let taskId:
   string | null =
     null;
@@ -169,9 +182,6 @@ let originalAgentStates:
     enabled:
       boolean;
   }> = [];
-
-let originalMemberAgentIds:
-  string[] = [];
 
 /**
  * Creates the generic completed structured result returned by the fake runtime.
@@ -291,14 +301,20 @@ beforeEach(
           false,
       });
 
-    // Created through the file-authoritative services (not a raw db.insert)
-    // against the real `.orc/` root, since `backfillTeamWorkflow` ->
-    // `saveDraftGraph`/`publishDraft` now require every Agent node to
-    // resolve to a canonical `.orc/agents/<slug>/agent.yaml` (roadmap Spec
-    // 8). `RESOLUTION_TEAM_ID` ("beta") already has a real `team.yaml`, so
-    // no temp config root is needed here -- only real per-test Department/
-    // Agent files, removed again in `afterEach` via `deleteAgent`/
-    // `deleteDepartment`.
+    // Created through the file-authoritative services (not raw db.insert
+    // fixtures, and not the real shared "beta"/RESOLUTION_TEAM_ID seed
+    // Team) against a private per-test `.orc/` root, since
+    // `backfillTeamWorkflow` -> `saveDraftGraph`/`publishDraft` now require
+    // the owning Team to have a canonical `team.yaml` and every Agent node
+    // to resolve to a canonical `.orc/agents/<slug>/agent.yaml` (roadmap
+    // Spec 8). Using an isolated Team here, rather than the real seeded
+    // one, avoids ever writing to (or having to revert) real shared
+    // configuration.
+    configRoot =
+      await fs.mkdtemp(
+        path.join(os.tmpdir(), "orc-workflow-knowledge-test-"),
+      );
+
     const department =
       await createDepartment({
         slug:
@@ -321,7 +337,7 @@ beforeEach(
           true,
         canCommit:
           false,
-      });
+      }, configRoot);
 
     departmentId =
       department.id;
@@ -338,46 +354,38 @@ beforeEach(
           true,
         additionalPrompt:
           "",
-      });
+      }, configRoot);
 
     agentId =
       agent.id;
 
-    // `team.yaml`'s cross-reference validation requires every Agent a
-    // workflow node targets to already be a canonical Team member, so the
-    // real "beta" team's file membership list must include this test Agent
-    // for the duration of the test -- captured here and restored in
-    // `afterEach` rather than left mutated.
-    const existingMemberRows =
-      await db
-        .select({
-          agentId:
-            teamMembers.agentId,
-        })
-        .from(teamMembers)
-        .where(
-          eq(
-            teamMembers.teamId,
-            RESOLUTION_TEAM_ID,
-          ),
-        );
+    const team =
+      await createTeam({
+        slug:
+          `phase8-workflow-team-${crypto.randomUUID()}`,
+        name:
+          "Phase 8 Workflow Team",
+        description:
+          "",
+        enabled:
+          true,
+      }, configRoot);
 
-    originalMemberAgentIds =
-      existingMemberRows.map(
-        (row) => row.agentId,
-      );
+    teamId =
+      team.id;
 
     await replaceTeamMembers(
-      RESOLUTION_TEAM_ID,
+      teamId,
       [
-        ...originalMemberAgentIds,
         agent.id,
       ],
       null,
+      configRoot,
     );
 
     await backfillTeamWorkflow(
-      RESOLUTION_TEAM_ID,
+      teamId,
+      configRoot,
     );
 
     mocks.startSnapshotAgentExecution
@@ -477,44 +485,62 @@ afterEach(
         );
     }
 
-    const revisionRows =
+    if (
+      teamId
+    ) {
+      const revisionRows =
+        await db
+          .select({
+            id: workflowRevisions.id,
+          })
+          .from(workflowRevisions)
+          .where(
+            eq(
+              workflowRevisions.teamId,
+              teamId,
+            ),
+          );
+
+      for (const revision of revisionRows) {
+        await db.delete(workflowEdges).where(eq(workflowEdges.revisionId, revision.id));
+        await db.delete(workflowNodes).where(eq(workflowNodes.revisionId, revision.id));
+      }
+
       await db
-        .select({
-          id: workflowRevisions.id,
-        })
-        .from(workflowRevisions)
+        .delete(workflowRevisions)
         .where(
           eq(
             workflowRevisions.teamId,
-            RESOLUTION_TEAM_ID,
+            teamId,
           ),
         );
 
-    for (const revision of revisionRows) {
-      await db.delete(workflowEdges).where(eq(workflowEdges.revisionId, revision.id));
-      await db.delete(workflowNodes).where(eq(workflowNodes.revisionId, revision.id));
+      await db
+        .delete(teamMembers)
+        .where(
+          eq(
+            teamMembers.teamId,
+            teamId,
+          ),
+        );
+
+      await db
+        .delete(teams)
+        .where(
+          eq(
+            teams.id,
+            teamId,
+          ),
+        );
     }
-
-    await db
-      .delete(workflowRevisions)
-      .where(
-        eq(
-          workflowRevisions.teamId,
-          RESOLUTION_TEAM_ID,
-        ),
-      );
-
-    await replaceTeamMembers(
-      RESOLUTION_TEAM_ID,
-      originalMemberAgentIds,
-      null,
-    );
 
     if (
       agentId
     ) {
       await deleteAgent(
         agentId,
+        null,
+        configRoot ?? undefined,
       );
     }
 
@@ -523,6 +549,17 @@ afterEach(
     ) {
       await deleteDepartment(
         departmentId,
+        null,
+        configRoot ?? undefined,
+      );
+    }
+
+    if (
+      configRoot
+    ) {
+      await fs.rm(
+        configRoot,
+        { recursive: true, force: true },
       );
     }
 
@@ -547,6 +584,15 @@ afterEach(
     agentId =
       null;
 
+    departmentId =
+      null;
+
+    teamId =
+      null;
+
+    configRoot =
+      null;
+
     taskId =
       null;
 
@@ -554,9 +600,6 @@ afterEach(
       null;
 
     originalAgentStates =
-      [];
-
-    originalMemberAgentIds =
       [];
   },
 );
@@ -572,7 +615,7 @@ describe(
             projectId:
               project.id,
             teamId:
-              RESOLUTION_TEAM_ID,
+              teamId as string,
             title:
               "Knowledge-assisted task",
             instruction:
@@ -681,7 +724,7 @@ describe(
             projectId:
               project.id,
             teamId:
-              RESOLUTION_TEAM_ID,
+              teamId as string,
             title:
               "Knowledge-disabled task",
             instruction:
@@ -752,7 +795,7 @@ describe(
             projectId:
               project.id,
             teamId:
-              RESOLUTION_TEAM_ID,
+              teamId as string,
             title:
               "Department-associated task",
             instruction:

@@ -198,6 +198,7 @@ const { backfillTeamWorkflow } = await import("./workflow-backfill-service.js");
 const { createDepartment } = await import("./department-service.js");
 const { createAgent } = await import("./agent-service.js");
 const { createTeam } = await import("./team-service.js");
+const { writeTeamFile } = await import("../config/config-mutation-service.js");
 
 const createdAgentIds = new Set<string>();
 const createdDepartmentIds = new Set<string>();
@@ -220,6 +221,22 @@ async function makeConfigRoot(): Promise<string> {
   createdRoots.push(root);
   await createTeam({ slug: "beta", name: "Beta", description: "", enabled: true }, root);
   return root;
+}
+
+/**
+ * Publish/Draft-graph validation checks every referenced Agent against
+ * `team.yaml`'s own `members` slug list (not `team_members`), so the
+ * synthetic "beta" file created above must be updated with each test's
+ * Agent slugs directly -- `replaceTeamMembers` is not used here because it
+ * would overwrite this suite's deliberately controlled
+ * `layer`/`executionOrder` seeding with its own synthetic placeholders.
+ */
+async function setResolutionTeamMembers(configRoot: string, agentSlugs: readonly string[]): Promise<void> {
+  await writeTeamFile(
+    configRoot,
+    { version: 1, slug: "beta", name: "Beta", description: "", enabled: true, members: [...agentSlugs] },
+    { previousSlug: "beta", expectedRevision: null },
+  );
 }
 
 let originalAgentStates: Array<{
@@ -297,9 +314,11 @@ async function createTestAgent(input: {
     .replaceAll(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 
+  const suffix = crypto.randomUUID().slice(0, 8);
+
   const department = await createDepartment(
     {
-      slug: `project-document-worker-context-department-${labelSlug}-${crypto.randomUUID()}`,
+      slug: `pd-wc-dept-${labelSlug}-${suffix}`,
       name: `${input.label} Department`,
       role: `${input.label} Generic Role`,
       harness: "codex" as const,
@@ -318,7 +337,7 @@ async function createTestAgent(input: {
   const agent = await createAgent(
     {
       departmentId: department.id,
-      slug: `project-document-worker-context-${labelSlug}-${crypto.randomUUID()}`,
+      slug: `pd-wc-agent-${labelSlug}-${suffix}`,
       name: input.label,
       enabled: true,
       additionalPrompt: "",
@@ -776,6 +795,8 @@ describe("Project Documents -> worker context regression", () => {
       configRoot,
     });
 
+    await setResolutionTeamMembers(configRoot, [first.slug, second.slug, third.slug]);
+
     const uploaded = await createTestDocument();
 
     expect(uploaded.chunkCount).toBe(MAX_PROJECT_DOCUMENT_CONTEXT_ITEMS + 1);
@@ -960,6 +981,8 @@ describe("Project Documents -> worker context regression", () => {
       enabled: true,
     });
 
+    await setResolutionTeamMembers(configRoot, [first.slug, implementer.slug, reviewer.slug]);
+
     const uploaded = await createTestDocument();
 
     const flow = await createConversationTaskRun([uploaded.document.id], configRoot);
@@ -1066,6 +1089,8 @@ describe("Project Documents -> worker context regression", () => {
       relativeLayer: 2,
       configRoot,
     });
+
+    await setResolutionTeamMembers(configRoot, [first.slug, second.slug]);
 
     const uploaded = await createTestDocument(
       [

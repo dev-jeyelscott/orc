@@ -1,3 +1,7 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -23,9 +27,7 @@ vi.mock("./agent-execution-service.js", () => ({
 }));
 
 const { db } = await import("../db/client.js");
-const { RESOLUTION_TEAM_ID } = await import("../db/seed-ids.js");
 const {
-  agents,
   domainEvents,
   runs,
   tasks,
@@ -41,6 +43,8 @@ const { createKnowledgeCategory, deleteKnowledgeCategory } = await import(
 const { backfillTeamWorkflow } = await import("./workflow-backfill-service.js");
 const { createDepartment, deleteDepartment } = await import("./department-service.js");
 const { createAgent, deleteAgent } = await import("./agent-service.js");
+const { createTeam, deleteTeam } = await import("./team-service.js");
+const { replaceTeamMembers } = await import("./team-membership.js");
 
 const project = {
   id: "phase9-knowledge-gate-project",
@@ -57,9 +61,10 @@ let departmentId: string | null = null;
 let secondDepartmentId: string | null = null;
 let firstAgentId: string | null = null;
 let secondAgentId: string | null = null;
+let teamId: string | null = null;
 let taskId: string | null = null;
 let runId: string | null = null;
-let originalAgentStates: Array<{ id: string; enabled: boolean }> = [];
+let configRoot: string | null = null;
 
 function completedResult(overrides: Partial<AgentResult> = {}): AgentResult {
   return {
@@ -100,80 +105,92 @@ beforeEach(async () => {
   mocks.getProject.mockResolvedValue(project);
   mocks.getProjectByPath.mockResolvedValue(project);
 
-  originalAgentStates = await db.select({ id: agents.id, enabled: agents.enabled }).from(agents);
-  await db.update(agents).set({ enabled: false });
-
   // Created through the file-authoritative services (not raw `db.insert`)
-  // against the real `.orc/` root: `RESOLUTION_TEAM_ID` resolves to the
-  // already file-backed "beta" Team (`.orc/teams/beta/team.yaml`), and
-  // `backfillTeamWorkflow` below now requires every Agent node to resolve
-  // to a canonical `.orc/agents/<slug>/agent.yaml` too (roadmap Spec 8).
-  const department = await createDepartment({
-    slug: `phase9-knowledge-gate-department-${crypto.randomUUID()}`,
-    name: "Knowledge Gate Department",
-    role: "Custom Engineering Role",
-    harness: "codex" as const,
-    defaultModel: "default",
-    defaultReasoning: "medium",
-    systemPrompt: "Complete the supplied task generically.",
-    canWrite: false,
-    canRunCommands: true,
-    canCommit: false,
-  });
+  // against a private, isolated `.orc/` root -- `saveDraftGraph`/`publishDraft`
+  // (called through `backfillTeamWorkflow` below) now require the owning
+  // Team to have a canonical `team.yaml` and every referenced Agent to
+  // resolve to a canonical `agent.yaml` (roadmap Spec 8). A fresh isolated
+  // Team is used instead of the real shared seeded `RESOLUTION_TEAM_ID`
+  // ("beta") Team so this test never mutates real shared configuration or
+  // depends on whatever other Agents happen to already be attached to it.
+  configRoot = await fs.mkdtemp(path.join(os.tmpdir(), "orc-knowledge-gate-test-"));
+
+  const department = await createDepartment(
+    {
+      slug: `phase9-knowledge-gate-department-${crypto.randomUUID()}`,
+      name: "Knowledge Gate Department",
+      role: "Custom Engineering Role",
+      harness: "codex" as const,
+      defaultModel: "default",
+      defaultReasoning: "medium",
+      systemPrompt: "Complete the supplied task generically.",
+      canWrite: false,
+      canRunCommands: true,
+      canCommit: false,
+    },
+    configRoot,
+  );
   departmentId = department.id;
 
-  const secondDepartment = await createDepartment({
-    slug: `phase9-knowledge-gate-department-2-${crypto.randomUUID()}`,
-    name: "Knowledge Gate Department 2",
-    role: "Custom Engineering Role",
-    harness: "codex" as const,
-    defaultModel: "default",
-    defaultReasoning: "medium",
-    systemPrompt: "Complete the supplied task generically.",
-    canWrite: false,
-    canRunCommands: true,
-    canCommit: false,
-  });
+  const secondDepartment = await createDepartment(
+    {
+      slug: `phase9-knowledge-gate-department-2-${crypto.randomUUID()}`,
+      name: "Knowledge Gate Department 2",
+      role: "Custom Engineering Role",
+      harness: "codex" as const,
+      defaultModel: "default",
+      defaultReasoning: "medium",
+      systemPrompt: "Complete the supplied task generically.",
+      canWrite: false,
+      canRunCommands: true,
+      canCommit: false,
+    },
+    configRoot,
+  );
   secondDepartmentId = secondDepartment.id;
 
-  const first = await createAgent({
-    departmentId: department.id,
-    slug: `phase9-knowledge-gate-first-${crypto.randomUUID()}`,
-    name: "First Agent",
-    enabled: true,
-    additionalPrompt: "",
-  });
+  const first = await createAgent(
+    {
+      departmentId: department.id,
+      slug: `phase9-knowledge-gate-first-${crypto.randomUUID()}`,
+      name: "First Agent",
+      enabled: true,
+      additionalPrompt: "",
+    },
+    configRoot,
+  );
   firstAgentId = first.id;
 
-  const second = await createAgent({
-    departmentId: secondDepartment.id,
-    slug: `phase9-knowledge-gate-second-${crypto.randomUUID()}`,
-    name: "Second Agent",
-    enabled: true,
-    additionalPrompt: "",
-  });
+  const second = await createAgent(
+    {
+      departmentId: secondDepartment.id,
+      slug: `phase9-knowledge-gate-second-${crypto.randomUUID()}`,
+      name: "Second Agent",
+      enabled: true,
+      additionalPrompt: "",
+    },
+    configRoot,
+  );
   secondAgentId = second.id;
+
+  const team = await createTeam(
+    {
+      slug: `phase9-knowledge-gate-team-${crypto.randomUUID()}`,
+      name: "Knowledge Gate Team",
+      description: "",
+      enabled: true,
+    },
+    configRoot,
+  );
+  teamId = team.id;
 
   const baseLayer = 1_600_000 + Math.floor(Math.random() * 100_000);
 
-  await db.insert(teamMembers).values([
-    {
-      teamId: RESOLUTION_TEAM_ID,
-      departmentId: first.departmentId,
-      agentId: first.id,
-      layer: baseLayer,
-      executionOrder: 1,
-    },
-    {
-      teamId: RESOLUTION_TEAM_ID,
-      departmentId: second.departmentId,
-      agentId: second.id,
-      layer: baseLayer + 1,
-      executionOrder: 1,
-    },
-  ]);
+  await replaceTeamMembers(team.id, [first.id, second.id], null, configRoot);
+  await db.update(teamMembers).set({ layer: baseLayer, executionOrder: 1 }).where(eq(teamMembers.agentId, first.id));
+  await db.update(teamMembers).set({ layer: baseLayer + 1, executionOrder: 1 }).where(eq(teamMembers.agentId, second.id));
 
-  await backfillTeamWorkflow(RESOLUTION_TEAM_ID);
+  await backfillTeamWorkflow(team.id, configRoot);
 
   mocks.startSnapshotAgentExecution.mockImplementation(
     async (
@@ -220,15 +237,19 @@ afterEach(async () => {
     await db.delete(tasks).where(eq(tasks.id, taskId));
   }
 
-  const revisionRows = await db
-    .select({ id: workflowRevisions.id })
-    .from(workflowRevisions)
-    .where(eq(workflowRevisions.teamId, RESOLUTION_TEAM_ID));
-  for (const revision of revisionRows) {
-    await db.delete(workflowEdges).where(eq(workflowEdges.revisionId, revision.id));
-    await db.delete(workflowNodes).where(eq(workflowNodes.revisionId, revision.id));
+  if (teamId) {
+    const revisionRows = await db
+      .select({ id: workflowRevisions.id })
+      .from(workflowRevisions)
+      .where(eq(workflowRevisions.teamId, teamId));
+    for (const revision of revisionRows) {
+      await db.delete(workflowEdges).where(eq(workflowEdges.revisionId, revision.id));
+      await db.delete(workflowNodes).where(eq(workflowNodes.revisionId, revision.id));
+    }
+    await db.delete(workflowRevisions).where(eq(workflowRevisions.teamId, teamId));
+    await db.delete(teamMembers).where(eq(teamMembers.teamId, teamId));
+    await deleteTeam(teamId);
   }
-  await db.delete(workflowRevisions).where(eq(workflowRevisions.teamId, RESOLUTION_TEAM_ID));
 
   for (const id of [firstAgentId, secondAgentId]) {
     if (!id) continue;
@@ -241,23 +262,24 @@ afterEach(async () => {
     await deleteDepartment(id);
   }
 
-  for (const state of originalAgentStates) {
-    await db.update(agents).set({ enabled: state.enabled }).where(eq(agents.id, state.id));
+  if (configRoot) {
+    await fs.rm(configRoot, { recursive: true, force: true });
   }
 
   firstAgentId = null;
   secondAgentId = null;
   departmentId = null;
   secondDepartmentId = null;
+  teamId = null;
   taskId = null;
   runId = null;
-  originalAgentStates = [];
+  configRoot = null;
 });
 
 async function startGateTask(): Promise<string> {
   const task = await createTask({
     projectId: project.id,
-    teamId: RESOLUTION_TEAM_ID,
+    teamId: teamId as string,
     title: "Knowledge requirement gate task",
     instruction: "Plan the change, then implement it.",
   });
