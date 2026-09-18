@@ -15,9 +15,14 @@ import { createDepartment } from "./department-service.js";
 import { replaceTeamMembers } from "./team-membership.js";
 import { createTeam } from "./team-service.js";
 
-const createdDepartmentIds = new Set<string>();
-const createdAgentIds = new Set<string>();
-const createdTeamIds = new Set<string>();
+// Tracked by slug, not id: `synchronizeConfiguration` can reproject a
+// resource under a brand-new row id (e.g. after a test drops the original
+// row to simulate a fresh database), so cleanup must not rely on the id
+// captured at creation time -- doing so silently orphaned rows in the
+// shared dev database in an earlier version of this test.
+const createdDepartmentSlugs = new Set<string>();
+const createdAgentSlugs = new Set<string>();
+const createdTeamSlugs = new Set<string>();
 const createdRoots: string[] = [];
 
 async function makeConfigRoot(): Promise<string> {
@@ -27,19 +32,22 @@ async function makeConfigRoot(): Promise<string> {
 }
 
 afterEach(async () => {
-  for (const teamId of createdTeamIds) {
-    await db.delete(teamMembers).where(eq(teamMembers.teamId, teamId));
-    await db.delete(teams).where(eq(teams.id, teamId));
+  for (const slug of createdTeamSlugs) {
+    const [team] = await db.select({ id: teams.id }).from(teams).where(eq(teams.slug, slug));
+    if (team) {
+      await db.delete(teamMembers).where(eq(teamMembers.teamId, team.id));
+      await db.delete(teams).where(eq(teams.id, team.id));
+    }
   }
-  for (const agentId of createdAgentIds) {
-    await db.delete(agents).where(eq(agents.id, agentId));
+  for (const slug of createdAgentSlugs) {
+    await db.delete(agents).where(eq(agents.slug, slug));
   }
-  for (const departmentId of createdDepartmentIds) {
-    await db.delete(departments).where(eq(departments.id, departmentId));
+  for (const slug of createdDepartmentSlugs) {
+    await db.delete(departments).where(eq(departments.slug, slug));
   }
-  createdTeamIds.clear();
-  createdAgentIds.clear();
-  createdDepartmentIds.clear();
+  createdTeamSlugs.clear();
+  createdAgentSlugs.clear();
+  createdDepartmentSlugs.clear();
   clearConfigOutOfSync();
 
   for (const root of createdRoots.splice(0)) {
@@ -64,7 +72,7 @@ describe("config-sync-service (Vertical Spec 7)", () => {
       },
       root,
     );
-    createdDepartmentIds.add(department.id);
+    createdDepartmentSlugs.add(department.slug);
 
     const agent = await createAgent(
       {
@@ -76,13 +84,13 @@ describe("config-sync-service (Vertical Spec 7)", () => {
       },
       root,
     );
-    createdAgentIds.add(agent.id);
+    createdAgentSlugs.add(agent.slug);
 
     const team = await createTeam(
       { slug: `config-sync-team-${suffix}`, name: "Config Sync Team", description: "", enabled: true },
       root,
     );
-    createdTeamIds.add(team.id);
+    createdTeamSlugs.add(team.slug);
     await replaceTeamMembers(team.id, [agent.id], null, root);
 
     // Simulate a fresh database: drop every projection row this file tree describes.
@@ -132,7 +140,7 @@ describe("config-sync-service (Vertical Spec 7)", () => {
       },
       root,
     );
-    createdDepartmentIds.add(department.id);
+    createdDepartmentSlugs.add(department.slug);
 
     const first = await synchronizeConfiguration(root);
     const second = await synchronizeConfiguration(root);
@@ -159,7 +167,7 @@ describe("config-sync-service (Vertical Spec 7)", () => {
       },
       root,
     );
-    createdDepartmentIds.add(department.id);
+    createdDepartmentSlugs.add(department.slug);
 
     await fs.rm(path.join(root, "departments", department.slug), { recursive: true, force: true });
 
