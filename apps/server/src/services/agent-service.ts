@@ -14,6 +14,18 @@ import type {
   UpdateAgent,
 } from "@orc/shared";
 
+import { env } from "../config/env.js";
+import {
+  ConfigConflictError,
+  ConfigReferentialError,
+  ConfigValidationError,
+  deleteAgentFile,
+  writeAgentFile,
+} from "../config/config-mutation-service.js";
+import { markConfigOutOfSync } from "../config/health-state.js";
+import { loadConfigGraph } from "../config/loader.js";
+import { removeAgentProjection, syncAgentProjection } from "../config/projection-sync.js";
+import type { AgentConfig } from "../config/schemas.js";
 import {
   db,
 } from "../db/client.js";
@@ -41,6 +53,45 @@ export class AgentServiceError extends Error {
   }
 }
 
+/** Converts a known config-mutation-service error into the stable Agent service error shape. */
+function translateConfigError(error: unknown): never {
+  if (
+    error instanceof ConfigConflictError ||
+    error instanceof ConfigReferentialError ||
+    error instanceof ConfigValidationError
+  ) {
+    throw new AgentServiceError(error.message, error.statusCode);
+  }
+  throw error;
+}
+
+/** Builds the canonical `.orc/agents/<slug>/agent.yaml` shape from flat API input. */
+function toAgentConfig(
+  input: CreateAgent,
+  departmentSlug: string,
+  skillSlugs: string[],
+): AgentConfig {
+  return {
+    version: 1,
+    slug: input.slug,
+    name: input.name,
+    department: departmentSlug,
+    enabled: input.enabled ?? true,
+    runtime: {
+      harness: input.harnessOverride ?? null,
+      model: input.modelOverride ?? null,
+      reasoning: input.reasoningOverride ?? null,
+    },
+    permissions: {
+      write: input.canWriteOverride ?? null,
+      commands: input.canRunCommandsOverride ?? null,
+      sandboxMode: input.sandboxModeOverride ?? null,
+      commit: input.canCommitOverride ?? null,
+    },
+    skills: [...skillSlugs].sort(),
+  };
+}
+
 /** Converts a Department database row into the shared API representation. */
 function serializeDepartment(
   row:
@@ -50,6 +101,7 @@ function serializeDepartment(
     ...row,
     agentCount:
       0,
+    configRevision: "",
     createdAt:
       row.createdAt.toISOString(),
     updatedAt:
@@ -70,6 +122,7 @@ export function serializeAgent(
   currentTeamId:
     string | null = null,
   skills: Skill[] = [],
+  configRevision = "",
 ): Agent {
   const department =
     serializeDepartment(
@@ -115,6 +168,7 @@ export function serializeAgent(
     effective,
     currentTeamId,
     skills,
+    configRevision,
     hasModelOverride:
       row.modelOverride !==
         null &&
@@ -146,7 +200,15 @@ async function loadSkillsByAgentId(agentIds: string[]): Promise<Map<string, Skil
   return result;
 }
 
-/** Replaces an Agent's Skill assignments after ensuring every referenced Skill exists. */
+/**
+ * Replaces an Agent's Skill assignments after ensuring every referenced Skill exists.
+ *
+ * Skill assignment stays a direct PostgreSQL write for this slice: canonical
+ * Skill/Agent-Skill file authority is roadmap Vertical Spec 3 scope. The
+ * `agent.yaml.skills` list is refreshed as a descriptive mirror the next time
+ * the Agent's core fields are saved through `updateAgent`, but is not yet the
+ * write path for assignment itself.
+ */
 export async function replaceAgentSkills(agentId: string, skillIds: string[]): Promise<Agent | null> {
   try {
     if (new Set(skillIds).size !== skillIds.length) throw new AgentServiceError("Each Skill may only be assigned once", 400);
@@ -311,7 +373,7 @@ async function loadDepartmentOrThrow(
 /**
  * Lists every configured agent in deterministic Department/name order.
  */
-export async function listAgents(): Promise<
+export async function listAgents(configRoot: string = env.ORC_CONFIG_ROOT): Promise<
   Agent[]
 > {
   const rows =
@@ -341,7 +403,11 @@ export async function listAgents(): Promise<
         ),
       );
 
-  const skillsByAgentId = await loadSkillsByAgentId(rows.map((row) => row.agents.id));
+  const [skillsByAgentId, graph] = await Promise.all([
+    loadSkillsByAgentId(rows.map((row) => row.agents.id)),
+    loadConfigGraph(configRoot),
+  ]);
+  const revisionBySlug = new Map(graph.agents.map((resource) => [resource.data.slug, resource.contentHash]));
 
   return rows.map(
     (row) =>
@@ -351,6 +417,7 @@ export async function listAgents(): Promise<
         row.team_members?.teamId ??
           null,
         skillsByAgentId.get(row.agents.id) ?? [],
+        revisionBySlug.get(row.agents.slug) ?? "",
       ),
   );
 }
@@ -361,6 +428,7 @@ export async function listAgents(): Promise<
 export async function getAgent(
   id:
     string,
+  configRoot: string = env.ORC_CONFIG_ROOT,
 ): Promise<
   Agent | null
 > {
@@ -395,7 +463,11 @@ export async function getAgent(
     return null;
   }
 
-  const skillsByAgentId = await loadSkillsByAgentId([id]);
+  const [skillsByAgentId, graph] = await Promise.all([
+    loadSkillsByAgentId([id]),
+    loadConfigGraph(configRoot),
+  ]);
+  const revision = graph.agents.find((resource) => resource.data.slug === row.agents.slug)?.contentHash ?? "";
 
   return serializeAgent(
     row.agents,
@@ -403,115 +475,164 @@ export async function getAgent(
     row.team_members?.teamId ??
       null,
     skillsByAgentId.get(id) ?? [],
+    revision,
   );
 }
 
 /**
  * Creates a new Department-scoped worker-agent instance. Team placement is
- * assigned separately by saving the owning Team's workflow.
+ * assigned separately by saving the owning Team's workflow. Canonical
+ * mutation order: write the `.orc/agents/<slug>/agent.yaml` file first, then
+ * synchronize its PostgreSQL projection.
  */
 export async function createAgent(
   input:
     CreateAgent,
+  configRoot: string = env.ORC_CONFIG_ROOT,
 ): Promise<Agent> {
+  const department =
+    await loadDepartmentOrThrow(
+      input.departmentId,
+    );
+
+  const config = toAgentConfig(input, department.slug, []);
+  const instructions = input.additionalPrompt ?? "";
+
+  let written;
   try {
-    const department =
-      await loadDepartmentOrThrow(
-        input.departmentId,
-      );
-
-    const [agent] =
-      await db
-        .insert(agents)
-        .values({
-          departmentId:
-            input.departmentId,
-          slug:
-            input.slug,
-          name:
-            input.name,
-          enabled:
-            input.enabled,
-          harnessOverride: input.harnessOverride ?? null,
-          canWriteOverride: input.canWriteOverride ?? null,
-          canRunCommandsOverride: input.canRunCommandsOverride ?? null,
-          sandboxModeOverride: input.sandboxModeOverride ?? null,
-          canCommitOverride: input.canCommitOverride ?? null,
-          modelOverride:
-            input.modelOverride ??
-            null,
-          reasoningOverride:
-            input.reasoningOverride ??
-            null,
-          additionalPrompt:
-            input.additionalPrompt,
-        })
-        .returning();
-
-    return serializeAgent(
-      agent,
-      department,
-      null,
-      [],
-    );
+    written = await writeAgentFile(configRoot, config, instructions, { previousSlug: null, expectedRevision: null });
   } catch (error) {
-    return translateDatabaseError(
-      error,
-    );
+    translateConfigError(error);
+  }
+
+  try {
+    const row = await syncAgentProjection(written.data, written.instructions);
+    return serializeAgent(row, department, null, [], written.configRevision);
+  } catch (error) {
+    markConfigOutOfSync({ reason: "Agent projection sync failed after canonical file write", resourceType: "agent", resourceId: config.slug });
+    return translateDatabaseError(error);
   }
 }
 
 /**
  * Updates agent configuration in place. Team placement is never modified
- * here; it is owned exclusively by the Team workflow resource.
+ * here; it is owned exclusively by the Team workflow resource. The full
+ * canonical resource is rebuilt from the current file plus the supplied
+ * partial edit, then written and projected.
  */
-export async function updateAgent(id: string, input: UpdateAgent): Promise<Agent | null> {
+export async function updateAgent(
+  id: string,
+  input: UpdateAgent,
+  expectedRevision: string | null = null,
+  configRoot: string = env.ORC_CONFIG_ROOT,
+): Promise<Agent | null> {
+  // Read-only guard: matches Team workflow's membership lock so a Department
+  // change cannot race a concurrent Team assignment. The canonical file write
+  // that follows happens outside this transaction because filesystem writes
+  // are not part of the PostgreSQL transaction boundary.
+  const guard = await db.transaction(async (tx) => {
+    await tx.execute(sql`LOCK TABLE ${teamMembers} IN SHARE ROW EXCLUSIVE MODE`);
+    const [existing] = await tx.select().from(agents).where(eq(agents.id, id));
+    if (!existing) return null;
+    const [member] = await tx.select({ teamId: teamMembers.teamId }).from(teamMembers).where(eq(teamMembers.agentId, id));
+    if (input.departmentId !== undefined && input.departmentId !== existing.departmentId && member) {
+      throw new AgentServiceError("Remove the Agent from its Team before changing Department", 409);
+    }
+    const [department] = await tx.select().from(departments).where(eq(departments.id, input.departmentId ?? existing.departmentId));
+    if (!department) throw new AgentServiceError("The selected Department does not exist", 400);
+    return { existing, department, teamId: member?.teamId ?? null };
+  });
+
+  if (!guard) return null;
+  const { existing, department, teamId } = guard;
+
+  const graph = await loadConfigGraph(configRoot);
+  const existingResource = graph.agents.find((resource) => resource.data.slug === existing.slug);
+  const currentSkillSlugs = (await loadSkillsByAgentId([id])).get(id)?.map((skill) => skill.slug) ?? [];
+
+  const baseConfig: AgentConfig = existingResource
+    ? existingResource.data
+    : toAgentConfig(
+        {
+          departmentId: existing.departmentId,
+          slug: existing.slug,
+          name: existing.name,
+          enabled: existing.enabled,
+          harnessOverride: existing.harnessOverride,
+          modelOverride: existing.modelOverride,
+          reasoningOverride: existing.reasoningOverride,
+          canWriteOverride: existing.canWriteOverride,
+          canRunCommandsOverride: existing.canRunCommandsOverride,
+          sandboxModeOverride: existing.sandboxModeOverride,
+          canCommitOverride: existing.canCommitOverride,
+          additionalPrompt: existing.additionalPrompt,
+        },
+        department.slug,
+        currentSkillSlugs,
+      );
+  const baseInstructions = existingResource?.instructions ?? existing.additionalPrompt;
+
+  const merged: AgentConfig = {
+    version: 1,
+    slug: input.slug ?? baseConfig.slug,
+    name: input.name ?? baseConfig.name,
+    department: department.slug,
+    enabled: input.enabled ?? baseConfig.enabled,
+    runtime: {
+      harness: input.harnessOverride !== undefined ? input.harnessOverride : baseConfig.runtime.harness,
+      model: input.modelOverride !== undefined ? input.modelOverride : baseConfig.runtime.model,
+      reasoning: input.reasoningOverride !== undefined ? input.reasoningOverride : baseConfig.runtime.reasoning,
+    },
+    permissions: {
+      write: input.canWriteOverride !== undefined ? input.canWriteOverride : baseConfig.permissions.write,
+      commands: input.canRunCommandsOverride !== undefined ? input.canRunCommandsOverride : baseConfig.permissions.commands,
+      sandboxMode: input.sandboxModeOverride !== undefined ? input.sandboxModeOverride : baseConfig.permissions.sandboxMode,
+      commit: input.canCommitOverride !== undefined ? input.canCommitOverride : baseConfig.permissions.commit,
+    },
+    skills: [...currentSkillSlugs].sort(),
+  };
+  const mergedInstructions = input.additionalPrompt ?? baseInstructions;
+
+  // An Agent row synced before its canonical file existed (or drifted after
+  // a manual delete) has no matching file resource; treat that as a first
+  // write rather than an edit of a file that was never there.
+  let written;
   try {
-    return await db.transaction(async (tx) => {
-      // Match Team workflow's lock so membership cannot change between validation and update.
-      await tx.execute(sql`LOCK TABLE ${teamMembers} IN SHARE ROW EXCLUSIVE MODE`);
-      const [existing] = await tx.select().from(agents).where(eq(agents.id, id));
-      if (!existing) return null;
-      const [member] = await tx.select({ teamId: teamMembers.teamId }).from(teamMembers).where(eq(teamMembers.agentId, id));
-      if (input.departmentId !== undefined && input.departmentId !== existing.departmentId && member) {
-        throw new AgentServiceError("Remove the Agent from its Team before changing Department", 409);
-      }
-      const [department] = await tx.select().from(departments).where(eq(departments.id, input.departmentId ?? existing.departmentId));
-      if (!department) throw new AgentServiceError("The selected Department does not exist", 400);
-      const patch = {
-        departmentId: input.departmentId,
-        name: input.name,
-        slug: input.slug,
-        enabled: input.enabled,
-        harnessOverride: input.harnessOverride,
-        modelOverride: input.modelOverride,
-        reasoningOverride: input.reasoningOverride,
-        canWriteOverride: input.canWriteOverride,
-        canRunCommandsOverride: input.canRunCommandsOverride,
-        sandboxModeOverride: input.sandboxModeOverride,
-        canCommitOverride: input.canCommitOverride,
-        additionalPrompt: input.additionalPrompt,
-      };
-      // Drizzle omits undefined values on update and preserves explicit null and false.
-      const [agent] = await tx.update(agents).set({ ...patch, updatedAt: new Date() }).where(eq(agents.id, id)).returning();
-      const skillsByAgentId = await loadSkillsByAgentId([id]);
-      return serializeAgent(agent, department, member?.teamId ?? null, skillsByAgentId.get(id) ?? []);
+    written = await writeAgentFile(configRoot, merged, mergedInstructions, {
+      previousSlug: existingResource ? existing.slug : null,
+      expectedRevision: existingResource ? expectedRevision : null,
     });
-  } catch (error) { return translateDatabaseError(error); }
+  } catch (error) {
+    translateConfigError(error);
+  }
+
+  try {
+    const row = await syncAgentProjection(written.data, written.instructions);
+    const skillsByAgentId = await loadSkillsByAgentId([id]);
+    return serializeAgent(row, department, teamId, skillsByAgentId.get(id) ?? [], written.configRevision);
+  } catch (error) {
+    markConfigOutOfSync({ reason: "Agent projection sync failed after canonical file write", resourceType: "agent", resourceId: merged.slug });
+    return translateDatabaseError(error);
+  }
 }
 
 /**
  * Permanently deletes an unassigned Agent only when no active Run snapshot contains it.
  *
- * Historical workflow snapshots are never updated. Database foreign keys remove
- * historical execution references. Team membership must be removed beforehand.
+ * Historical workflow snapshots are never updated. Team membership must be
+ * removed beforehand. Safety guards run against PostgreSQL first (the
+ * authoritative source for membership/Run state), then the canonical file is
+ * removed, then its projection row.
  */
 export async function deleteAgent(
   id:
     string,
+  expectedRevision: string | null = null,
+  configRoot: string = env.ORC_CONFIG_ROOT,
 ): Promise<boolean> {
+  let slug: string | null;
   try {
-    return await db.transaction(
+    slug = await db.transaction(
       async (
         tx,
       ) => {
@@ -526,6 +647,8 @@ export async function deleteAgent(
             .select({
               id:
                 agents.id,
+              slug:
+                agents.slug,
             })
             .from(agents)
             .where(
@@ -538,7 +661,7 @@ export async function deleteAgent(
         if (
           !existing
         ) {
-          return false;
+          return null;
         }
 
         const [member] = await tx.select({ id: teamMembers.id }).from(teamMembers).where(eq(teamMembers.agentId, id));
@@ -583,23 +706,7 @@ export async function deleteAgent(
           );
         }
 
-        const [deleted] =
-          await tx
-            .delete(agents)
-            .where(
-              eq(
-                agents.id,
-                id,
-              ),
-            )
-            .returning({
-              id:
-                agents.id,
-            });
-
-        return Boolean(
-          deleted,
-        );
+        return existing.slug;
       },
     );
   } catch (error) {
@@ -625,6 +732,24 @@ export async function deleteAgent(
     return translateDatabaseError(
       error,
     );
+  }
+
+  if (slug === null) {
+    return false;
+  }
+
+  try {
+    await deleteAgentFile(configRoot, slug, expectedRevision);
+  } catch (error) {
+    translateConfigError(error);
+  }
+
+  try {
+    await removeAgentProjection(slug);
+    return true;
+  } catch (error) {
+    markConfigOutOfSync({ reason: "Agent projection removal failed after canonical file delete", resourceType: "agent", resourceId: slug });
+    return translateDatabaseError(error);
   }
 }
 

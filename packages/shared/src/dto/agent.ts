@@ -130,6 +130,14 @@ export const agentSchema =
         .uuid()
         .nullable(),
     skills: z.array(skillSchema),
+    /**
+     * The canonical `.orc/agents/<slug>/agent.yaml` content hash at read
+     * time. Update/delete requests echo this back as `expectedRevision` so
+     * a stale dashboard edit is rejected instead of silently overwriting a
+     * newer manual file edit.
+     */
+    configRevision:
+      z.string(),
     createdAt:
       z.string().datetime(),
     updatedAt:

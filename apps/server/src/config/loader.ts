@@ -73,12 +73,16 @@ export interface ConfigGraph {
   valid: boolean;
 }
 
-function sha256(content: string): string {
+/**
+ * Exported so `config-mutation-service` computes a proposed resource's
+ * `configRevision` identically to how the loader hashes it back from disk.
+ */
+export function sha256(content: string): string {
   return crypto.createHash("sha256").update(content, "utf8").digest("hex");
 }
 
 /** Normalizes line endings so a resource's content hash is platform-stable. */
-function normalizeText(raw: string): string {
+export function normalizeText(raw: string): string {
   return raw.replace(/\r\n/g, "\n");
 }
 
@@ -357,8 +361,14 @@ async function loadProjects(configRoot: string, issues: ConfigIssue[]): Promise<
   return resources;
 }
 
-/** Cross-resource reference and uniqueness rules that no single file can validate alone. */
-function validateReferenceGraph(graph: Omit<ConfigGraph, "issues" | "valid">, issues: ConfigIssue[]): void {
+/**
+ * Cross-resource reference and uniqueness rules that no single file can
+ * validate alone. Exported so `config-mutation-service` can validate a
+ * proposed in-memory graph (current graph plus one pending edit) before any
+ * file is written, per the mutation contract's "load + validate complete
+ * cross-resource configuration graph" step.
+ */
+export function validateReferenceGraph(graph: Omit<ConfigGraph, "issues" | "valid">, issues: ConfigIssue[]): void {
   const departmentSlugs = new Set(graph.departments.map((resource) => resource.data.slug));
   const skillSlugs = new Set(graph.skills.map((resource) => resource.data.slug));
   const agentSlugs = new Set(graph.agents.map((resource) => resource.data.slug));
@@ -529,7 +539,7 @@ function validateWorkflowGraph(team: TeamResource, issues: ConfigIssue[]): void 
   }
 }
 
-function validateUniqueSlugs<T extends { data: { slug: string }; filePath: string }>(
+export function validateUniqueSlugs<T extends { data: { slug: string }; filePath: string }>(
   resources: T[],
   resourceType: string,
   issues: ConfigIssue[],

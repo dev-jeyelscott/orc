@@ -75,6 +75,11 @@ export const createDepartmentSchema =
 export const updateDepartmentSchema =
   departmentFieldsSchema.partial();
 
+/** The revision a mutation was read against; `null`/omitted skips the optimistic-lock check. */
+export const configMutationControlSchema = z.object({
+  expectedRevision: z.string().nullable().optional(),
+});
+
 export const departmentSchema =
   departmentFieldsSchema.extend({
     id:
@@ -88,6 +93,14 @@ export const departmentSchema =
         .int()
         .min(0)
         .default(0),
+    /**
+     * The canonical `.orc/departments/<slug>/department.yaml` content hash
+     * at read time. Update/delete requests echo this back as
+     * `expectedRevision` so a stale dashboard edit is rejected instead of
+     * silently overwriting a newer manual file edit.
+     */
+    configRevision:
+      z.string(),
   });
 
 export const departmentListResponseSchema =

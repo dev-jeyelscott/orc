@@ -127,6 +127,9 @@ let resolutionAgentId:
   string | null =
     null;
 
+/** Temp `.orc/` config roots created by individual tests, cleaned up in `afterEach`. */
+const testConfigRoots: string[] = [];
+
 /**
  * Builds a successful structured worker result for Team-scoped workflow regression tests.
  */
@@ -554,6 +557,9 @@ afterEach(
 
     originalTeamStates =
       [];
+
+    const fs = await import("node:fs/promises");
+    for (const root of testConfigRoots.splice(0)) await fs.rm(root, { recursive: true, force: true });
   },
 );
 
@@ -563,7 +569,18 @@ describe(
     it("freezes resolved overrides for active and historical Runs while future Runs see edits", async () => {
       const { updateAgent } = await import("./agent-service.js");
       const { updateDepartment } = await import("./department-service.js");
-      const source = await updateAgent(resolutionAgentId!, { harnessOverride: "claude", modelOverride: "claude-sonnet-5", reasoningOverride: "low", canWriteOverride: true, canRunCommandsOverride: false, canCommitOverride: true, sandboxModeOverride: "workspace-write", additionalPrompt: "Reusable specialization." });
+      const fs = await import("node:fs/promises");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      // Isolates canonical `.orc/` file writes from the real repository configuration root.
+      const configRoot = await fs.mkdtemp(path.join(os.tmpdir(), "orc-workflow-start-test-"));
+      testConfigRoots.push(configRoot);
+      // The fixture Agent/Department in this suite are raw DB rows with no
+      // canonical file yet; self-heal the Department's file first so the
+      // Agent's own self-heal below passes cross-graph validation.
+      const [fixtureAgentRow] = await db.select().from(agents).where(eq(agents.id, resolutionAgentId!));
+      await updateDepartment(fixtureAgentRow.departmentId, {}, null, configRoot);
+      const source = await updateAgent(resolutionAgentId!, { harnessOverride: "claude", modelOverride: "claude-sonnet-5", reasoningOverride: "low", canWriteOverride: true, canRunCommandsOverride: false, canCommitOverride: true, sandboxModeOverride: "workspace-write", additionalPrompt: "Reusable specialization." }, null, configRoot);
       let finish: ((value: ExecutionFinalization) => void | Promise<void>) | undefined;
       mocks.startSnapshotAgentExecution.mockImplementationOnce(async (_run, snapshot, _instruction, onFinalized) => {
         finish = onFinalized;
@@ -572,8 +589,8 @@ describe(
       });
       const first = await createAndStartTask({ projectId: project.id, teamId: RESOLUTION_TEAM_ID, title: "Frozen config", instruction: "Verify snapshots." });
       const [before] = await db.select().from(runs).where(eq(runs.id, first.run.id));
-      await updateAgent(source!.id, { harnessOverride: null, modelOverride: null, canWriteOverride: null, canRunCommandsOverride: null, canCommitOverride: false, sandboxModeOverride: null });
-      await updateDepartment(source!.departmentId, { defaultModel: "future-model", canWrite: false, canRunCommands: true, systemPrompt: "Future base prompt." });
+      await updateAgent(source!.id, { harnessOverride: null, modelOverride: null, canWriteOverride: null, canRunCommandsOverride: null, canCommitOverride: false, sandboxModeOverride: null }, source!.configRevision, configRoot);
+      await updateDepartment(source!.departmentId, { defaultModel: "future-model", canWrite: false, canRunCommands: true, systemPrompt: "Future base prompt." }, null, configRoot);
       const [active] = await db.select().from(runs).where(eq(runs.id, first.run.id));
       expect(active.workflowSnapshot).toEqual(before.workflowSnapshot);
       await vi.waitFor(() => expect(finish).toBeTypeOf("function"));

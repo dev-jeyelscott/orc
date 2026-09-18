@@ -54,16 +54,19 @@ export function createDepartment(input: CreateDepartment): Promise<Department> {
 export function updateDepartment(
   departmentId: string,
   input: UpdateDepartment,
+  expectedRevision?: string | null,
 ): Promise<Department> {
   return requestDepartment(`/api/departments/${departmentId}`, {
     method: "PATCH",
-    body: JSON.stringify(input),
+    body: JSON.stringify({ ...input, expectedRevision }),
   });
 }
 
-export async function deleteDepartment(departmentId: string): Promise<void> {
+export async function deleteDepartment(departmentId: string, expectedRevision?: string | null): Promise<void> {
   const response = await fetch(`${SERVER_URL}/api/departments/${departmentId}`, {
     method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ expectedRevision }),
   });
 
   if (!response.ok) {

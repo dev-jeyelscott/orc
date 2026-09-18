@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
+  configMutationControlSchema,
   createAgentSchema,
   previewAgentSchema,
   updateAgentSkillsSchema,
@@ -19,6 +20,8 @@ import {
 } from "../services/agent-service.js";
 
 const idParams = z.object({ agentId: z.string().uuid() });
+const updateBodySchema = updateAgentSchema.merge(configMutationControlSchema);
+const deleteBodySchema = configMutationControlSchema;
 
 /**
  * Parses and validates route or request payload data with a shared Zod schema.
@@ -102,10 +105,8 @@ export async function agentRoutes(app: FastifyInstance) {
   app.patch("/api/agents/:agentId", async (request, reply) => {
     try {
       const { agentId } = parse(idParams, request.params);
-      const agent = await updateAgent(
-        agentId,
-        parse(updateAgentSchema, request.body),
-      );
+      const { expectedRevision, ...input } = parse(updateBodySchema, request.body);
+      const agent = await updateAgent(agentId, input, expectedRevision ?? null);
 
       return (
         agent ??
@@ -129,7 +130,8 @@ export async function agentRoutes(app: FastifyInstance) {
   app.delete("/api/agents/:agentId", async (request, reply) => {
     try {
       const { agentId } = parse(idParams, request.params);
-      const deleted = await deleteAgent(agentId);
+      const { expectedRevision } = parse(deleteBodySchema, request.body ?? {});
+      const deleted = await deleteAgent(agentId, expectedRevision ?? null);
 
       return deleted
         ? reply.status(204).send()

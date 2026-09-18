@@ -2,9 +2,10 @@ import { z } from "zod";
 
 /**
  * Read-only Git-backed configuration status contract (roadmap Vertical
- * Spec 1, section 10.7). `syncing`/`out_of_sync` are reserved for later
- * slices that add PostgreSQL projection; this slice only ever reports
- * `valid` or `invalid` because it does not synchronize a projection yet.
+ * Spec 1, section 10.7). `out_of_sync` is reported starting with Vertical
+ * Spec 2, when a canonical file write succeeds but its PostgreSQL
+ * projection sync fails. `syncing` is reserved for the global startup/
+ * explicit sync slice (Vertical Spec 7).
  */
 export const configurationStatusStateSchema = z.enum(["valid", "invalid", "out_of_sync", "syncing"]);
 

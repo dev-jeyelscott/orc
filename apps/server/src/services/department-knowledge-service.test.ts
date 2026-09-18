@@ -1,3 +1,7 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -16,6 +20,14 @@ import {
 
 const createdDepartmentIds = new Set<string>();
 const createdCategoryIds = new Set<string>();
+const createdRoots: string[] = [];
+
+/** Isolates canonical `.orc/` file writes from the real repository configuration root. */
+async function makeConfigRoot(): Promise<string> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "orc-department-knowledge-test-"));
+  createdRoots.push(root);
+  return root;
+}
 
 const departmentInput = (label: string) => ({
   slug: `department-knowledge-${label}-${crypto.randomUUID()}`,
@@ -47,18 +59,21 @@ afterEach(async () => {
     await db.delete(knowledgeCategories).where(eq(knowledgeCategories.id, id)).catch(() => undefined);
   }
   createdCategoryIds.clear();
+  for (const root of createdRoots.splice(0)) await fs.rm(root, { recursive: true, force: true });
 });
 
 describe("department-knowledge-service", () => {
   it("returns no associations for a Department with none configured", async () => {
-    const department = await createDepartment(departmentInput("none"));
+    const root = await makeConfigRoot();
+    const department = await createDepartment(departmentInput("none"), root);
     createdDepartmentIds.add(department.id);
 
     expect(await listDepartmentKnowledge(department.id)).toEqual([]);
   });
 
   it("replaces the full association set without duplicating rows on repeat calls", async () => {
-    const department = await createDepartment(departmentInput("assign"));
+    const root = await makeConfigRoot();
+    const department = await createDepartment(departmentInput("assign"), root);
     createdDepartmentIds.add(department.id);
     const categoryA = await createKnowledgeCategory(categoryInput("a"));
     createdCategoryIds.add(categoryA.id);
@@ -87,7 +102,8 @@ describe("department-knowledge-service", () => {
   });
 
   it("removes an association when it is left out of a later replace call", async () => {
-    const department = await createDepartment(departmentInput("remove"));
+    const root = await makeConfigRoot();
+    const department = await createDepartment(departmentInput("remove"), root);
     createdDepartmentIds.add(department.id);
     const category = await createKnowledgeCategory(categoryInput("remove"));
     createdCategoryIds.add(category.id);
@@ -101,7 +117,8 @@ describe("department-knowledge-service", () => {
   });
 
   it("still presents a disabled Knowledge Category as an association", async () => {
-    const department = await createDepartment(departmentInput("disabled"));
+    const root = await makeConfigRoot();
+    const department = await createDepartment(departmentInput("disabled"), root);
     createdDepartmentIds.add(department.id);
     const category = await createKnowledgeCategory(categoryInput("disabled", false));
     createdCategoryIds.add(category.id);
@@ -113,7 +130,8 @@ describe("department-knowledge-service", () => {
   });
 
   it("rejects an unknown Knowledge Category id", async () => {
-    const department = await createDepartment(departmentInput("bad-category"));
+    const root = await makeConfigRoot();
+    const department = await createDepartment(departmentInput("bad-category"), root);
     createdDepartmentIds.add(department.id);
 
     await expect(
@@ -128,12 +146,13 @@ describe("department-knowledge-service", () => {
   });
 
   it("cascades association removal when the Department is deleted", async () => {
-    const department = await createDepartment(departmentInput("cascade"));
+    const root = await makeConfigRoot();
+    const department = await createDepartment(departmentInput("cascade"), root);
     const category = await createKnowledgeCategory(categoryInput("cascade"));
     createdCategoryIds.add(category.id);
 
     await replaceDepartmentKnowledge(department.id, [category.id]);
-    await deleteDepartment(department.id);
+    await deleteDepartment(department.id, null, root);
 
     const rows = await db
       .select()
@@ -143,7 +162,8 @@ describe("department-knowledge-service", () => {
   });
 
   it("restricts deleting a Knowledge Category still declared as primary by a Department", async () => {
-    const department = await createDepartment(departmentInput("restrict"));
+    const root = await makeConfigRoot();
+    const department = await createDepartment(departmentInput("restrict"), root);
     createdDepartmentIds.add(department.id);
     const category = await createKnowledgeCategory(categoryInput("restrict"));
     createdCategoryIds.add(category.id);
@@ -156,7 +176,8 @@ describe("department-knowledge-service", () => {
   });
 
   it("does not restrict other Knowledge Categories from being listed or retrieved", async () => {
-    const department = await createDepartment(departmentInput("unrelated"));
+    const root = await makeConfigRoot();
+    const department = await createDepartment(departmentInput("unrelated"), root);
     createdDepartmentIds.add(department.id);
     const primary = await createKnowledgeCategory(categoryInput("primary"));
     createdCategoryIds.add(primary.id);

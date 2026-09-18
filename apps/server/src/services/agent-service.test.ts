@@ -1,3 +1,7 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import {
   eq,
 } from "drizzle-orm";
@@ -43,6 +47,15 @@ const createdRunIds =
 
 const createdDepartmentIds =
   new Set<string>();
+
+const createdRoots: string[] = [];
+
+/** Isolates canonical `.orc/` file writes from the real repository configuration root. */
+async function makeConfigRoot(): Promise<string> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "orc-agent-service-test-"));
+  createdRoots.push(root);
+  return root;
+}
 
 /**
  * Creates a uniquely configured test agent and tracks it for cleanup.
@@ -207,26 +220,57 @@ describe(
         createdRunIds.clear();
         createdAgentIds.clear();
         createdDepartmentIds.clear();
+        for (const root of createdRoots.splice(0)) await fs.rm(root, { recursive: true, force: true });
       },
     );
 
     it("round-trips runtime overrides and clears them back to inheritance", async () => {
-      const row = await createTestAgent("Overrides");
+      const root = await makeConfigRoot();
+      // The owning Department must be file-backed for `updateAgent` to pass
+      // cross-graph validation; the Agent row itself stays DB-only until its
+      // first update self-heals a canonical file for it.
+      const department = await createDepartment(
+        {
+          slug: `test-department-overrides-${crypto.randomUUID()}`,
+          name: "Test Overrides Department",
+          role: "Overrides",
+          harness: "codex",
+          defaultModel: "default",
+          defaultReasoning: "high",
+          systemPrompt: "Act as the Overrides test agent.",
+          canWrite: false,
+          canRunCommands: true,
+          canCommit: false,
+        },
+        root,
+      );
+      createdDepartmentIds.add(department.id);
+      const [row] = await db
+        .insert(agents)
+        .values({
+          departmentId: department.id,
+          slug: `test-overrides-${crypto.randomUUID()}`,
+          name: "Test Overrides",
+          enabled: true,
+        })
+        .returning();
+      createdAgentIds.add(row.id);
       const overrides = { harnessOverride: "claude" as const, modelOverride: "claude-sonnet-5", reasoningOverride: "low", canWriteOverride: true, canRunCommandsOverride: false, canCommitOverride: true, sandboxModeOverride: "read-only" as const, additionalPrompt: "Specialize in verification." };
-      const saved = await updateAgent(row.id, overrides);
+      const saved = await updateAgent(row.id, overrides, null, root);
       expect(saved).toMatchObject({ ...overrides, hasHarnessOverride: true, hasCanWriteOverride: true, hasCanRunCommandsOverride: true, hasSandboxModeOverride: true, hasCanCommitOverride: true, effective: { harness: "claude", canWrite: true, canRunCommands: false, canCommit: true, sandboxMode: "read-only" } });
-      expect(await getAgent(row.id)).toEqual(saved);
-      expect(await updateAgent(row.id, { name: "Renamed override" })).toMatchObject(overrides);
-      const cleared = await updateAgent(row.id, { harnessOverride: null, modelOverride: null, reasoningOverride: null, canWriteOverride: null, canRunCommandsOverride: null, sandboxModeOverride: null, canCommitOverride: null });
+      expect(await getAgent(row.id, root)).toEqual(saved);
+      expect(await updateAgent(row.id, { name: "Renamed override" }, saved!.configRevision, root)).toMatchObject(overrides);
+      const cleared = await updateAgent(row.id, { harnessOverride: null, modelOverride: null, reasoningOverride: null, canWriteOverride: null, canRunCommandsOverride: null, sandboxModeOverride: null, canCommitOverride: null }, null, root);
       expect(cleared).toMatchObject({ hasHarnessOverride: false, hasCanRunCommandsOverride: false, effective: { harness: "codex", canWrite: false, canRunCommands: true, canCommit: false } });
-      const beforePreview = await getAgent(row.id);
+      const beforePreview = await getAgent(row.id, root);
       expect(await previewAgent({ departmentId: row.departmentId, enabled: true, additionalPrompt: "Draft only", canRunCommandsOverride: false })).toMatchObject({ canRunCommands: false });
-      expect(await getAgent(row.id)).toEqual(beforePreview);
+      expect(await getAgent(row.id, root)).toEqual(beforePreview);
     });
 
     it(
       "preserves historical executions and snapshots after safe deletion",
       async () => {
+        const root = await makeConfigRoot();
         const source =
           await createTestAgent(
             "Historical",
@@ -286,6 +330,8 @@ describe(
         expect(
           await deleteAgent(
             source.id,
+            null,
+            root,
           ),
         ).toBe(true);
 
@@ -378,6 +424,7 @@ describe(
     it(
       "requires a valid Department and resolves inherited effective configuration",
       async () => {
+        const root = await makeConfigRoot();
         const department =
           await createDepartment(
             {
@@ -402,6 +449,7 @@ describe(
               canCommit:
                 false,
             },
+            root,
           );
 
         createdDepartmentIds.add(
@@ -422,6 +470,7 @@ describe(
               additionalPrompt:
                 "",
             },
+            root,
           ),
         ).rejects.toMatchObject({
           statusCode:
@@ -442,6 +491,7 @@ describe(
               additionalPrompt:
                 "",
             },
+            root,
           );
 
         createdAgentIds.add(
@@ -484,6 +534,8 @@ describe(
               additionalPrompt:
                 "Focus on billing.",
             },
+            agent.configRevision,
+            root,
           );
 
         expect(
@@ -514,11 +566,14 @@ describe(
             enabled:
               false,
           },
+          department.configRevision,
+          root,
         );
 
         const withDisabledDepartment =
           await getAgent(
             agent.id,
+            root,
           );
 
         expect(

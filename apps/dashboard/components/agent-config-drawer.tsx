@@ -53,7 +53,7 @@ export function AgentConfigDrawer({ agent, departments, teams, skills, onOpenCha
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSaving(true); setError(null);
     try {
-      const saved = agent ? await updateAgent(agent.id, draft) : await createAgent(draft);
+      const saved = agent ? await updateAgent(agent.id, draft, agent.configRevision) : await createAgent(draft);
       await replaceAgentSkills(saved.id, skillIds);
       await onRefresh(); onOpenChange(false);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to save Agent"); }
@@ -62,7 +62,7 @@ export function AgentConfigDrawer({ agent, departments, teams, skills, onOpenCha
   async function remove() {
     if (!agent || assigned || !window.confirm(`Permanently delete ${agent.name}?`)) return;
     setSaving(true); setError(null);
-    try { await deleteAgent(agent.id); await onRefresh(); onOpenChange(false); }
+    try { await deleteAgent(agent.id, agent.configRevision); await onRefresh(); onOpenChange(false); }
     catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to delete Agent"); }
     finally { setSaving(false); }
   }

@@ -61,6 +61,7 @@ describe("Department DTO contracts", () => {
       sandboxMode: "workspace-write",
       canCommit: false,
       agentCount: 0,
+      configRevision: "deadbeef",
       createdAt: "2026-09-12T00:00:00.000Z",
       updatedAt: "2026-09-12T00:00:00.000Z",
     }).agentCount).toBe(0);

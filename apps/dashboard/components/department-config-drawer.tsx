@@ -342,6 +342,7 @@ export function DepartmentConfigDrawer({
           : await updateDepartment(
               department!.id,
               draft,
+              department!.configRevision,
             );
 
       if (
@@ -395,6 +396,7 @@ export function DepartmentConfigDrawer({
     try {
       await deleteDepartment(
         department.id,
+        department.configRevision,
       );
 
       await onRefresh();

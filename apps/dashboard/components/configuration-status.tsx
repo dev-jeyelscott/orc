@@ -6,12 +6,13 @@ import type { ConfigurationStatusResponse } from "@orc/shared";
 import { Badge } from "@/components/ui/badge";
 import { getConfigurationStatus } from "@/lib/configuration";
 
-type Display = "checking" | "valid" | "invalid" | "unreachable";
+type Display = "checking" | "valid" | "invalid" | "out_of_sync" | "unreachable";
 
 /**
- * Displays read-only `.orc/` configuration health. This is a status
- * indicator only -- `.orc/` is not yet the runtime authority for any
- * configuration, so this never implies files currently drive behavior.
+ * Displays `.orc/` configuration health. Department and Agent configuration
+ * is file-authoritative as of Vertical Spec 2: `valid` means the canonical
+ * tree parses and its PostgreSQL projection is current; `out_of_sync` means
+ * a canonical file write succeeded but its projection sync failed.
  */
 function ConfigurationStatus() {
   const [status, setStatus] = useState<ConfigurationStatusResponse | null>(null);
@@ -24,7 +25,7 @@ function ConfigurationStatus() {
       .then((result) => {
         if (cancelled) return;
         setStatus(result);
-        setDisplay(result.state === "valid" ? "valid" : "invalid");
+        setDisplay(result.state === "syncing" ? "checking" : result.state);
       })
       .catch(() => {
         if (!cancelled) setDisplay("unreachable");
@@ -39,6 +40,7 @@ function ConfigurationStatus() {
     checking: "Checking config",
     valid: "Config: Valid",
     invalid: `Config: Invalid${status ? ` (${status.errorCount})` : ""}`,
+    out_of_sync: "Config: Out of sync",
     unreachable: "Config: Unreachable",
   };
 
@@ -46,6 +48,7 @@ function ConfigurationStatus() {
     checking: "neutral",
     valid: "success",
     invalid: "warning",
+    out_of_sync: "warning",
     unreachable: "error",
   } as const;
 

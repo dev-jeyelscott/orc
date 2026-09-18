@@ -149,6 +149,7 @@ export function createAgent(
 export function updateAgent(
   id: string,
   input: UpdateAgent,
+  expectedRevision?: string | null,
 ): Promise<Agent> {
   return request(
     `/api/agents/${id}`,
@@ -156,7 +157,7 @@ export function updateAgent(
       method: "PATCH",
       body:
         JSON.stringify(
-          input,
+          { ...input, expectedRevision },
         ),
     },
     agentSchema,
@@ -173,11 +174,14 @@ export async function replaceAgentSkills(id: string, skillIds: string[]): Promis
  */
 export function deleteAgent(
   id: string,
+  expectedRevision?: string | null,
 ): Promise<void> {
   return requestNoContent(
     `/api/agents/${id}`,
     {
       method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ expectedRevision }),
     },
   );
 }

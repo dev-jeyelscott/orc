@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import {
+  configMutationControlSchema,
   createDepartmentSchema,
   putDepartmentKnowledgeSchema,
   updateDepartmentSchema,
@@ -22,6 +23,8 @@ import {
 } from "../services/department-knowledge-service.js";
 
 const idParams = z.object({ departmentId: z.string().uuid() });
+const updateBodySchema = updateDepartmentSchema.merge(configMutationControlSchema);
+const deleteBodySchema = configMutationControlSchema;
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value);
@@ -83,10 +86,8 @@ export async function departmentRoutes(app: FastifyInstance) {
   app.patch("/api/departments/:departmentId", async (request, reply) => {
     try {
       const { departmentId } = parse(idParams, request.params);
-      const department = await updateDepartment(
-        departmentId,
-        parse(updateDepartmentSchema, request.body),
-      );
+      const { expectedRevision, ...input } = parse(updateBodySchema, request.body);
+      const department = await updateDepartment(departmentId, input, expectedRevision ?? null);
 
       return department ?? reply.status(404).send({ error: "department_not_found" });
     } catch (error) {
@@ -124,7 +125,8 @@ export async function departmentRoutes(app: FastifyInstance) {
   app.delete("/api/departments/:departmentId", async (request, reply) => {
     try {
       const { departmentId } = parse(idParams, request.params);
-      const deleted = await deleteDepartment(departmentId);
+      const { expectedRevision } = parse(deleteBodySchema, request.body ?? {});
+      const deleted = await deleteDepartment(departmentId, expectedRevision ?? null);
 
       return deleted
         ? reply.status(204).send()
