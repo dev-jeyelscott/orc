@@ -193,6 +193,9 @@ export const teamMembershipInputSchema =
       z.array(
         z.string().uuid(),
       ),
+    /** The revision `team.yaml` was read against; omit/null skips the optimistic-lock check. */
+    expectedRevision:
+      z.string().nullable().optional(),
   });
 
 export const teamMembershipMemberSchema =
@@ -211,6 +214,9 @@ export const teamMembershipSchema =
       z.array(
         teamMembershipMemberSchema,
       ),
+    /** The canonical `.orc/teams/<slug>/team.yaml` content hash at read time. */
+    configRevision:
+      z.string(),
   });
 
 export type TeamMembershipInput =

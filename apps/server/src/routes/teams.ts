@@ -6,6 +6,7 @@ import {
 } from "zod";
 
 import {
+  configMutationControlSchema,
   createTeamSchema,
   updateTeamSchema,
 } from "@orc/shared";
@@ -24,6 +25,9 @@ const idParams =
     teamId:
       z.string().uuid(),
   });
+
+const updateBodySchema = updateTeamSchema.merge(configMutationControlSchema);
+const deleteBodySchema = configMutationControlSchema;
 
 /**
  * Parses and validates Team route data with a supplied Zod schema.
@@ -185,9 +189,12 @@ export async function teamRoutes(
           request.params,
         );
 
-        const input =
+        const {
+          expectedRevision,
+          ...input
+        } =
           parse(
-            updateTeamSchema,
+            updateBodySchema,
             request.body,
           );
 
@@ -195,6 +202,8 @@ export async function teamRoutes(
           await updateTeam(
             teamId,
             input,
+            expectedRevision ??
+              null,
           );
 
         return (
@@ -229,9 +238,18 @@ export async function teamRoutes(
           request.params,
         );
 
+        const {
+          expectedRevision,
+        } = parse(
+          deleteBodySchema,
+          request.body ?? {},
+        );
+
         const deleted =
           await deleteTeam(
             teamId,
+            expectedRevision ??
+              null,
           );
 
         return deleted

@@ -1,3 +1,7 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import {
   eq,
 } from "drizzle-orm";
@@ -34,23 +38,35 @@ const createdDepartmentIds =
 const createdTeamIds =
   new Set<string>();
 
+const createdRoots: string[] = [];
+
+async function makeConfigRoot(): Promise<string> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "orc-team-service-test-"));
+  createdRoots.push(root);
+  return root;
+}
+
 /**
  * Creates and tracks one disposable Team.
  */
 async function createTestTeam(
+  root: string,
   label: string,
 ) {
   const team =
-    await createTeam({
-      slug:
-        `team-service-${label}-${crypto.randomUUID()}`,
-      name:
-        `Team Service ${label}`,
-      description:
-        "",
-      enabled:
-        true,
-    });
+    await createTeam(
+      {
+        slug:
+          `team-service-${label}-${crypto.randomUUID()}`,
+        name:
+          `Team Service ${label}`,
+        description:
+          "",
+        enabled:
+          true,
+      },
+      root,
+    );
 
   createdTeamIds.add(
     team.id,
@@ -147,6 +163,10 @@ async function cleanupTrackedTeams() {
 
   createdTeamIds.clear();
   createdDepartmentIds.clear();
+
+  for (const root of createdRoots.splice(0)) {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 }
 
 afterEach(
@@ -159,14 +179,17 @@ describe(
     it(
       "creates, reads, updates, lists, and deletes an empty Team",
       async () => {
+        const root = await makeConfigRoot();
         const team =
           await createTestTeam(
+            root,
             "crud",
           );
 
         expect(
           await getTeam(
             team.id,
+            root,
           ),
         ).toMatchObject({
           id:
@@ -177,7 +200,7 @@ describe(
 
         expect(
           (
-            await listTeams()
+            await listTeams(root)
           ).some(
             (candidate) =>
               candidate.id ===
@@ -194,6 +217,8 @@ describe(
               enabled:
                 false,
             },
+            team.configRevision,
+            root,
           );
 
         expect(
@@ -210,6 +235,8 @@ describe(
         expect(
           await deleteTeam(
             team.id,
+            updated!.configRevision,
+            root,
           ),
         ).toBe(true);
 
@@ -220,6 +247,7 @@ describe(
         expect(
           await getTeam(
             team.id,
+            root,
           ),
         ).toBeNull();
       },
@@ -228,34 +256,41 @@ describe(
     it(
       "rejects duplicate Team slugs",
       async () => {
+        const root = await makeConfigRoot();
         const slug =
           `duplicate-${crypto.randomUUID()}`;
 
         const first =
-          await createTeam({
-            slug,
-            name:
-              "First Duplicate",
-            description:
-              "",
-            enabled:
-              true,
-          });
+          await createTeam(
+            {
+              slug,
+              name:
+                "First Duplicate",
+              description:
+                "",
+              enabled:
+                true,
+            },
+            root,
+          );
 
         createdTeamIds.add(
           first.id,
         );
 
         await expect(
-          createTeam({
-            slug,
-            name:
-              "Second Duplicate",
-            description:
-              "",
-            enabled:
-              true,
-          }),
+          createTeam(
+            {
+              slug,
+              name:
+                "Second Duplicate",
+              description:
+                "",
+              enabled:
+                true,
+            },
+            root,
+          ),
         ).rejects.toMatchObject({
           statusCode:
             409,
@@ -264,10 +299,29 @@ describe(
     );
 
     it(
+      "rejects an update against a stale configRevision",
+      async () => {
+        const root = await makeConfigRoot();
+        const team = await createTestTeam(root, "stale");
+
+        await expect(
+          updateTeam(
+            team.id,
+            { enabled: false },
+            "not-the-current-revision",
+            root,
+          ),
+        ).rejects.toMatchObject({ statusCode: 409 });
+      },
+    );
+
+    it(
       "rejects deletion while an Agent references the Team",
       async () => {
+        const root = await makeConfigRoot();
         const team =
           await createTestTeam(
+            root,
             "agent-reference",
           );
 
@@ -327,6 +381,8 @@ describe(
         await expect(
           deleteTeam(
             team.id,
+            null,
+            root,
           ),
         ).rejects.toMatchObject({
           statusCode:
@@ -342,8 +398,10 @@ describe(
     it(
       "rejects deletion while a Task references the Team",
       async () => {
+        const root = await makeConfigRoot();
         const team =
           await createTestTeam(
+            root,
             "task-reference",
           );
 
@@ -365,6 +423,8 @@ describe(
         await expect(
           deleteTeam(
             team.id,
+            null,
+            root,
           ),
         ).rejects.toMatchObject({
           statusCode:
@@ -380,8 +440,10 @@ describe(
     it(
       "rejects deletion while a historical Run references the Team",
       async () => {
+        const root = await makeConfigRoot();
         const team =
           await createTestTeam(
+            root,
             "run-reference",
           );
 
@@ -399,6 +461,8 @@ describe(
         await expect(
           deleteTeam(
             team.id,
+            null,
+            root,
           ),
         ).rejects.toMatchObject({
           statusCode:
@@ -414,8 +478,10 @@ describe(
     it(
       "rejects deletion while a Conversation references the Team",
       async () => {
+        const root = await makeConfigRoot();
         const team =
           await createTestTeam(
+            root,
             "conversation-reference",
           );
 
@@ -433,6 +499,8 @@ describe(
         await expect(
           deleteTeam(
             team.id,
+            null,
+            root,
           ),
         ).rejects.toMatchObject({
           statusCode:

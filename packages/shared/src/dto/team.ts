@@ -42,6 +42,14 @@ export const teamSchema =
       z.string().datetime(),
     updatedAt:
       z.string().datetime(),
+    /**
+     * The canonical `.orc/teams/<slug>/team.yaml` content hash at read time.
+     * Update/delete requests echo this back as `expectedRevision` so a stale
+     * dashboard edit is rejected instead of silently overwriting a newer
+     * manual file edit.
+     */
+    configRevision:
+      z.string(),
   });
 
 export const teamListResponseSchema =

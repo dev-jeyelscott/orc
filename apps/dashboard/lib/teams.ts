@@ -133,6 +133,7 @@ export function createTeam(
 export function updateTeam(
   teamId: string,
   input: UpdateTeam,
+  expectedRevision?: string | null,
 ): Promise<Team> {
   return requestTeam(
     `/api/teams/${teamId}`,
@@ -141,7 +142,7 @@ export function updateTeam(
         "PATCH",
       body:
         JSON.stringify(
-          input,
+          { ...input, expectedRevision },
         ),
     },
   );
@@ -152,6 +153,7 @@ export function updateTeam(
  */
 export async function deleteTeam(
   teamId: string,
+  expectedRevision?: string | null,
 ): Promise<void> {
   const response =
     await fetch(
@@ -159,6 +161,14 @@ export async function deleteTeam(
       {
         method:
           "DELETE",
+        headers: {
+          "content-type":
+            "application/json",
+        },
+        body:
+          JSON.stringify(
+            { expectedRevision },
+          ),
       },
     );
 

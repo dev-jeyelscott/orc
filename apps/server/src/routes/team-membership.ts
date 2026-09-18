@@ -54,7 +54,7 @@ export async function teamMembershipRoutes(app: FastifyInstance) {
       const { teamId } = parse(idParams, request.params);
       const input = parse(teamMembershipInputSchema, request.body);
 
-      return await replaceTeamMembers(teamId, input.agentIds);
+      return await replaceTeamMembers(teamId, input.agentIds, input.expectedRevision ?? null);
     } catch (error) {
       return sendError(error, reply);
     }

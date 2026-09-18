@@ -208,6 +208,7 @@ export function TeamConfigDrawer({
           : await updateTeam(
               team!.id,
               draft,
+              team!.configRevision,
             );
 
       await onRefresh(
@@ -258,6 +259,7 @@ export function TeamConfigDrawer({
     try {
       await deleteTeam(
         team.id,
+        team.configRevision,
       );
 
       await onRefresh(

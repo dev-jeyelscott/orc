@@ -1,8 +1,8 @@
 import { eq, inArray } from "drizzle-orm";
 
 import { db } from "../db/client.js";
-import { agents, agentSkills, departments, skills } from "../db/schema.js";
-import type { AgentConfig, DepartmentConfig, SkillConfig } from "./schemas.js";
+import { agents, agentSkills, departments, skills, teams } from "../db/schema.js";
+import type { AgentConfig, DepartmentConfig, SkillConfig, TeamConfig } from "./schemas.js";
 
 /** Accepts either the top-level `db` handle or an in-flight `db.transaction` callback's `tx`. */
 type DbOrTx = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -152,4 +152,32 @@ export async function syncAgentProjection(
 /** Removes an Agent's PostgreSQL projection row by slug. A no-op if it was never synced. */
 export async function removeAgentProjection(slug: string, tx: DbOrTx = db): Promise<void> {
   await tx.delete(agents).where(eq(agents.slug, slug));
+}
+
+/**
+ * Upserts one canonical Team file's metadata into its PostgreSQL projection
+ * row, keyed by slug. Membership itself is a separate projection step (the
+ * existing `team_members` diff in `team-membership.ts`) so a metadata-only
+ * edit never touches composition.
+ */
+export async function syncTeamProjection(config: TeamConfig, tx: DbOrTx = db): Promise<typeof teams.$inferSelect> {
+  const values = {
+    slug: config.slug,
+    name: config.name,
+    description: config.description,
+    enabled: config.enabled,
+  };
+
+  const [row] = await tx
+    .insert(teams)
+    .values(values)
+    .onConflictDoUpdate({ target: teams.slug, set: { ...values, updatedAt: new Date() } })
+    .returning();
+
+  return row;
+}
+
+/** Removes a Team's PostgreSQL projection row by slug. A no-op if it was never synced. */
+export async function removeTeamProjection(slug: string, tx: DbOrTx = db): Promise<void> {
+  await tx.delete(teams).where(eq(teams.slug, slug));
 }

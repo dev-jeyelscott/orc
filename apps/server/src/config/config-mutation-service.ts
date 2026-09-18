@@ -14,14 +14,17 @@ import {
   type ConfigIssue,
   type DepartmentResource,
   type SkillResource,
+  type TeamResource,
 } from "./loader.js";
 import {
   agentConfigSchema,
   departmentConfigSchema,
   skillConfigSchema,
+  teamConfigSchema,
   type AgentConfig,
   type DepartmentConfig,
   type SkillConfig,
+  type TeamConfig,
 } from "./schemas.js";
 
 /** A save/delete arrived with a stale or missing expected `configRevision`. */
@@ -58,6 +61,11 @@ export interface WrittenSkillFile {
   data: SkillConfig;
   /** Null when the Skill remains metadata-only (no loadable `SKILL.md`). */
   instructions: string | null;
+  configRevision: string;
+}
+
+export interface WrittenTeamFile {
+  data: TeamConfig;
   configRevision: string;
 }
 
@@ -422,6 +430,118 @@ export async function deleteSkillFile(
 export async function getSkillRevision(configRoot: string, slug: string): Promise<string | null> {
   const graph = await loadConfigGraph(configRoot);
   return graph.skills.find((resource) => resource.data.slug === slug)?.contentHash ?? null;
+}
+
+/**
+ * Writes one canonical Team resource (metadata + membership; `workflow.yaml`
+ * is a sibling file this function never touches -- a slug rename carries it
+ * along by moving the whole directory). Membership slugs must already
+ * reference existing Agent resources in the current graph; cross-Team
+ * exclusivity and one-Agent-per-Department are enforced by the same
+ * `validateReferenceGraph` pass the loader uses.
+ */
+export async function writeTeamFile(
+  configRoot: string,
+  data: TeamConfig,
+  options: { previousSlug: string | null; expectedRevision: string | null },
+): Promise<WrittenTeamFile> {
+  const parsed = teamConfigSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new ConfigValidationError(
+      parsed.error.issues.map((issue) => ({
+        filePath: path.join(configRoot, "teams", data.slug, "team.yaml"),
+        resourceType: "team",
+        resourceId: data.slug,
+        field: issue.path.join(".") || null,
+        message: issue.message,
+      })),
+    );
+  }
+
+  const graph = await loadCleanGraph(configRoot);
+
+  // See `writeDepartmentFile`: `previousSlug` decides create vs. update;
+  // `expectedRevision` only gates the update's optimistic-lock check.
+  let existing: TeamResource | null = null;
+  if (options.previousSlug === null) {
+    if (graph.teams.some((resource) => resource.data.slug === data.slug)) {
+      throw new ConfigConflictError(`Team "${data.slug}" already exists`);
+    }
+  } else {
+    existing = graph.teams.find((resource) => resource.data.slug === options.previousSlug) ?? null;
+    if (!existing) {
+      throw new ConfigConflictError(`Team "${options.previousSlug}" no longer exists`);
+    }
+    if (options.expectedRevision !== null && existing.contentHash !== options.expectedRevision) {
+      throw new ConfigConflictError("Team was modified by another edit; reload and retry");
+    }
+  }
+
+  const dir = path.join(configRoot, "teams", data.slug);
+  if (!existing || existing.data.slug !== data.slug) {
+    if (await pathExists(dir)) {
+      throw new ConfigConflictError(`Team "${data.slug}" already exists`);
+    }
+  }
+
+  const proposedResource: TeamResource = {
+    filePath: path.join(dir, "team.yaml"),
+    contentHash: "",
+    data: parsed.data,
+    workflow: existing?.workflow ?? null,
+  };
+  const proposedTeams = existing
+    ? graph.teams.map((resource) => (resource === existing ? proposedResource : resource))
+    : [...graph.teams, proposedResource];
+
+  const issues = runGraphValidation({ ...graph, teams: proposedTeams });
+  if (issues.length) {
+    throw new ConfigValidationError(issues);
+  }
+
+  const previousDir = existing && existing.data.slug !== data.slug ? path.join(configRoot, "teams", existing.data.slug) : null;
+  if (previousDir && (await pathExists(previousDir))) {
+    await fs.rename(previousDir, dir);
+  }
+
+  const yamlContent = stringifyYaml(parsed.data);
+  await atomicWriteFile(path.join(dir, "team.yaml"), yamlContent);
+
+  return { data: parsed.data, configRevision: sha256(normalizeText(yamlContent)) };
+}
+
+/**
+ * Deletes one canonical Team resource (metadata, membership, and any
+ * `workflow.yaml`). Refuses when a Project file still assigns this Team.
+ */
+export async function deleteTeamFile(
+  configRoot: string,
+  slug: string,
+  expectedRevision: string | null,
+): Promise<boolean> {
+  const graph = await loadCleanGraph(configRoot);
+  const existing = graph.teams.find((resource) => resource.data.slug === slug);
+  if (!existing) return false;
+
+  if (expectedRevision !== null && existing.contentHash !== expectedRevision) {
+    throw new ConfigConflictError("Team was modified by another edit; reload and retry");
+  }
+
+  const referencingProject = graph.projects.find((resource) => resource.data.team === slug);
+  if (referencingProject) {
+    throw new ConfigReferentialError(
+      `Team "${slug}" cannot be deleted because Project "${referencingProject.data.slug}" still references it`,
+    );
+  }
+
+  await fs.rm(path.join(configRoot, "teams", slug), { recursive: true, force: true });
+  return true;
+}
+
+/** Reads one Team's current canonical `configRevision`, or null if the file does not exist. */
+export async function getTeamRevision(configRoot: string, slug: string): Promise<string | null> {
+  const graph = await loadConfigGraph(configRoot);
+  return graph.teams.find((resource) => resource.data.slug === slug)?.contentHash ?? null;
 }
 
 /** Reads one Department's current canonical `configRevision`, or null if the file does not exist. */
