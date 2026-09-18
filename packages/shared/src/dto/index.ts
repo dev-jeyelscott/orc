@@ -21,3 +21,4 @@ export * from "./event.js";
 export * from "./dashboard.js";
 export * from "./run-monitoring.js";
 export * from "./system-settings.js";
+export * from "./configuration.js";

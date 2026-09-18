@@ -12,7 +12,9 @@
     "typecheck": "pnpm --filter @orc/shared build && tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file=.env src/db/migrate.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "config:validate": "tsx --env-file=.env src/config/validate-cli.ts",
+    "config:export": "tsx --env-file=.env src/config/export-cli.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
@@ -25,6 +27,7 @@
     "node-pty": "^1.1.0",
     "pino": "^9.5.0",
     "postgres": "^3.4.5",
+    "yaml": "^2.6.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {

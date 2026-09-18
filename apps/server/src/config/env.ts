@@ -44,6 +44,26 @@ const envSchema =
         .transform(
           expandHome,
         ),
+    /**
+     * Bootstrap root for the Git-backed `.orc/` configuration tree (roadmap
+     * "Configuration Kernel" slice). Defaults to the conventional
+     * `~/orc/app/.orc` layout while preserving explicit override support.
+     * `WORKSPACE_ROOT` remains a temporary compatibility fallback until the
+     * Projects vertical slice makes `.orc/orc.yaml` authoritative for it.
+     */
+    ORC_CONFIG_ROOT:
+      z.string()
+        .default(
+          path.join(
+            os.homedir(),
+            "orc",
+            "app",
+            ".orc",
+          ),
+        )
+        .transform(
+          expandHome,
+        ),
     DATABASE_URL:
       z.string()
         .min(

@@ -14,6 +14,9 @@ import {
   autoModeRoutes,
 } from "./routes/auto-mode.js";
 import {
+  configurationRoutes,
+} from "./routes/configuration.js";
+import {
   conversationRoutes,
 } from "./routes/conversations.js";
 import {
@@ -81,6 +84,10 @@ export async function buildApp() {
 
   await app.register(
     healthRoutes,
+  );
+
+  await app.register(
+    configurationRoutes,
   );
 
   await app.register(

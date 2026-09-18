@@ -35,6 +35,7 @@ import {
   ZapIcon,
 } from "lucide-react";
 
+import { ConfigurationStatus } from "@/components/configuration-status";
 import { HealthStatus } from "@/components/health-status";
 import { MetricCard } from "@/components/metric-card";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -1922,6 +1923,8 @@ export function DashboardOverview({
             }
             compact
           />
+
+          <ConfigurationStatus />
 
           <Button
             variant="outline"
