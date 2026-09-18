@@ -14,7 +14,8 @@
     "db:migrate": "tsx --env-file=.env src/db/migrate.ts",
     "db:studio": "drizzle-kit studio",
     "config:validate": "tsx --env-file=.env src/config/validate-cli.ts",
-    "config:export": "tsx --env-file=.env src/config/export-cli.ts"
+    "config:export": "tsx --env-file=.env src/config/export-cli.ts",
+    "config:sync": "tsx --env-file=.env src/config/sync-cli.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

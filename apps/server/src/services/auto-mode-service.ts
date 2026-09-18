@@ -29,6 +29,9 @@ import {
   teamMembers,
 } from "../db/schema.js";
 import {
+  getConfigurationReadiness,
+} from "./configuration-status-service.js";
+import {
   createNotionTaskSourceAdapter,
   type NotionTaskCandidate,
   type NotionTaskSourceAdapter,
@@ -795,6 +798,7 @@ export async function runAutoModeCycle(
     startTask;
 
   if (await getActiveRunSnapshot()) return;
+  if (!(await getConfigurationReadiness()).ready) return;
 
   const assignments = await listProjectTeamAssignments();
   const ready = (await Promise.all(assignments.map(async (assignment) => ({ assignment, readiness: await getProjectAutomationReadiness(assignment.projectPath) })))).filter(({ readiness }) => readiness.ready && readiness.teamId && readiness.notionDataSourceId);

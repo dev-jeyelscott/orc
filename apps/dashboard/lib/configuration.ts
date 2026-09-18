@@ -12,3 +12,12 @@ export async function getConfigurationStatus(): Promise<ConfigurationStatusRespo
 
   return configurationStatusResponseSchema.parse(await response.json());
 }
+
+/** Explicitly synchronizes the PostgreSQL configuration projection from `.orc/`. */
+export async function syncConfiguration(): Promise<void> {
+  const response = await fetch(`${SERVER_URL}/api/configuration/sync`, { method: "POST" });
+
+  if (!response.ok) {
+    throw new Error(`Configuration sync failed with status ${response.status}`);
+  }
+}

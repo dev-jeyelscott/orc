@@ -29,6 +29,7 @@ import {
 } from "@orc/shared";
 
 import { env } from "../config/env.js";
+import { getConfigurationReadiness } from "./configuration-status-service.js";
 
 import { db } from "../db/client.js";
 
@@ -2086,6 +2087,11 @@ async function requireRunnableTeam(
   teamId:
     string,
 ): Promise<void> {
+  const readiness = await getConfigurationReadiness();
+  if (!readiness.ready) {
+    throw new WorkflowServiceError(readiness.reason ?? "Configuration is not ready for new work", 409);
+  }
+
   const [team] =
     await db
       .select({
@@ -2305,6 +2311,11 @@ export async function startTask(
       knowledgeContext,
       400,
     );
+
+  const readiness = await getConfigurationReadiness();
+  if (!readiness.ready) {
+    throw new WorkflowServiceError(readiness.reason ?? "Configuration is not ready for new work", 409);
+  }
 
   const [existingTask] =
     await db
@@ -2603,6 +2614,11 @@ export async function createAndStartTask(
   input:
     CreateTask,
 ): Promise<TaskWithRun> {
+  const readiness = await getConfigurationReadiness();
+  if (!readiness.ready) {
+    throw new WorkflowServiceError(readiness.reason ?? "Configuration is not ready for new work", 409);
+  }
+
   const project =
     await getProject(
       env.WORKSPACE_ROOT,

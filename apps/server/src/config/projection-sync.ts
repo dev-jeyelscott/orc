@@ -1,7 +1,7 @@
 import { eq, inArray } from "drizzle-orm";
 
 import { db } from "../db/client.js";
-import { agents, agentSkills, departments, projectTeamAssignments, skills, teams } from "../db/schema.js";
+import { agents, agentSkills, departments, projectTeamAssignments, skills, teamMembers, teams } from "../db/schema.js";
 import type { AgentConfig, DepartmentConfig, ProjectConfig, SkillConfig, TeamConfig } from "./schemas.js";
 
 /** Accepts either the top-level `db` handle or an in-flight `db.transaction` callback's `tx`. */
@@ -180,6 +180,61 @@ export async function syncTeamProjection(config: TeamConfig, tx: DbOrTx = db): P
 /** Removes a Team's PostgreSQL projection row by slug. A no-op if it was never synced. */
 export async function removeTeamProjection(slug: string, tx: DbOrTx = db): Promise<void> {
   await tx.delete(teams).where(eq(teams.slug, slug));
+}
+
+/**
+ * Replaces one Team's `team_members` projection to match `team.yaml.members`
+ * exactly, resolving each canonical Agent slug to its projected id. Used by
+ * full-graph configuration sync (roadmap Vertical Spec 7), which trusts the
+ * file was already cross-reference validated at load time -- unlike
+ * `replaceTeamMembers` in `team-membership.ts`, this never writes a file and
+ * performs no membership-invariant validation of its own.
+ */
+export async function syncTeamMembershipProjection(
+  teamId: string,
+  agentSlugs: readonly string[],
+  tx: DbOrTx = db,
+): Promise<void> {
+  const agentRows = agentSlugs.length
+    ? await tx
+        .select({ id: agents.id, slug: agents.slug, departmentId: agents.departmentId })
+        .from(agents)
+        .where(inArray(agents.slug, [...agentSlugs]))
+    : [];
+
+  const missing = agentSlugs.filter((slug) => !agentRows.some((row) => row.slug === slug));
+  if (missing.length) {
+    throw new Error(`Cannot project Team membership: Agent(s) not synced yet: ${missing.join(", ")}`);
+  }
+
+  const existingRows = await tx.select().from(teamMembers).where(eq(teamMembers.teamId, teamId));
+  const wantedAgentIds = new Set(agentRows.map((row) => row.id));
+  const existingAgentIds = new Set(existingRows.map((row) => row.agentId));
+  const remainingRows = existingRows.filter((row) => wantedAgentIds.has(row.agentId));
+  const rowsToRemove = existingRows.filter((row) => !wantedAgentIds.has(row.agentId));
+  const rowsToAdd = agentRows.filter((row) => !existingAgentIds.has(row.id));
+
+  if (rowsToRemove.length) {
+    await tx.delete(teamMembers).where(
+      inArray(
+        teamMembers.id,
+        rowsToRemove.map((row) => row.id),
+      ),
+    );
+  }
+
+  if (rowsToAdd.length) {
+    const maxLayer = remainingRows.reduce((max, row) => Math.max(max, row.layer), 0);
+    await tx.insert(teamMembers).values(
+      rowsToAdd.map((row, index) => ({
+        teamId,
+        departmentId: row.departmentId,
+        agentId: row.id,
+        layer: maxLayer + index + 1,
+        executionOrder: 1,
+      })),
+    );
+  }
 }
 
 /**

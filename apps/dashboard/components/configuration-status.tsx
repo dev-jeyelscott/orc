@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import type { ConfigurationStatusResponse } from "@orc/shared";
 
 import { Badge } from "@/components/ui/badge";
-import { getConfigurationStatus } from "@/lib/configuration";
+import { Button } from "@/components/ui/button";
+import { getConfigurationStatus, syncConfiguration } from "@/lib/configuration";
 
 type Display = "checking" | "valid" | "invalid" | "out_of_sync" | "unreachable";
 
@@ -17,6 +18,18 @@ type Display = "checking" | "valid" | "invalid" | "out_of_sync" | "unreachable";
 function ConfigurationStatus() {
   const [status, setStatus] = useState<ConfigurationStatusResponse | null>(null);
   const [display, setDisplay] = useState<Display>("checking");
+  const [syncing, setSyncing] = useState(false);
+
+  const refresh = () => {
+    getConfigurationStatus()
+      .then((result) => {
+        setStatus(result);
+        setDisplay(result.state === "syncing" ? "checking" : result.state);
+      })
+      .catch(() => {
+        setDisplay("unreachable");
+      });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -36,6 +49,18 @@ function ConfigurationStatus() {
     };
   }, []);
 
+  async function handleSync() {
+    setSyncing(true);
+    try {
+      await syncConfiguration();
+    } catch {
+      // Sync failure (e.g. invalid config) is reflected by the next status read below.
+    } finally {
+      setSyncing(false);
+      refresh();
+    }
+  }
+
   const labels: Record<Display, string> = {
     checking: "Checking config",
     valid: "Config: Valid",
@@ -53,9 +78,16 @@ function ConfigurationStatus() {
   } as const;
 
   return (
-    <Badge variant={variants[display]} title={status ? `.orc root: ${status.configRoot}` : undefined}>
-      {labels[display]}
-    </Badge>
+    <div className="flex items-center gap-2">
+      <Badge variant={variants[display]} title={status ? `.orc root: ${status.configRoot}` : undefined}>
+        {labels[display]}
+      </Badge>
+      {(display === "out_of_sync" || display === "invalid") && (
+        <Button variant="outline" size="sm" onClick={handleSync} disabled={syncing}>
+          {syncing ? "Syncing..." : "Sync"}
+        </Button>
+      )}
+    </div>
   );
 }
 
