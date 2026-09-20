@@ -173,7 +173,7 @@ export function composeInitialInstruction(
       ? "You may run commands needed to complete the task."
       : "Strictly do not run terminal commands.",
     agent.canCommit
-      ? "You may create Git commits only when the task explicitly asks for one. Report the commit hash in the result's `commit` field if you created one, otherwise leave `commit` null."
+      ? "You may create Git commits. When you modify files as part of successful implementation work that will hand off to another worker or reviewer, create a focused commit before reporting success; never include unrelated pre-existing changes. After creating a commit, run `git rev-parse HEAD` and copy its exact output into the result's `commit` field. Do not expand a short commit hash yourself. Leave `commit` null only when no commit was created."
       : "Strictly do not create Git commits. Leave the result's `commit` field null.",
   ].join(" ");
 

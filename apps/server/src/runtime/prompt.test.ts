@@ -89,6 +89,29 @@ describe("composeInitialInstruction", () => {
     );
   });
 
+  it("requires commit-enabled implementation workers to verify handoff commits", () => {
+    const prompt = composeInitialInstruction({
+      ...baseInput,
+      agent: {
+        ...baseInput.agent,
+        canWrite: true,
+        canCommit: true,
+      },
+      instruction: "Implement the requested change.",
+    });
+
+    expect(prompt).toContain(
+      "create a focused commit before reporting success",
+    );
+    expect(prompt).toContain(
+      "never include unrelated pre-existing changes",
+    );
+    expect(prompt).toContain("git rev-parse HEAD");
+    expect(prompt).toContain(
+      "Do not expand a short commit hash yourself.",
+    );
+  });
+
   it("requires one final result block with no trailing content", () => {
     const prompt = composeInitialInstruction(baseInput);
 
