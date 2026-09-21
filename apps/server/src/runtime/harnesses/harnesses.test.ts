@@ -209,6 +209,37 @@ describe("harness adapters", () => {
     ).toBe("Codex completed message");
   });
 
+  it("tracks Codex command lifecycle and marks detached commands", () => {
+    expect(
+      codexHarness.extractWorkLifecycleEvent?.({
+        type: "item.started",
+        item: {
+          id: "command-1",
+          type: "command_execution",
+          command: "composer ci:check &",
+        },
+      }),
+    ).toEqual({
+      id: "command-1",
+      state: "started",
+      detached: true,
+    });
+
+    expect(
+      codexHarness.extractWorkLifecycleEvent?.({
+        type: "item.completed",
+        item: {
+          id: "command-1",
+          type: "command_execution",
+          command: "composer ci:check",
+        },
+      }),
+    ).toEqual({
+      id: "command-1",
+      state: "completed",
+    });
+  });
+
   it("fails explicitly for unsupported Claude effort configuration", () => {
     expect(() => {
       claudeHarness.createInvocation(

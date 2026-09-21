@@ -1394,6 +1394,36 @@ function bridgeSessionToDatabase(
       return;
     }
 
+    if (
+      liveState.session.metadata.activeWorkCount > 0 ||
+      liveState.session.metadata.detachedWorkDetected
+    ) {
+      const failureReason = liveState.session.metadata.detachedWorkDetected
+        ? "Worker attempted to detach local command work from the execution lifecycle."
+        : "Worker exited while provider-reported command work was still active.";
+
+      const finalization: ExecutionFinalization = {
+        executionId,
+        status: "failed",
+        resultStatus: null,
+        failureReason,
+        result: null,
+      };
+
+      await persistExecutionFields({
+        status: "failed",
+        resultStatus: null,
+        resultPayload: null,
+        commitHash: null,
+        failureReason,
+        exitCode,
+        completedAt: new Date(),
+      });
+
+      await notifyFinalized(finalization, exitCode);
+      return;
+    }
+
     const outcome =
       await extractAndValidateResult(
         finalMessageText,

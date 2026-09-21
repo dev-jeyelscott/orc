@@ -44,6 +44,14 @@ export type SessionState =
 
 export type UsageMetadata = Record<string, unknown>;
 
+/** Describes command work observed from a provider's structured event stream. */
+export type WorkLifecycleEvent = {
+  id: string;
+  state: "started" | "completed";
+  /** True when the command intentionally detaches from the worker lifecycle. */
+  detached?: boolean;
+};
+
 export type RuntimeDiagnostic = {
   code:
     | "project_not_found"
@@ -71,6 +79,7 @@ export type RuntimeEvent =
       provider: string;
       event: Record<string, unknown>;
     }
+  | { type: "work"; sequence: number; work: WorkLifecycleEvent }
   | { type: "usage"; sequence: number; usage: UsageMetadata };
 
 export type UnsequencedRuntimeEvent = RuntimeEvent extends infer Event
@@ -86,6 +95,8 @@ export type SessionMetadata = {
   exitCode: number | null;
   signal: number | null;
   usage: UsageMetadata | null;
+  activeWorkCount: number;
+  detachedWorkDetected: boolean;
 };
 
 export type RuntimeSession = {
@@ -181,4 +192,9 @@ export type HarnessAdapter = {
   extractMessageText?(
     event: Record<string, unknown>,
   ): string | undefined;
+
+  /** Extracts command lifecycle data without leaking provider event shapes upstream. */
+  extractWorkLifecycleEvent?(
+    event: Record<string, unknown>,
+  ): WorkLifecycleEvent | undefined;
 };

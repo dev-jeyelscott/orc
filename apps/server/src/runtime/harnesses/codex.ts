@@ -2,6 +2,7 @@ import type {
   HarnessAdapter,
   StartWorkerInput,
   UnsequencedRuntimeEvent,
+  WorkLifecycleEvent,
 } from "../contracts.js";
 
 import { getKnowledgeMcpServerConfig } from "../../services/knowledge-mcp-client.js";
@@ -147,6 +148,40 @@ function extractMessageText(
   return undefined;
 }
 
+/** Identifies shell constructs that detach work from the worker's terminal lifecycle. */
+function isDetachedCommand(command: string): boolean {
+  return /\b(?:nohup|disown|setsid)\b|(?:^|[^&>])&(?![&>])/.test(
+    command,
+  );
+}
+
+/** Extracts Codex command item lifecycle without exposing its event shape to the runtime. */
+function extractWorkLifecycleEvent(
+  event: Record<string, unknown>,
+): WorkLifecycleEvent | undefined {
+  if (event.type !== "item.started" && event.type !== "item.completed") {
+    return undefined;
+  }
+
+  const item = event.item as {
+    id?: unknown;
+    type?: unknown;
+    command?: unknown;
+  } | undefined;
+
+  if (item?.type !== "command_execution" || typeof item.id !== "string") {
+    return undefined;
+  }
+
+  return {
+    id: item.id,
+    state: event.type === "item.started" ? "started" : "completed",
+    ...(typeof item.command === "string" && isDetachedCommand(item.command)
+      ? { detached: true }
+      : {}),
+  };
+}
+
 export const codexHarness: HarnessAdapter = {
   harness: "codex",
 
@@ -199,4 +234,5 @@ export const codexHarness: HarnessAdapter = {
 
   translateOutput: providerEvents,
   extractMessageText,
+  extractWorkLifecycleEvent,
 };

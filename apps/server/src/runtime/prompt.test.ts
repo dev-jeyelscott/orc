@@ -87,6 +87,13 @@ describe("composeInitialInstruction", () => {
     expect(prompt).toContain(
       "Do not assume a runtime command sandbox or command firewall exists.",
     );
+
+    expect(prompt).toContain(
+      "Do not detach, background, or daemonize local work",
+    );
+    expect(prompt).toContain(
+      "Never report `blocked` because a local command you started is still running",
+    );
   });
 
   it("requires commit-enabled implementation workers to verify handoff commits", () => {

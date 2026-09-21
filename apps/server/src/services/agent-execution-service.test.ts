@@ -96,6 +96,20 @@ function makeFakeAdapter(
       typeof event.text === "string"
         ? event.text
         : undefined,
+
+    extractWorkLifecycleEvent: (event) =>
+      event.work === "started"
+        ? {
+            id: "validation",
+            state: "started",
+            detached: event.detached === true,
+          }
+        : event.work === "completed"
+          ? {
+              id: "validation",
+              state: "completed",
+            }
+          : undefined,
   };
 }
 
@@ -137,6 +151,15 @@ function feedResult(
     instance,
     `<orc-result>${JSON.stringify(payload)}</orc-result>`,
   );
+}
+
+/** Emits one fake provider command lifecycle event through the controlled PTY. */
+function feedWork(
+  instance: FakePty,
+  state: "started" | "completed",
+  detached = false,
+): void {
+  instance.data(`${JSON.stringify({ work: state, detached })}\n`);
 }
 
 vi.mock("../runtime/index.js", async (importOriginal) => {
@@ -528,6 +551,33 @@ describe("agent-execution-service", () => {
     expect(completed.resultPayload).toMatchObject(payload);
     expect(completed.commitHash).toBeNull();
     expect(ptyInstances).toHaveLength(1);
+  });
+
+  it("fails instead of accepting a valid result after detached local command work", async () => {
+    const execution = await startAgentExecution(
+      runId,
+      agentId,
+      "Run validation.",
+    );
+
+    feedWork(pty(0), "started", true);
+    feedWork(pty(0), "completed");
+    feedResult(pty(0), {
+      status: "blocked",
+      summary: "Waiting for background validation.",
+      commit: null,
+    });
+    pty(0).exit(0);
+
+    const failed = await waitFor(async () => {
+      const current = await getExecution(execution.id);
+      return current?.status === "failed" ? current : undefined;
+    });
+
+    expect(failed.resultStatus).toBeNull();
+    expect(failed.resultPayload).toBeNull();
+    expect(failed.failureReason).toContain("detach local command work");
+    expect(failed.repairAttempted).toBe(false);
   });
 
   it("runs the one repair attempt with all side-effect capabilities disabled", async () => {

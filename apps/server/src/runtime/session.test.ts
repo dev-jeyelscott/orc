@@ -241,6 +241,38 @@ describe("InMemoryRuntimeSession", () => {
     fakeProcess.exit(0);
   });
 
+  it("exposes provider-reported active and detached command work", () => {
+    const fakeProcess = new FakePty();
+    const lifecycleAdapter: HarnessAdapter = {
+      ...adapter,
+      translateOutput: (data) => {
+        const event = JSON.parse(data) as Record<string, unknown>;
+        return [{ type: "provider", provider: "fake", event }];
+      },
+      extractWorkLifecycleEvent: (event) =>
+        event.work === "started"
+          ? { id: "check", state: "started", detached: true }
+          : event.work === "completed"
+            ? { id: "check", state: "completed" }
+            : undefined,
+    };
+
+    const session = start(
+      { spawn: () => fakeProcess },
+      lifecycleAdapter,
+    );
+
+    fakeProcess.data('{"work":"started"}\n');
+    expect(session.metadata.activeWorkCount).toBe(1);
+    expect(session.metadata.detachedWorkDetected).toBe(true);
+
+    fakeProcess.data('{"work":"completed"}\n');
+    expect(session.metadata.activeWorkCount).toBe(0);
+    expect(session.metadata.detachedWorkDetected).toBe(true);
+
+    fakeProcess.exit(0);
+  });
+
   it("does not claim additional-instruction support when the adapter has no input hook", () => {
     const fakeProcess = new FakePty();
 

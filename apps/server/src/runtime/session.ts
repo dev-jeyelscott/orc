@@ -25,6 +25,7 @@ export class InMemoryRuntimeSession implements RuntimeSession {
   private process: ReturnType<PtyFactory["spawn"]> | undefined;
   private adapter: HarnessAdapter | undefined;
   private providerLineBuffer = "";
+  private readonly activeWorkIds = new Set<string>();
 
   /** Creates an empty runtime session before its PTY process is started. */
   private constructor() {
@@ -35,6 +36,8 @@ export class InMemoryRuntimeSession implements RuntimeSession {
       exitCode: null,
       signal: null,
       usage: null,
+      activeWorkCount: 0,
+      detachedWorkDetected: false,
     };
   }
 
@@ -289,6 +292,16 @@ export class InMemoryRuntimeSession implements RuntimeSession {
         this.adapter?.translateOutput(line) ?? []
       ) {
         this.emit(event);
+
+        if (event.type === "provider") {
+          const work = this.adapter?.extractWorkLifecycleEvent?.(
+            event.event,
+          );
+
+          if (work) {
+            this.emit({ type: "work", work });
+          }
+        }
       }
     }
   }
@@ -304,6 +317,20 @@ export class InMemoryRuntimeSession implements RuntimeSession {
 
     if (sequenced.type === "usage") {
       this.metadata.usage = sequenced.usage;
+    }
+
+    if (sequenced.type === "work") {
+      if (sequenced.work.state === "started") {
+        this.activeWorkIds.add(sequenced.work.id);
+      } else {
+        this.activeWorkIds.delete(sequenced.work.id);
+      }
+
+      this.metadata.activeWorkCount = this.activeWorkIds.size;
+
+      if (sequenced.work.detached) {
+        this.metadata.detachedWorkDetected = true;
+      }
     }
 
     for (const listener of this.listeners) {

@@ -51,6 +51,8 @@ const SAFE_COMMAND_GUIDANCE = [
   "Do not delete unrelated project files or directories.",
   "Do not modify system packages or services unless the task explicitly requires it and the user has approved it.",
   "When command execution is permitted, prefer project-scoped dependency installation, tests, linting, type checking, builds, project scripts, and safe Git inspection.",
+  "Do not detach, background, or daemonize local work (including with `&`, `nohup`, `disown`, or `setsid`). Wait for every command you start to finish and inspect its exit status before emitting your final result.",
+  "Use `blocked` only for an external dependency you cannot resolve. Never report `blocked` because a local command you started is still running; wait for it or report its completed failure.",
   "These instructions are prompt-enforced guidance. Do not assume a runtime command sandbox or command firewall exists.",
 ].join("\n");
 
