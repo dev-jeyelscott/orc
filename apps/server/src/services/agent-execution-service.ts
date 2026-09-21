@@ -1457,6 +1457,7 @@ function bridgeSessionToDatabase(
           originalInstruction,
           outcome.excerpt,
           outcome.reasons,
+          agent.canCommit,
         );
 
       const previousPid =

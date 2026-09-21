@@ -25,7 +25,7 @@ const RESULT_CONTRACT = [
   "Structured completion contract:",
   `As the very last content of your final message, emit exactly one JSON object wrapped in ${RESULT_BLOCK_START} and ${RESULT_BLOCK_END}. The closing ${RESULT_BLOCK_END} tag must be the final non-whitespace content of the message. The JSON object must match this shape:`,
   '{"status":"completed"|"approved"|"changes_requested"|"blocked"|"failed","summary":"string","details":{},"findings":["string"],"filesChanged":["string"],"commandsRun":["string"],"validation":{},"commit":"hex Git commit hash or null","knowledgeRefs":[{"source":"vault","path":"vault-relative note path","heading":"optional heading"}],"projectDocumentRefs":[{"source":"project_document","documentId":"UUID","fileName":"document.md","documentContentHash":"lowercase SHA-256","chunkSequence":0,"chunkContentHash":"lowercase SHA-256","heading":"optional heading"}],"knowledgeRequirements":[{"categorySlug":"kebab-case Knowledge Category slug","query":"string","reason":"string","required":true}]}',
-  `Field notes: \`summary\` is required and must be non-empty. \`details\`, \`findings\`, \`filesChanged\`, \`commandsRun\`, and \`validation\` may be empty but should be present as their respective empty value if you have nothing to report. \`commit\` must be a Git commit hash attributable to this logical execution, or null if no commit was created. \`knowledgeRefs\` is optional and should contain only bounded durable vault references that materially informed this execution. \`projectDocumentRefs\` is optional and may contain at most ${MAX_PROJECT_DOCUMENT_CONTEXT_ITEMS} supplied Project Document references that materially informed this execution.`,
+  `Field notes: \`summary\` is required and must be non-empty. \`details\`, \`findings\`, \`filesChanged\`, \`commandsRun\`, and \`validation\` may be empty but should be present as their respective empty value if you have nothing to report. \`commit\` must be a Git commit hash attributable to this logical execution, or null if no commit was created; never copy an upstream handoff commit into this field. \`knowledgeRefs\` is optional and should contain only bounded durable vault references that materially informed this execution. \`projectDocumentRefs\` is optional and may contain at most ${MAX_PROJECT_DOCUMENT_CONTEXT_ITEMS} supplied Project Document references that materially informed this execution.`,
   '`status` selection: use `"completed"` when you finished your own configured piece of work and it should hand off for further work or independent review. Use `"approved"` only when your configured role is to independently validate another execution\'s work against acceptance criteria and you are accepting it as done, with no further review or handoff required — this is the signal that unblocks downstream automation from proceeding. Do not report `"approved"` for your own unreviewed work.',
   "Do not copy complete vault note bodies into `knowledgeRefs`. Prefer source, path, and optional heading provenance.",
   "For `projectDocumentRefs`, copy source, documentId, fileName, documentContentHash, chunkSequence, chunkContentHash, and optional heading exactly from the supplied Project Document context. Do not copy excerpts or full document bodies into the structured result.",
@@ -174,7 +174,7 @@ export function composeInitialInstruction(
       : "Strictly do not run terminal commands.",
     agent.canCommit
       ? "You may create Git commits. When you modify files as part of successful implementation work that will hand off to another worker or reviewer, create a focused commit before reporting success; never include unrelated pre-existing changes. After creating a commit, run `git rev-parse HEAD` and copy its exact output into the result's `commit` field. Do not expand a short commit hash yourself. Leave `commit` null only when no commit was created."
-      : "Strictly do not create Git commits. Leave the result's `commit` field null.",
+      : "Strictly do not create Git commits. Set the result's `commit` field to the literal JSON value null, even when an upstream handoff refers to a commit.",
   ].join(" ");
 
   const knowledgeRetrievalNote = getKnowledgeMcpServerConfig()
@@ -309,6 +309,7 @@ export function composeHandoffNote(
     role: string;
   },
   result: AgentResult,
+  targetCanCommit: boolean,
 ): string {
   const lines = [
     `Handoff from ${source.name} (${source.role}):`,
@@ -381,7 +382,10 @@ export function composeHandoffNote(
     );
   }
 
-  if (result.commit) {
+  if (
+    result.commit &&
+    targetCanCommit
+  ) {
     lines.push(`Commit: ${result.commit}`);
   }
 
@@ -405,11 +409,14 @@ export function composeRepairInstruction(
   originalInstruction: string,
   invalidOutputExcerpt: string,
   validationErrors: string[],
+  originalCanCommit: boolean,
 ): string {
   return [
     "Your only job is to repair the previous structured completion result.",
     "Do not execute or repeat the original task. Do not inspect the repository, modify/create/delete files, run terminal commands, or create Git commits. Do not perform any side effects.",
-    "Use only the supplied previous-output excerpt and validation errors. Do not invent new implementation work. You may preserve an existing commit hash from the original execution if it was already reported, but do not create a new commit.",
+    originalCanCommit
+      ? "Use only the supplied previous-output excerpt and validation errors. Do not invent new implementation work. You may preserve an existing commit hash from the original execution if it was already reported, but do not create a new commit."
+      : "Use only the supplied previous-output excerpt and validation errors. Do not invent new implementation work. This execution was not permitted to commit, so set the result's `commit` field to the literal JSON value null; do not preserve or report any commit hash.",
     "",
     "Original task instruction, for context only:",
     originalInstruction,

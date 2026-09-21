@@ -51,7 +51,7 @@ describe("composeKnowledgeRequirementNote", () => {
 
 describe("composeHandoffNote knowledgeRequirements audit trail", () => {
   it("omits the declared-requirements section when none were emitted", () => {
-    const note = composeHandoffNote({ name: "Architect", role: "Architect" }, makeResult());
+    const note = composeHandoffNote({ name: "Architect", role: "Architect" }, makeResult(), false);
     expect(note).not.toContain("Declared knowledge requirements:");
   });
 
@@ -68,6 +68,7 @@ describe("composeHandoffNote knowledgeRequirements audit trail", () => {
           },
         ],
       }),
+      false,
     );
 
     expect(note).toContain("Declared knowledge requirements:");

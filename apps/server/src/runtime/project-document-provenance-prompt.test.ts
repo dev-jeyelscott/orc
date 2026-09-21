@@ -273,6 +273,7 @@ describe(
                 provenance,
               ],
             }),
+            false,
           );
 
         expect(

@@ -128,6 +128,7 @@ describe(
                 "Custom Engineering Role",
             },
             result,
+            false,
           );
 
         expect(
@@ -154,6 +155,7 @@ describe(
             [
               "knowledgeRefs is invalid",
             ],
+            false,
           );
 
         expect(

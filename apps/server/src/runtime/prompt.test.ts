@@ -131,6 +131,7 @@ describe("composeHandoffNote", () => {
         role: "Reviewer",
       },
       makeResult(),
+      false,
     );
 
     expect(note).toContain(
@@ -173,6 +174,7 @@ describe("composeHandoffNote", () => {
         },
         commit: "abcdef1234567890",
       }),
+      true,
     );
 
     expect(note).toContain(
@@ -192,6 +194,17 @@ describe("composeHandoffNote", () => {
     expect(note).toContain("Commit: abcdef1234567890");
   });
 
+  it("omits an upstream commit from a non-committing worker handoff", () => {
+    const note = composeHandoffNote(
+      { name: "Builder", role: "Implementer" },
+      makeResult({ commit: "abcdef1234567890" }),
+      false,
+    );
+
+    expect(note).not.toContain("Commit:");
+    expect(note).not.toContain("abcdef1234567890");
+  });
+
   it("omits empty handoff sections instead of printing them blank", () => {
     const note = composeHandoffNote(
       {
@@ -199,6 +212,7 @@ describe("composeHandoffNote", () => {
         role: "Reviewer",
       },
       makeResult(),
+      false,
     );
 
     expect(note).not.toContain("Details:");
@@ -216,6 +230,7 @@ describe("composeRepairInstruction", () => {
       "Implement the requested change.",
       "Previous malformed completion",
       ["files_changed: Unrecognized key"],
+      true,
     );
 
     expect(prompt).toContain(
@@ -229,6 +244,22 @@ describe("composeRepairInstruction", () => {
     expect(prompt).toContain("files_changed: Unrecognized key");
     expect(prompt).toContain(
       "must be the final non-whitespace content",
+    );
+  });
+
+  it("requires a non-committing execution to clear a reported commit", () => {
+    const prompt = composeRepairInstruction(
+      "Review the implementation.",
+      "Previous completion with an upstream commit.",
+      ["The result reported a `commit` hash, but this agent is not permitted to commit (canCommit is false)."],
+      false,
+    );
+
+    expect(prompt).toContain(
+      "set the result's `commit` field to the literal JSON value null",
+    );
+    expect(prompt).not.toContain(
+      "may preserve an existing commit hash",
     );
   });
 });

@@ -1986,6 +1986,7 @@ async function handleExecutionFinalization(
       ? composeHandoffNote(
           applied.sourceAgent,
           applied.result,
+          applied.targetAgent.canCommit,
         )
       : undefined;
 
