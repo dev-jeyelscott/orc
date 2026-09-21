@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 
 import type { ProjectTeamAssignment, UpsertProjectTeamAssignment } from "@orc/shared";
 
@@ -55,40 +55,43 @@ function deriveProjectSlug(basename: string): string {
 
 function serializeAssignment(row: {
   projectPath: string;
-  teamId: string;
-  teamName: string;
+  resolutionTeamId: string | null;
+  developmentTeamId: string | null;
+  autoModeTeamId: string | null;
   notionDataSourceId: string | null;
   autoModeEnabled: boolean;
   createdAt: Date;
   updatedAt: Date;
-}): ProjectTeamAssignment {
+}, names: Map<string, string>): ProjectTeamAssignment {
   return {
     ...row,
+    resolutionTeamName: row.resolutionTeamId ? names.get(row.resolutionTeamId) ?? null : null,
+    developmentTeamName: row.developmentTeamId ? names.get(row.developmentTeamId) ?? null : null,
+    autoModeTeamName: row.autoModeTeamId ? names.get(row.autoModeTeamId) ?? null : null,
+    // Compatibility only; authoritative callers should select an explicit slot.
+    teamId: row.resolutionTeamId ?? row.developmentTeamId!,
+    teamName: names.get(row.resolutionTeamId ?? row.developmentTeamId!)!,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
 
-const assignmentSelection = {
-  projectPath: projectTeamAssignments.projectPath,
-  teamId: projectTeamAssignments.teamId,
-  teamName: teams.name,
-  notionDataSourceId: projectTeamAssignments.notionDataSourceId,
-  autoModeEnabled: projectTeamAssignments.autoModeEnabled,
-  createdAt: projectTeamAssignments.createdAt,
-  updatedAt: projectTeamAssignments.updatedAt,
-};
+async function serializeAssignments(rows: Array<typeof projectTeamAssignments.$inferSelect>): Promise<ProjectTeamAssignment[]> {
+  const ids = [...new Set(rows.flatMap((row) => [row.resolutionTeamId, row.developmentTeamId, row.autoModeTeamId]).filter((id): id is string => id !== null))];
+  const teamRows = ids.length ? await db.select({ id: teams.id, name: teams.name }).from(teams).where(inArray(teams.id, ids)) : [];
+  const names = new Map(teamRows.map((team) => [team.id, team.name]));
+  return rows.map((row) => serializeAssignment(row, names));
+}
 
 /** Returns configuration only; callers must independently prove the project is currently discovered. */
 export async function getProjectTeamAssignmentByPath(projectPath: string): Promise<ProjectTeamAssignment | null> {
   const [row] = await db
-    .select(assignmentSelection)
+    .select()
     .from(projectTeamAssignments)
-    .innerJoin(teams, eq(projectTeamAssignments.teamId, teams.id))
     .where(eq(projectTeamAssignments.projectPath, canonicalProjectPath(projectPath)))
     .limit(1);
 
-  return row ? serializeAssignment(row) : null;
+  return row ? (await serializeAssignments([row]))[0] ?? null : null;
 }
 
 /** Reads assignments for discovered paths only; stale rows are intentionally not returned. */
@@ -131,7 +134,7 @@ export function validateProjectAutomationConfiguration(
  */
 async function tryWriteProjectFile(
   canonicalPath: string,
-  teamSlug: string,
+  teamSlugs: { resolutionTeam: string | null; developmentTeam: string | null },
   automation: ProjectConfig["automation"],
   configRoot: string,
 ): Promise<{ data: ProjectConfig }> {
@@ -145,10 +148,10 @@ async function tryWriteProjectFile(
   }
 
   const graph = await loadConfigGraph(configRoot);
-  const teamResource = graph.teams.find((resource) => resource.data.slug === teamSlug);
-  if (!teamResource) {
+  const missingTeam = [teamSlugs.resolutionTeam, teamSlugs.developmentTeam].find((slug) => slug && !graph.teams.some((resource) => resource.data.slug === slug));
+  if (missingTeam) {
     throw new ProjectTeamAssignmentError(
-      `Canonical configuration is missing: Team "${teamSlug}" has no .orc/teams/${teamSlug}/team.yaml. Export or synchronize .orc/ configuration before assigning this Team to a Project.`,
+      `Canonical configuration is missing: Team "${missingTeam}" has no .orc/teams/${missingTeam}/team.yaml. Export or synchronize .orc/ configuration before assigning this Team to a Project.`,
       409,
     );
   }
@@ -172,7 +175,8 @@ async function tryWriteProjectFile(
     version: 1,
     slug,
     path: relativePath,
-    team: teamSlug,
+    resolutionTeam: teamSlugs.resolutionTeam,
+    developmentTeam: teamSlugs.developmentTeam,
     automation,
   };
 
@@ -194,20 +198,28 @@ export async function upsertProjectTeamAssignment(
   configRoot: string = env.ORC_CONFIG_ROOT,
 ): Promise<ProjectTeamAssignment> {
   const canonicalPath = canonicalProjectPath(projectPath);
+  const resolutionTeamId = input.resolutionTeamId ?? input.teamId ?? null;
+  const developmentTeamId = input.developmentTeamId ?? null;
+  const autoModeTeamId = input.autoModeTeamId ?? (input.autoModeEnabled ? resolutionTeamId : null);
   const notionDataSourceId = input.notionDataSourceId?.trim() || null;
   const autoModeEnabled = input.autoModeEnabled ?? false;
   validateProjectAutomationConfiguration(autoModeEnabled, notionDataSourceId);
 
-  const [team] = await db.select({ id: teams.id, slug: teams.slug }).from(teams).where(eq(teams.id, input.teamId)).limit(1);
-  if (!team) throw new ProjectTeamAssignmentError("The selected team does not exist", 404);
+  const selectedIds = [resolutionTeamId, developmentTeamId].filter((id): id is string => id !== null);
+  const selectedTeams = await db.select({ id: teams.id, slug: teams.slug }).from(teams).where(inArray(teams.id, selectedIds));
+  if (selectedTeams.length !== selectedIds.length) throw new ProjectTeamAssignmentError("A selected Team does not exist", 404);
+  const slugById = new Map(selectedTeams.map((team) => [team.id, team.slug]));
 
   await ensureNotionDataSourceAvailable(notionDataSourceId, canonicalPath);
 
-  const automation: ProjectConfig["automation"] = { notionDataSourceId, autoModeEnabled };
+  const automation: ProjectConfig["automation"] = { notionDataSourceId, autoModeEnabled, autoModeTeam: autoModeTeamId ? slugById.get(autoModeTeamId)! : null };
 
   let fileWrite: { data: ProjectConfig };
   try {
-    fileWrite = await tryWriteProjectFile(canonicalPath, team.slug, automation, configRoot);
+    fileWrite = await tryWriteProjectFile(canonicalPath, {
+      resolutionTeam: resolutionTeamId ? slugById.get(resolutionTeamId)! : null,
+      developmentTeam: developmentTeamId ? slugById.get(developmentTeamId)! : null,
+    }, automation, configRoot);
   } catch (error) {
     translateConfigError(error);
   }
@@ -263,6 +275,6 @@ export async function deleteProjectTeamAssignment(
 
 /** Used by automation intake to enumerate only persisted assignment configuration. */
 export async function listProjectTeamAssignments(): Promise<ProjectTeamAssignment[]> {
-  const rows = await db.select(assignmentSelection).from(projectTeamAssignments).innerJoin(teams, eq(projectTeamAssignments.teamId, teams.id)).orderBy(asc(projectTeamAssignments.projectPath));
-  return rows.map(serializeAssignment);
+  const rows = await db.select().from(projectTeamAssignments).orderBy(asc(projectTeamAssignments.projectPath));
+  return serializeAssignments(rows);
 }

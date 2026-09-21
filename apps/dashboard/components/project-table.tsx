@@ -39,7 +39,7 @@ interface ProjectViewProps {
 
 function ProjectAssignmentSummary({ project }: { project: Project }) {
   if (!project.assignment) return <Badge variant="neutral">Unassigned</Badge>
-  return <div className="flex flex-wrap items-center gap-1"><Badge variant="success">{project.assignment.teamName}</Badge><Badge variant={project.assignment.autoModeEnabled ? "success" : "disabled"}>Auto {project.assignment.autoModeEnabled ? "On" : "Off"}</Badge>{project.assignment.notionDataSourceId ? <span className="font-mono text-[11px] text-text-muted" title={project.assignment.notionDataSourceId}>Notion configured</span> : null}</div>
+  return <div className="flex flex-wrap items-center gap-1">{project.assignment.resolutionTeamName ? <Badge variant="success">Resolution: {project.assignment.resolutionTeamName}</Badge> : null}{project.assignment.developmentTeamName ? <Badge variant="success">Development: {project.assignment.developmentTeamName}</Badge> : null}<Badge variant={project.assignment.autoModeEnabled ? "success" : "disabled"}>Auto {project.assignment.autoModeEnabled ? `On: ${project.assignment.autoModeTeamName ?? "—"}` : "Off"}</Badge>{project.assignment.notionDataSourceId ? <span className="font-mono text-[11px] text-text-muted" title={project.assignment.notionDataSourceId}>Notion configured</span> : null}</div>
 }
 
 interface ProjectPrimaryFilesProps {

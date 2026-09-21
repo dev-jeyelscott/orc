@@ -322,7 +322,6 @@ async function createProductionNotionAdapterForTeam(
 
   if (
     !assignment ||
-    assignment.teamId !== teamId ||
     !assignment.notionDataSourceId
   ) {
     throw new NotionTaskSourceError(

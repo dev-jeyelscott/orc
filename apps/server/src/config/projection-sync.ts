@@ -241,23 +241,28 @@ export async function syncTeamMembershipProjection(
  * Upserts one canonical Project file's static assignment/automation intent
  * into its PostgreSQL projection row, keyed by the Project's canonical
  * absolute filesystem path (the same identity `project-team-assignment-service.ts`
- * has always used). The referenced Team must already be projected.
+ * has always used). Referenced Teams must already be projected.
  */
 export async function syncProjectAssignmentProjection(
   config: ProjectConfig,
   absoluteProjectPath: string,
   tx: DbOrTx = db,
 ): Promise<void> {
-  const [team] = await tx.select({ id: teams.id }).from(teams).where(eq(teams.slug, config.team));
-  if (!team) {
-    throw new Error(`Cannot project Project "${config.slug}": Team "${config.team}" has not been synced yet`);
-  }
+  const resolutionSlug = config.resolutionTeam ?? config.team ?? null;
+  const autoModeSlug = config.automation.autoModeTeam ?? (config.automation.autoModeEnabled ? resolutionSlug : null);
+  const wantedSlugs = [resolutionSlug, config.developmentTeam, autoModeSlug].filter((slug): slug is string => slug !== null);
+  const rows = wantedSlugs.length ? await tx.select({ id: teams.id, slug: teams.slug }).from(teams).where(inArray(teams.slug, wantedSlugs)) : [];
+  const idBySlug = new Map(rows.map((row) => [row.slug, row.id]));
+  const missing = wantedSlugs.filter((slug) => !idBySlug.has(slug));
+  if (missing.length) throw new Error(`Cannot project Project "${config.slug}": Team(s) not synced yet: ${missing.join(", ")}`);
 
   const values = {
     projectPath: absoluteProjectPath,
-    teamId: team.id,
+    resolutionTeamId: resolutionSlug ? idBySlug.get(resolutionSlug)! : null,
+    developmentTeamId: config.developmentTeam ? idBySlug.get(config.developmentTeam)! : null,
     notionDataSourceId: config.automation.notionDataSourceId,
     autoModeEnabled: config.automation.autoModeEnabled,
+    autoModeTeamId: autoModeSlug ? idBySlug.get(autoModeSlug)! : null,
   };
 
   await tx

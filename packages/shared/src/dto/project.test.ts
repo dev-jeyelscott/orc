@@ -22,6 +22,12 @@ describe("Project assignment DTO contracts", () => {
           projectPath: "/orc/workspace/project-a",
           teamId: TEAM_ID,
           teamName: "Platform",
+          resolutionTeamId: TEAM_ID,
+          resolutionTeamName: "Platform",
+          developmentTeamId: null,
+          developmentTeamName: null,
+          autoModeTeamId: TEAM_ID,
+          autoModeTeamName: "Platform",
           notionDataSourceId: "project-a-source",
           autoModeEnabled: true,
           createdAt: timestamp,
@@ -41,11 +47,15 @@ describe("Project assignment DTO contracts", () => {
         teamId: TEAM_ID,
         notionDataSourceId: "  project-source  ",
         autoModeEnabled: true,
+        autoModeTeamId: TEAM_ID,
       }),
     ).toEqual({
       teamId: TEAM_ID,
       notionDataSourceId: "project-source",
       autoModeEnabled: true,
+      autoModeTeamId: TEAM_ID,
+      resolutionTeamId: TEAM_ID,
+      developmentTeamId: null,
     });
 
     expect(

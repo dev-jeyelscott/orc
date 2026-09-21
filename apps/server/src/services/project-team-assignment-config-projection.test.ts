@@ -54,7 +54,7 @@ async function createTestTeam(configRoot: string, label: string) {
 
 afterEach(async () => {
   for (const teamId of createdTeamIds) {
-    await db.delete(projectTeamAssignments).where(eq(projectTeamAssignments.teamId, teamId));
+    await db.delete(projectTeamAssignments).where(eq(projectTeamAssignments.resolutionTeamId, teamId));
     await db.delete(teams).where(eq(teams.id, teamId));
   }
   createdTeamIds.clear();
@@ -84,7 +84,7 @@ describe("Project assignment canonical file projection (Vertical Spec 6)", () =>
     const projectResource = graph.projects.find((resource) => resource.data.slug === "demo-project");
 
     expect(projectResource?.data.path).toBe("demo-project");
-    expect(projectResource?.data.team).toBe(team.slug);
+    expect(projectResource?.data.resolutionTeam).toBe(team.slug);
     expect(await getProjectRevision(configRoot, "demo-project")).toMatch(/^[0-9a-f]{64}$/);
   });
 
@@ -98,7 +98,7 @@ describe("Project assignment canonical file projection (Vertical Spec 6)", () =>
 
     const graph = await loadConfigGraph(configRoot);
     const projectResource = graph.projects.find((resource) => resource.data.slug === "demo-project");
-    expect(projectResource?.data.team).toBe(teamB.slug);
+    expect(projectResource?.data.resolutionTeam).toBe(teamB.slug);
 
     const assignment = await getProjectTeamAssignmentByPath(projectPath);
     expect(assignment?.teamId).toBe(teamB.id);

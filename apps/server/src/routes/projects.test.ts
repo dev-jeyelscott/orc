@@ -20,6 +20,12 @@ const project: Project = {
 
 const assignment: ProjectTeamAssignment = {
   projectPath: PROJECT_PATH,
+  resolutionTeamId: TEAM_ID,
+  resolutionTeamName: "Platform",
+  developmentTeamId: null,
+  developmentTeamName: null,
+  autoModeTeamId: TEAM_ID,
+  autoModeTeamName: "Platform",
   teamId: TEAM_ID,
   teamName: "Platform",
   notionDataSourceId: "notion-project-source",
@@ -104,6 +110,7 @@ describe("Project Team assignment routes", () => {
         teamId: TEAM_ID,
         notionDataSourceId: "notion-project-source",
         autoModeEnabled: true,
+        autoModeTeamId: TEAM_ID,
       },
     });
 
@@ -123,6 +130,7 @@ describe("Project Team assignment routes", () => {
         teamId: TEAM_ID,
         notionDataSourceId: "notion-project-source",
         autoModeEnabled: true,
+        autoModeTeamId: TEAM_ID,
       },
     });
     const deleted = await app.inject({
@@ -138,6 +146,9 @@ describe("Project Team assignment routes", () => {
         teamId: TEAM_ID,
         notionDataSourceId: "notion-project-source",
         autoModeEnabled: true,
+        autoModeTeamId: TEAM_ID,
+        resolutionTeamId: TEAM_ID,
+        developmentTeamId: null,
       },
     );
     expect(deleted.statusCode).toBe(204);

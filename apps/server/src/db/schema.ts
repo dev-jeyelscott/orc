@@ -443,18 +443,21 @@ export const projectTeamAssignments =
     "project_team_assignments",
     {
       projectPath: text("project_path").primaryKey(),
-      teamId: uuid("team_id")
-        .notNull()
+      resolutionTeamId: uuid("resolution_team_id")
+        .references(() => teams.id, { onDelete: "restrict" }),
+      developmentTeamId: uuid("development_team_id")
         .references(() => teams.id, { onDelete: "restrict" }),
       notionDataSourceId: text("notion_data_source_id"),
       autoModeEnabled: boolean("auto_mode_enabled").notNull().default(false),
+      autoModeTeamId: uuid("auto_mode_team_id").references(() => teams.id, { onDelete: "restrict" }),
       ...timestamps,
     },
     (table) => [
       unique("project_team_assignments_notion_data_source_id_unique").on(
         table.notionDataSourceId,
       ),
-      index("project_team_assignments_team_id_idx").on(table.teamId),
+      index("project_team_assignments_resolution_team_id_idx").on(table.resolutionTeamId),
+      index("project_team_assignments_development_team_id_idx").on(table.developmentTeamId),
     ],
   );
 

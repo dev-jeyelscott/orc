@@ -460,14 +460,17 @@ export function validateReferenceGraph(graph: Omit<ConfigGraph, "issues" | "vali
   }
 
   for (const project of graph.projects) {
-    if (!teamSlugs.has(project.data.team)) {
+    const resolutionTeam = project.data.resolutionTeam ?? project.data.team ?? null;
+    for (const [field, team] of [["resolutionTeam", resolutionTeam], ["developmentTeam", project.data.developmentTeam], ["automation.autoModeTeam", project.data.automation.autoModeTeam]] as const) {
+      if (team && !teamSlugs.has(team)) {
       issues.push({
         filePath: project.filePath,
         resourceType: "project",
         resourceId: project.data.slug,
-        field: "team",
-        message: `Project references unknown Team "${project.data.team}"`,
+        field,
+        message: `Project references unknown Team "${team}"`,
       });
+      }
     }
   }
 

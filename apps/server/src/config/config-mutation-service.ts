@@ -543,7 +543,9 @@ export async function deleteTeamFile(
     throw new ConfigConflictError("Team was modified by another edit; reload and retry");
   }
 
-  const referencingProject = graph.projects.find((resource) => resource.data.team === slug);
+  const referencingProject = graph.projects.find((resource) =>
+    resource.data.team === slug || resource.data.resolutionTeam === slug || resource.data.developmentTeam === slug || resource.data.automation.autoModeTeam === slug,
+  );
   if (referencingProject) {
     throw new ConfigReferentialError(
       `Team "${slug}" cannot be deleted because Project "${referencingProject.data.slug}" still references it`,

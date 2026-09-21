@@ -97,6 +97,29 @@ export type NotionTaskCandidate = {
     Project;
 };
 
+export type NotionWorkType = "Resolution" | "Development";
+export type NotionIntakeRequest = { projectName: string; workType: NotionWorkType };
+
+/** Selects the next Ready Development phase without mutating malformed pages. */
+export function selectNextDevelopmentPhase<T extends { id: string; feature: string; phase: number; status: string; priority: number; createdTime: string }>(pages: T[]): T | null {
+  const byFeature = new Map<string, T[]>();
+  for (const page of pages) {
+    if (!page.feature || !Number.isInteger(page.phase) || page.phase < 1) continue;
+    const list = byFeature.get(page.feature) ?? []; list.push(page); byFeature.set(page.feature, list);
+  }
+  const eligible: T[] = [];
+  for (const phases of byFeature.values()) {
+    const seen = new Set<number>();
+    if (phases.some((page) => seen.has(page.phase) || !seen.add(page.phase))) continue;
+    const ready = phases.filter((page) => page.status === "Ready").sort((a, b) => a.phase - b.phase)[0];
+    if (!ready) continue;
+    let valid = true;
+    for (let phase = 1; phase < ready.phase; phase += 1) if (!phases.some((page) => page.phase === phase && page.status === "Done")) valid = false;
+    if (valid) eligible.push(ready);
+  }
+  return eligible.sort((a, b) => a.priority - b.priority || a.createdTime.localeCompare(b.createdTime) || a.id.localeCompare(b.id))[0] ?? null;
+}
+
 type ProjectResolver = (
   repositoryName: string,
 ) => Promise<
@@ -234,6 +257,9 @@ const readyPageSchema =
           }).passthrough(),
         Project:
           projectPropertySchema,
+        "Work Type": z.object({ type: z.literal("select"), select: z.object({ name: z.string() }).nullable() }).passthrough(),
+        Feature: projectPropertySchema,
+        Phase: z.object({ type: z.literal("number"), number: z.number().nullable() }).passthrough(),
       }).passthrough(),
   }).passthrough();
 
@@ -678,7 +704,7 @@ export class NotionTaskSourceAdapter {
   /**
    * Queries at most one Ready task, validates its properties, reads raw markdown, and resolves its trusted local project.
    */
-  async getNextReadyTask(): Promise<
+  async getNextReadyTask(request?: NotionIntakeRequest): Promise<
     NotionTaskCandidate | null
   > {
     const response =
@@ -688,14 +714,11 @@ export class NotionTaskSourceAdapter {
           this.options.client.dataSources.query({
             data_source_id:
               this.options.dataSourceId,
-            filter: {
-              property:
-                "Status",
-              status: {
-                equals:
-                  "Ready",
-              },
-            },
+            filter: request ? { and: [
+              ...(request.workType === "Development" ? [] : [{ property: "Status", status: { equals: "Ready" } }]),
+              { property: "Project", select: { equals: request.projectName } },
+              { property: "Work Type", select: { equals: request.workType } },
+            ] } : { property: "Status", status: { equals: "Ready" } },
             sorts: [
               {
                 property:
@@ -710,8 +733,7 @@ export class NotionTaskSourceAdapter {
                   "ascending",
               },
             ],
-            page_size:
-              1,
+            page_size: request?.workType === "Development" ? 100 : 1,
             result_type:
               "page",
           }),
@@ -721,30 +743,34 @@ export class NotionTaskSourceAdapter {
           logger,
       );
 
-    const first =
-      response.results[0];
+    const parsedPages = response.results.map((raw) => readyPageSchema.safeParse(raw));
+    const validPages = parsedPages.flatMap((parsed) => parsed.success ? [parsed.data] : []);
+    if (request?.workType !== "Development" && parsedPages.some((parsed) => !parsed.success)) {
+      throw new NotionTaskSourceError("The Ready Notion page does not match the required Title, Status, Priority, and Project contract or has an invalid created_time.");
+    }
+    if (request?.workType === "Development" && parsedPages.some((parsed) => !parsed.success)) logger.warn({ dataSourceId: this.options.dataSourceId }, "Skipping malformed Development Notion page");
+    let page: (typeof validPages)[number] | undefined = validPages[0];
+    if (request?.workType === "Development") {
+      const phased = validPages.flatMap((candidate) => {
+        try {
+          const feature = readProjectName(candidate.properties.Feature).trim();
+          const phase = candidate.properties.Phase.number;
+          if (!feature || phase === null || !Number.isInteger(phase) || phase < 1) throw new Error("invalid feature or phase");
+          return [{ id: candidate.id, feature, phase, status: candidate.properties.Status.status?.name ?? "", priority: candidate.properties.Priority.number ?? Number.MAX_SAFE_INTEGER, createdTime: candidate.created_time, page: candidate }];
+        } catch {
+          logger.warn({ pageId: candidate.id }, "Skipping malformed Development Notion page");
+          return [];
+        }
+      });
+      page = selectNextDevelopmentPhase(phased)?.page;
+    }
+    if (!page) return null;
 
-    if (
-      !first
-    ) {
+    if (!page.properties["Work Type"].select || !["Resolution", "Development"].includes(page.properties["Work Type"].select.name)) {
+      logger.warn({ pageId: page.id }, "Skipping Notion task with invalid Work Type");
       return null;
     }
-
-    const parsedPage =
-      readyPageSchema.safeParse(
-        first,
-      );
-
-    if (
-      !parsedPage.success
-    ) {
-      throw new NotionTaskSourceError(
-        "The Ready Notion page does not match the required Title, Status, Priority, and Project contract or has an invalid created_time.",
-      );
-    }
-
-    const page =
-      parsedPage.data;
+    if (request && page.properties["Work Type"].select.name !== request.workType) return null;
 
     const title =
       textFromFragments(

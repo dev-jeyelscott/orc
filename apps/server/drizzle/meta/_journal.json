@@ -204,6 +204,13 @@
       "when": 1789734216610,
       "tag": "0028_strong_gateway",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1789734216611,
+      "tag": "0029_dual_project_team_assignments",
+      "breakpoints": true
     }
   ]
 }

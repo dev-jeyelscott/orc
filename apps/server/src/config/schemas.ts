@@ -173,13 +173,24 @@ export const projectConfigSchema = z.object({
   version: configVersionSchema,
   slug: kebabSlugSchema,
   path: z.string().trim().min(1).max(4_096),
-  team: kebabSlugSchema,
+  // `team` is accepted only for existing canonical files and is normalized as
+  // a Resolution assignment by the loader/projection path.
+  team: kebabSlugSchema.optional(),
+  resolutionTeam: kebabSlugSchema.nullable().optional(),
+  developmentTeam: kebabSlugSchema.nullable().optional(),
   automation: z
     .object({
       notionDataSourceId: z.string().trim().min(1).max(255).nullable().default(null),
       autoModeEnabled: z.boolean().default(false),
+      autoModeTeam: kebabSlugSchema.nullable().default(null),
     })
     .default({ notionDataSourceId: null, autoModeEnabled: false }),
+}).superRefine((value, context) => {
+  const resolutionTeam = value.resolutionTeam ?? value.team ?? null;
+  if (!resolutionTeam && !value.developmentTeam) context.addIssue({ code: z.ZodIssueCode.custom, message: "Project requires a Resolution or Development Team" });
+  if (resolutionTeam && resolutionTeam === value.developmentTeam) context.addIssue({ code: z.ZodIssueCode.custom, message: "Project Resolution and Development Teams must differ" });
+  if (value.automation.autoModeEnabled && !value.automation.autoModeTeam && !value.team) context.addIssue({ code: z.ZodIssueCode.custom, message: "Auto Mode requires an assigned Auto Mode Team" });
+  if (value.automation.autoModeTeam && value.automation.autoModeTeam !== resolutionTeam && value.automation.autoModeTeam !== value.developmentTeam) context.addIssue({ code: z.ZodIssueCode.custom, message: "Auto Mode Team must be assigned to the Project" });
 });
 
 export type ProjectConfig = z.infer<typeof projectConfigSchema>;

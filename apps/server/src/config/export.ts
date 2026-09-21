@@ -141,15 +141,17 @@ function toWorkflowGraphConfig(
   return { nodes, edges };
 }
 
-function projectYaml(slug: string, relativePath: string, teamSlug: string, notionDataSourceId: string | null, autoModeEnabled: boolean): string {
+function projectYaml(slug: string, relativePath: string, resolutionTeam: string | null, developmentTeam: string | null, notionDataSourceId: string | null, autoModeEnabled: boolean, autoModeTeam: string | null): string {
   return stringifyYaml({
     version: 1,
     slug,
     path: relativePath,
-    team: teamSlug,
+    resolutionTeam,
+    developmentTeam,
     automation: {
       notionDataSourceId,
       autoModeEnabled,
+      autoModeTeam,
     },
   });
 }
@@ -262,8 +264,10 @@ export async function exportConfigFromDatabase(options: ExportOptions): Promise<
   }
 
   for (const assignment of assignmentRows) {
-    const teamSlug = teamSlugById.get(assignment.teamId);
-    if (!teamSlug) {
+    const resolutionTeam = assignment.resolutionTeamId ? teamSlugById.get(assignment.resolutionTeamId) ?? null : null;
+    const developmentTeam = assignment.developmentTeamId ? teamSlugById.get(assignment.developmentTeamId) ?? null : null;
+    const autoModeTeam = assignment.autoModeTeamId ? teamSlugById.get(assignment.autoModeTeamId) ?? null : null;
+    if ((assignment.resolutionTeamId && !resolutionTeam) || (assignment.developmentTeamId && !developmentTeam) || (assignment.autoModeTeamId && !autoModeTeam)) {
       throw new ConfigExportError(`Project assignment for "${assignment.projectPath}" references a Team that no longer exists`);
     }
 
@@ -277,7 +281,7 @@ export async function exportConfigFromDatabase(options: ExportOptions): Promise<
     const slug = slugify(path.basename(assignment.projectPath));
     plannedFiles.push({
       filePath: path.join(outputRoot, "projects", `${slug}.yaml`),
-      content: projectYaml(slug, relativePath, teamSlug, assignment.notionDataSourceId, assignment.autoModeEnabled),
+      content: projectYaml(slug, relativePath, resolutionTeam, developmentTeam, assignment.notionDataSourceId, assignment.autoModeEnabled, autoModeTeam),
     });
   }
 

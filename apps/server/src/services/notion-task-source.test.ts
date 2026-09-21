@@ -5,6 +5,7 @@ import type { Project } from "@orc/shared";
 import {
   createNotionTaskSourceAdapter,
   NotionTaskSourceAdapter,
+  selectNextDevelopmentPhase,
   type NotionTaskSourceClient,
 } from "./notion-task-source.js";
 
@@ -60,9 +61,30 @@ function readyPage(
           name: overrides.projectName ?? "orc",
         },
       },
+      "Work Type": { type: "select", select: { name: "Resolution" } },
+      Feature: { type: "rich_text", rich_text: [{ plain_text: "feature-a" }] },
+      Phase: { type: "number", number: 1 },
     },
   };
 }
+
+describe("selectNextDevelopmentPhase", () => {
+  const page = (id: string, feature: string, phase: number, status: string, priority = 10) => ({ id, feature, phase, status, priority, createdTime: `2026-01-0${phase}T00:00:00.000Z` });
+
+  it("admits only the lowest Ready phase after contiguous Done predecessors", () => {
+    expect(selectNextDevelopmentPhase([page("one", "a", 1, "Done"), page("two", "a", 2, "Ready"), page("three", "a", 3, "Ready")])?.id).toBe("two");
+  });
+
+  it("blocks gaps, incomplete predecessors, and duplicate phases while allowing another Feature", () => {
+    expect(selectNextDevelopmentPhase([
+      page("gap", "gap", 2, "Ready"), page("blocked", "blocked", 1, "In Progress"), page("duplicate-a", "duplicate", 1, "Ready"), page("duplicate-b", "duplicate", 1, "Ready"), page("eligible", "eligible", 1, "Ready", 20),
+    ])?.id).toBe("eligible");
+  });
+
+  it("uses priority, creation time, then id across eligible Features", () => {
+    expect(selectNextDevelopmentPhase([page("z", "a", 1, "Ready", 5), page("a", "b", 1, "Ready", 5)])?.id).toBe("a");
+  });
+});
 
 /**
  * Creates mock SDK methods while retaining direct Vitest handles for assertions.

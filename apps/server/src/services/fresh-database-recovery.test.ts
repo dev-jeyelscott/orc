@@ -105,7 +105,7 @@ describe("Fresh-database recovery proof (Vertical Spec 8)", () => {
       await upsertProjectTeamAssignment(projectPath, { teamId: team.id, notionDataSourceId: null, autoModeEnabled: false }, configRoot);
 
       // --- Simulate a fresh database: drop every projection row this tree describes. ---
-      await db.delete(projectTeamAssignments).where(eq(projectTeamAssignments.teamId, team.id));
+      await db.delete(projectTeamAssignments).where(eq(projectTeamAssignments.resolutionTeamId, team.id));
       const revisionRows = await db.select({ id: workflowRevisions.id }).from(workflowRevisions).where(eq(workflowRevisions.teamId, team.id));
       for (const revision of revisionRows) {
         await db.delete(workflowEdges).where(eq(workflowEdges.revisionId, revision.id));
@@ -154,12 +154,12 @@ describe("Fresh-database recovery proof (Vertical Spec 8)", () => {
       const publishedNodeRows = await db.select().from(workflowNodes).where(eq(workflowNodes.revisionId, rePublished.id));
       expect(publishedNodeRows.some((row) => row.kind === "agent" && row.agentId === reAgent.id)).toBe(true);
 
-      const [reAssignment] = await db.select().from(projectTeamAssignments).where(eq(projectTeamAssignments.teamId, reTeam.id));
+      const [reAssignment] = await db.select().from(projectTeamAssignments).where(eq(projectTeamAssignments.resolutionTeamId, reTeam.id));
       expect(reAssignment).toMatchObject({ projectPath: path.resolve(projectPath) });
 
       // Clean up every row this fixture (re)created, including what sync reprojected --
       // this test runs against the shared dev database, so nothing may be left behind.
-      await db.delete(projectTeamAssignments).where(eq(projectTeamAssignments.teamId, reTeam.id));
+      await db.delete(projectTeamAssignments).where(eq(projectTeamAssignments.resolutionTeamId, reTeam.id));
       const finalRevisionRows = await db.select({ id: workflowRevisions.id }).from(workflowRevisions).where(eq(workflowRevisions.teamId, reTeam.id));
       for (const revision of finalRevisionRows) {
         await db.delete(workflowEdges).where(eq(workflowEdges.revisionId, revision.id));

@@ -403,19 +403,21 @@ async function getLatestExecutionForRun(
 export async function getProjectAutomationReadiness(projectPath: string): Promise<ProjectAutomationReadiness> {
   const assignment = await getProjectTeamAssignmentByPath(projectPath);
   if (!assignment) return { projectPath, teamId: null, notionDataSourceId: null, autoModeEnabled: false, ready: false, unavailableReason: "team_disabled" };
+  const autoModeTeamId = assignment.autoModeTeamId;
+  if (!autoModeTeamId) return { projectPath: assignment.projectPath, teamId: null, notionDataSourceId: assignment.notionDataSourceId, autoModeEnabled: assignment.autoModeEnabled, ready: false, unavailableReason: "team_disabled" };
 
   const project = await getProjectByPath(env.WORKSPACE_ROOT, assignment.projectPath);
-  if (!project) return { projectPath: assignment.projectPath, teamId: assignment.teamId, notionDataSourceId: assignment.notionDataSourceId, autoModeEnabled: assignment.autoModeEnabled, ready: false, unavailableReason: "team_disabled" };
+  if (!project) return { projectPath: assignment.projectPath, teamId: autoModeTeamId, notionDataSourceId: assignment.notionDataSourceId, autoModeEnabled: assignment.autoModeEnabled, ready: false, unavailableReason: "team_disabled" };
 
-  const team = await getTeam(assignment.teamId);
-  if (!team || !team.enabled) return { projectPath: assignment.projectPath, teamId: assignment.teamId, notionDataSourceId: assignment.notionDataSourceId, autoModeEnabled: assignment.autoModeEnabled, ready: false, unavailableReason: "team_disabled" };
-  if (!assignment.notionDataSourceId) return { projectPath: assignment.projectPath, teamId: assignment.teamId, notionDataSourceId: null, autoModeEnabled: assignment.autoModeEnabled, ready: false, unavailableReason: "missing_notion_data_source" };
-  if (!env.NOTION_API_KEY) return { projectPath: assignment.projectPath, teamId: assignment.teamId, notionDataSourceId: assignment.notionDataSourceId, autoModeEnabled: assignment.autoModeEnabled, ready: false, unavailableReason: "missing_notion_api_key" };
+  const team = await getTeam(autoModeTeamId);
+  if (!team || !team.enabled) return { projectPath: assignment.projectPath, teamId: autoModeTeamId, notionDataSourceId: assignment.notionDataSourceId, autoModeEnabled: assignment.autoModeEnabled, ready: false, unavailableReason: "team_disabled" };
+  if (!assignment.notionDataSourceId) return { projectPath: assignment.projectPath, teamId: autoModeTeamId, notionDataSourceId: null, autoModeEnabled: assignment.autoModeEnabled, ready: false, unavailableReason: "missing_notion_data_source" };
+  if (!env.NOTION_API_KEY) return { projectPath: assignment.projectPath, teamId: autoModeTeamId, notionDataSourceId: assignment.notionDataSourceId, autoModeEnabled: assignment.autoModeEnabled, ready: false, unavailableReason: "missing_notion_api_key" };
 
-  const [member] = await db.select({ id: teamMembers.id }).from(teamMembers).innerJoin(agents, eq(teamMembers.agentId, agents.id)).innerJoin(departments, eq(agents.departmentId, departments.id)).where(and(eq(teamMembers.teamId, assignment.teamId), eq(agents.enabled, true), eq(departments.enabled, true))).limit(1);
-  if (!member) return { projectPath: assignment.projectPath, teamId: assignment.teamId, notionDataSourceId: assignment.notionDataSourceId, autoModeEnabled: assignment.autoModeEnabled, ready: false, unavailableReason: "no_enabled_agents" };
+  const [member] = await db.select({ id: teamMembers.id }).from(teamMembers).innerJoin(agents, eq(teamMembers.agentId, agents.id)).innerJoin(departments, eq(agents.departmentId, departments.id)).where(and(eq(teamMembers.teamId, autoModeTeamId), eq(agents.enabled, true), eq(departments.enabled, true))).limit(1);
+  if (!member) return { projectPath: assignment.projectPath, teamId: autoModeTeamId, notionDataSourceId: assignment.notionDataSourceId, autoModeEnabled: assignment.autoModeEnabled, ready: false, unavailableReason: "no_enabled_agents" };
 
-  return { projectPath: assignment.projectPath, teamId: assignment.teamId, notionDataSourceId: assignment.notionDataSourceId, autoModeEnabled: assignment.autoModeEnabled, ready: assignment.autoModeEnabled, unavailableReason: null };
+  return { projectPath: assignment.projectPath, teamId: autoModeTeamId, notionDataSourceId: assignment.notionDataSourceId, autoModeEnabled: assignment.autoModeEnabled, ready: assignment.autoModeEnabled, unavailableReason: null };
 }
 
 /** Project-scoped history prevents a Team reused by several Projects from sharing an approval gate. */
@@ -438,13 +440,13 @@ export async function getProjectAutomationStatuses(): Promise<ProjectAutomationS
     const readiness = await getProjectAutomationReadiness(assignment.projectPath);
     if (!readiness.teamId) return null;
     if (!assignment.autoModeEnabled) {
-      return { projectPath: assignment.projectPath, teamId: assignment.teamId, autoModeEnabled: false, state: "off" as const, nextEligibleAt: null, blockedByActiveRun: false, unavailableReason: null };
+      return { projectPath: assignment.projectPath, teamId: assignment.autoModeTeamId ?? assignment.teamId, autoModeEnabled: false, state: "off" as const, nextEligibleAt: null, blockedByActiveRun: false, unavailableReason: null };
     }
     if (!readiness.ready) {
-      return { projectPath: assignment.projectPath, teamId: assignment.teamId, autoModeEnabled: true, state: "unavailable" as const, nextEligibleAt: null, blockedByActiveRun: false, unavailableReason: readiness.unavailableReason };
+      return { projectPath: assignment.projectPath, teamId: assignment.autoModeTeamId ?? assignment.teamId, autoModeEnabled: true, state: "unavailable" as const, nextEligibleAt: null, blockedByActiveRun: false, unavailableReason: readiness.unavailableReason };
     }
-    const eligibility = await evaluateProjectAutoModeEligibility(assignment.projectPath, assignment.teamId);
-    return { projectPath: assignment.projectPath, teamId: assignment.teamId, autoModeEnabled: true, state: eligibility.state, nextEligibleAt: eligibility.nextEligibleAt?.toISOString() ?? null, blockedByActiveRun: eligibility.blockedByActiveRun, unavailableReason: null };
+    const eligibility = await evaluateProjectAutoModeEligibility(assignment.projectPath, assignment.autoModeTeamId!);
+    return { projectPath: assignment.projectPath, teamId: assignment.autoModeTeamId!, autoModeEnabled: true, state: eligibility.state, nextEligibleAt: eligibility.nextEligibleAt?.toISOString() ?? null, blockedByActiveRun: eligibility.blockedByActiveRun, unavailableReason: null };
   }));
   return statuses.filter((status): status is ProjectAutomationStatus => status !== null);
 }
@@ -806,10 +808,11 @@ export async function runAutoModeCycle(
 
   const candidates = await Promise.all(ready.map(async ({ assignment }) => {
     const adapter = await createAdapter(assignment.notionDataSourceId!);
-    const candidate = await adapter.getNextReadyTask();
+    const workType = assignment.autoModeTeamId === assignment.developmentTeamId ? "Development" : "Resolution";
+    const candidate = await adapter.getNextReadyTask({ projectName: assignment.projectPath.split(/[\\/]/).filter(Boolean).pop()!, workType });
     // A data source associated with Project A must never create work for B.
     if (!candidate || candidate.project.path !== assignment.projectPath) return null;
-    return { teamId: assignment.teamId, projectPath: assignment.projectPath, candidate, adapter } satisfies ProjectCandidate;
+    return { teamId: assignment.autoModeTeamId!, projectPath: assignment.projectPath, candidate, adapter } satisfies ProjectCandidate;
   }));
   const winner = candidates.filter((candidate): candidate is ProjectCandidate => candidate !== null).sort(compareCandidates)[0];
   if (!winner) return;

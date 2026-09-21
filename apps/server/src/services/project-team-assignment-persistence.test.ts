@@ -66,7 +66,7 @@ async function createTestTeam(configRoot: string, label: string) {
 
 afterEach(async () => {
   for (const teamId of createdTeamIds) {
-    await db.delete(projectTeamAssignments).where(eq(projectTeamAssignments.teamId, teamId));
+    await db.delete(projectTeamAssignments).where(eq(projectTeamAssignments.resolutionTeamId, teamId));
     await db.delete(teams).where(eq(teams.id, teamId));
   }
   createdTeamIds.clear();
