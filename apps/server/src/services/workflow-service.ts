@@ -3298,6 +3298,120 @@ export async function approveRun(
 }
 
 /**
+ * Records an operator resolution for a blocked or skipped Notion task whose
+ * requested work was verified as already present in the selected repository.
+ * The original terminal event remains in the audit trail; the terminal state
+ * is corrected so lifecycle synchronization can report Done and intake may
+ * continue.
+ */
+export async function completeVerifiedExistingNotionRun(
+  id: string,
+): Promise<Run | null> {
+  const [run] = await db
+    .select()
+    .from(runs)
+    .where(eq(runs.id, id));
+
+  if (!run) return null;
+
+  if ((run.status !== "blocked" && run.status !== "skipped") || !run.taskId) {
+    throw new WorkflowServiceError(
+      "Only a blocked or skipped Notion Auto Mode run can be completed as already implemented",
+      409,
+    );
+  }
+
+  const [task] = await db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.id, run.taskId));
+
+  if (!task || task.source !== "notion") {
+    throw new WorkflowServiceError(
+      "Only a blocked or skipped Notion Auto Mode run can be completed as already implemented",
+      409,
+    );
+  }
+
+  const [execution] = await db
+    .select()
+    .from(agentExecutions)
+    .where(eq(agentExecutions.runId, id))
+    .orderBy(desc(agentExecutions.createdAt))
+    .limit(1);
+
+  if (!execution) {
+    throw new WorkflowServiceError(
+      "A completed-as-existing run requires an execution record",
+      409,
+    );
+  }
+
+  const now = new Date();
+  const reason = "Completed by operator: verified already implemented";
+
+  await db.transaction(async (tx) => {
+    if (execution.resultStatus === "blocked") {
+      await tx
+        .update(agentExecutions)
+        .set({
+          status: "completed",
+          resultStatus: "approved",
+          resultPayload: {
+            status: "approved",
+            summary: reason,
+            details: {
+              operatorResolution: true,
+              originalResultStatus: "blocked",
+            },
+            findings: [],
+            filesChanged: [],
+            commandsRun: [],
+            validation: {},
+            commit: null,
+          },
+          failureReason: null,
+          updatedAt: now,
+        })
+        .where(eq(agentExecutions.id, execution.id));
+    }
+
+    await tx
+      .update(runs)
+      .set({
+        status: "completed",
+        currentAgentId: null,
+        terminalReason: reason,
+        updatedAt: now,
+      })
+      .where(and(eq(runs.id, id), inArray(runs.status, ["blocked", "skipped"])));
+
+    await tx
+      .update(tasks)
+      .set({ status: "completed", updatedAt: now })
+      .where(eq(tasks.id, task.id));
+
+    await tx.insert(domainEvents).values({
+      type: "run.completed",
+      projectPath: run.projectPath,
+      taskId: task.id,
+      runId: run.id,
+      agentExecutionId: execution.id,
+      data: { reason, operatorResolution: "already_implemented" },
+    });
+  });
+
+  requestAutoModeCycle();
+
+  const [updated] = await db
+    .select()
+    .from(runs)
+    .where(eq(runs.id, id));
+
+  return updated ? serializeRun(updated) : null;
+}
+
+/**
  * Restarts the final snapshot agent of a failed or blocked run with optional
  * one-execution overrides while retaining the original immutable snapshot.
  */

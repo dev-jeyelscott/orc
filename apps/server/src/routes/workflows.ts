@@ -13,6 +13,7 @@ import {
   WorkflowServiceError,
   approveRun,
   cancelRun,
+  completeVerifiedExistingNotionRun,
   createAndStartTask,
   getRunDetail,
   listRuns,
@@ -324,6 +325,28 @@ export async function workflowRoutes(
           error,
           reply,
         );
+      }
+    },
+  );
+
+  app.post(
+    "/api/runs/:id/complete-existing",
+    async (
+      request,
+      reply,
+    ) => {
+      const parsed = idParams.safeParse(request.params);
+
+      if (!parsed.success) {
+        return reply.status(400).send({ error: "invalid_run_id" });
+      }
+
+      try {
+        const run = await completeVerifiedExistingNotionRun(parsed.data.id);
+
+        return run ?? reply.status(404).send({ error: "run_not_found" });
+      } catch (error) {
+        return sendError(error, reply);
       }
     },
   );

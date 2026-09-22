@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   listRuns: vi.fn(),
   getRunDetail: vi.fn(),
   cancelRun: vi.fn(),
+  completeVerifiedExistingNotionRun: vi.fn(),
   skipRun: vi.fn(),
   retryLastExecution: vi.fn(),
   listRunMonitoringSummaries: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock("../services/workflow-service.js", () => ({
   listRuns: mocks.listRuns,
   getRunDetail: mocks.getRunDetail,
   cancelRun: mocks.cancelRun,
+  completeVerifiedExistingNotionRun: mocks.completeVerifiedExistingNotionRun,
   skipRun: mocks.skipRun,
   retryLastExecution: mocks.retryLastExecution,
 }));
