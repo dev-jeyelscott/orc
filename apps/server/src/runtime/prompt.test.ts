@@ -128,6 +128,14 @@ describe("composeInitialInstruction", () => {
     );
     expect(prompt).toContain("Do not emit a second result block.");
   });
+
+  it("allows an Agent-specific pre-existing implementation verification to approve a task", () => {
+    const prompt = composeInitialInstruction(baseInput);
+
+    expect(prompt).toContain(
+      "Agent-specific instructions explicitly authorize approval after verifying the task is already fully satisfied by the current repository",
+    );
+  });
 });
 
 describe("composeHandoffNote", () => {
