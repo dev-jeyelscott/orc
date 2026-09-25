@@ -30,6 +30,7 @@ import { ListEmptyState } from "@/components/patterns/empty-state";
 import { FilterSelect } from "@/components/patterns/filter-select";
 import { SearchInput } from "@/components/patterns/search-input";
 import { ViewToggle } from "@/components/patterns/view-toggle";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   NativeSelect,
@@ -41,6 +42,12 @@ import {
   PaginationEllipsis,
   PaginationItem,
 } from "@/components/ui/pagination";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { useIsBelowXl } from "@/hooks/use-mobile";
 import {
   RUN_STATUS_FILTERS,
   formatRelativeTime,
@@ -254,6 +261,24 @@ export function RunsList() {
   ] = useState<number | null>(
     null,
   );
+  const [
+    filtersOpen,
+    setFiltersOpen,
+  ] = useState(false);
+  const [
+    pageClampNotice,
+    setPageClampNotice,
+  ] = useState<string | null>(
+    null,
+  );
+  const [
+    lastNoticedPage,
+    setLastNoticedPage,
+  ] = useState<number | null>(
+    null,
+  );
+
+  const isBelowXl = useIsBelowXl();
 
   /**
    * Loads the authoritative monitoring-summary collection without issuing per-Run detail requests.
@@ -471,6 +496,36 @@ export function RunsList() {
       totalPages,
     );
 
+  if (
+    effectiveCurrentPage !== currentPage &&
+    lastNoticedPage !== effectiveCurrentPage
+  ) {
+    setLastNoticedPage(effectiveCurrentPage);
+    setPageClampNotice(
+      effectiveCurrentPage === 1
+        ? "Returned to page 1 — fewer runs match now."
+        : `Moved to page ${effectiveCurrentPage} — fewer runs match now.`,
+    );
+  }
+
+  useEffect(() => {
+    if (!pageClampNotice) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setPageClampNotice(null);
+    }, 5_000);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [pageClampNotice]);
+
+  const activeFilterCount =
+    (statusFilter !== "all" ? 1 : 0) +
+    (projectFilter !== "all" ? 1 : 0);
+
   const pageStart =
     (effectiveCurrentPage - 1) *
     PAGE_SIZE;
@@ -503,6 +558,78 @@ export function RunsList() {
     setCurrentPage(1);
   }
 
+  const runFilterControls = (
+    <>
+      <FilterSelect
+        className="w-full sm:w-40"
+        options={runStatusFilterOptions}
+        value={statusFilter}
+        onChange={(value) => {
+          setStatusFilter(
+            value as RunStatusFilter,
+          );
+          setCurrentPage(1);
+        }}
+        aria-label="Filter runs by status"
+        disabled={controlsDisabled}
+      />
+
+      <NativeSelect
+        size="default"
+        className="w-full sm:w-48"
+        value={
+          effectiveProjectFilter
+        }
+        onChange={(event) => {
+          setProjectFilter(
+            event.target.value,
+          );
+          setCurrentPage(1);
+        }}
+        aria-label="Filter runs by project"
+        disabled={controlsDisabled}
+      >
+        <NativeSelectOption value="all">
+          All projects
+        </NativeSelectOption>
+
+        {projectOptions.map(
+          (option) => (
+            <NativeSelectOption
+              key={option.value}
+              value={option.value}
+            >
+              {option.label}
+            </NativeSelectOption>
+          ),
+        )}
+      </NativeSelect>
+
+      <NativeSelect
+        size="default"
+        className="w-full sm:w-40"
+        value={sortOrder}
+        onChange={(event) => {
+          setSortOrder(
+            event.target
+              .value as RunSortOrder,
+          );
+          setCurrentPage(1);
+        }}
+        aria-label="Sort runs"
+        disabled={controlsDisabled}
+      >
+        <NativeSelectOption value="newest">
+          Newest first
+        </NativeSelectOption>
+
+        <NativeSelectOption value="oldest">
+          Oldest first
+        </NativeSelectOption>
+      </NativeSelect>
+    </>
+  );
+
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <header className="min-w-0">
@@ -531,73 +658,46 @@ export function RunsList() {
             disabled={controlsDisabled}
           />
 
-          <FilterSelect
-            className="w-full sm:w-40"
-            options={runStatusFilterOptions}
-            value={statusFilter}
-            onChange={(value) => {
-              setStatusFilter(
-                value as RunStatusFilter,
-              );
-              setCurrentPage(1);
-            }}
-            aria-label="Filter runs by status"
-            disabled={controlsDisabled}
-          />
+          {isBelowXl ? (
+            <Popover
+              open={filtersOpen}
+              onOpenChange={setFiltersOpen}
+            >
+              <PopoverTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full justify-between sm:w-auto"
+                    disabled={controlsDisabled}
+                  />
+                }
+              >
+                <span className="flex items-center gap-1.5">
+                  <SlidersHorizontalIcon aria-hidden="true" />
+                  Filters
+                </span>
 
-          <NativeSelect
-            size="default"
-            className="w-full sm:w-48"
-            value={
-              effectiveProjectFilter
-            }
-            onChange={(event) => {
-              setProjectFilter(
-                event.target.value,
-              );
-              setCurrentPage(1);
-            }}
-            aria-label="Filter runs by project"
-            disabled={controlsDisabled}
-          >
-            <NativeSelectOption value="all">
-              All projects
-            </NativeSelectOption>
+                {activeFilterCount > 0 ? (
+                  <Badge
+                    variant="neutral"
+                    className="ms-1"
+                  >
+                    {activeFilterCount}
+                  </Badge>
+                ) : null}
+              </PopoverTrigger>
 
-            {projectOptions.map(
-              (option) => (
-                <NativeSelectOption
-                  key={option.value}
-                  value={option.value}
-                >
-                  {option.label}
-                </NativeSelectOption>
-              ),
-            )}
-          </NativeSelect>
-
-          <NativeSelect
-            size="default"
-            className="w-full sm:w-40"
-            value={sortOrder}
-            onChange={(event) => {
-              setSortOrder(
-                event.target
-                  .value as RunSortOrder,
-              );
-              setCurrentPage(1);
-            }}
-            aria-label="Sort runs"
-            disabled={controlsDisabled}
-          >
-            <NativeSelectOption value="newest">
-              Newest first
-            </NativeSelectOption>
-
-            <NativeSelectOption value="oldest">
-              Oldest first
-            </NativeSelectOption>
-          </NativeSelect>
+              <PopoverContent
+                align="start"
+                className="w-72"
+              >
+                {runFilterControls}
+              </PopoverContent>
+            </Popover>
+          ) : (
+            runFilterControls
+          )}
 
           <Button
             type="button"
@@ -662,6 +762,15 @@ export function RunsList() {
             >
               Retry
             </Button>
+          </div>
+        ) : null}
+
+        {pageClampNotice ? (
+          <div
+            role="status"
+            className="border-b border-divider bg-status-neutral/5 px-4 py-2 text-xs text-text-muted"
+          >
+            {pageClampNotice}
           </div>
         ) : null}
 
