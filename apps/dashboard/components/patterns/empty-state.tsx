@@ -13,6 +13,8 @@ interface ListEmptyStateProps {
   icon?: ReactNode;
   onRetry?: () => void;
   retryLabel?: string;
+  /** Extra action rendered in place of the retry button, e.g. a "Create X" CTA for the true-empty case. */
+  action?: ReactNode;
   className?: string;
 }
 
@@ -28,6 +30,7 @@ export function ListEmptyState({
   icon,
   onRetry,
   retryLabel = "Retry",
+  action,
   className,
 }: ListEmptyStateProps) {
   if (variant === "loading") {
@@ -40,7 +43,7 @@ export function ListEmptyState({
   }
 
   return (
-    <Empty className={cn("min-h-80 rounded-none border-0", className)}>
+    <Empty className={cn("min-h-80 rounded-none border-0", className)} role={variant === "error" ? "alert" : undefined}>
       <EmptyHeader>
         {icon || variant === "error" ? (
           <EmptyMedia variant="icon" className={variant === "error" ? "bg-status-error/10 text-status-error" : undefined}>
@@ -50,7 +53,9 @@ export function ListEmptyState({
         <EmptyTitle>{title}</EmptyTitle>
         {description ? <EmptyDescription>{description}</EmptyDescription> : null}
       </EmptyHeader>
-      {onRetry ? (
+      {action ? (
+        <EmptyContent>{action}</EmptyContent>
+      ) : onRetry ? (
         <EmptyContent>
           <Button type="button" variant={variant === "error" ? "destructive" : "outline"} size="sm" onClick={onRetry}>
             {retryLabel}

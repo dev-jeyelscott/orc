@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  AlertTriangleIcon,
   Building2Icon,
   PencilIcon,
   PlusIcon,
@@ -13,13 +12,11 @@ import type { Department } from "@orc/shared";
 
 import { DepartmentConfigDrawer } from "@/components/department-config-drawer";
 import { DataTable, type DataTableColumn } from "@/components/patterns/data-table";
+import { ListEmptyState } from "@/components/patterns/empty-state";
 import { FilterSelect } from "@/components/patterns/filter-select";
-import { RowActionsMenu } from "@/components/patterns/row-actions-menu";
 import { SearchInput } from "@/components/patterns/search-input";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Spinner } from "@/components/ui/spinner";
 import { getDepartments } from "@/lib/departments";
 import { cn } from "@/lib/utils";
 
@@ -80,17 +77,17 @@ export function DepartmentsManager() {
     { key: "agents", header: "Agents", className: "font-mono text-sm text-text-secondary", render: (item) => item.agentCount },
     { key: "updated", header: "Updated", className: "text-xs text-text-muted", render: (item) => formatUpdatedAt(item.updatedAt) },
     { key: "status", header: "Status", render: (item) => <StatusBadge variant={item.enabled ? "success" : "disabled"} label={item.enabled ? "Enabled" : "Disabled"} /> },
-    { key: "actions", header: <span className="sr-only">Actions</span>, className: "text-right", render: (item) => <RowActionsMenu label={`Actions for ${item.name}`} items={[{ label: "Edit Department", icon: <PencilIcon />, onClick: () => openEdit(item.id) }]} /> },
+    { key: "actions", header: <span className="sr-only">Actions</span>, className: "text-right", render: (item) => <Button type="button" variant="ghost" size="icon-sm" aria-label={`Edit ${item.name}`} onClick={() => openEdit(item.id)}><PencilIcon /></Button> },
   ];
 
   return <div className="flex min-w-0 flex-1 flex-col gap-5">
     <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="font-heading text-2xl font-semibold text-text-primary">Departments</h1><p className="mt-1 text-sm text-text-muted">Manage reusable Agent role, runtime, and permission defaults.</p></div><Button type="button" onClick={openCreate}><PlusIcon />Create Department</Button></header>
     <section className="min-w-0 overflow-hidden rounded-lg border border-border-default bg-surface-elevated shadow-xs" aria-label="Departments browser">
       <div className="flex flex-wrap items-center gap-3 border-b border-divider p-3"><SearchInput value={query} onChange={setQuery} placeholder="Search Departments..." aria-label="Search Departments" disabled={status !== "loaded"} /><FilterSelect options={[{ value: "all", label: "All statuses" }, { value: "enabled", label: "Enabled" }, { value: "disabled", label: "Disabled" }]} value={enabledFilter} onChange={(value) => setEnabledFilter(value as typeof enabledFilter)} disabled={status !== "loaded"} aria-label="Filter Departments by status" /><Button type="button" variant="outline" onClick={refresh} disabled={refreshing}><RefreshCwIcon className={cn(refreshing && "animate-spin motion-reduce:animate-none")} />Refresh</Button></div>
-      {status === "loading" ? <Empty className="min-h-80 rounded-none border-0"><Spinner className="size-6" /><EmptyTitle>Loading Departments...</EmptyTitle></Empty> : null}
-      {status === "error" ? <Empty className="min-h-80 rounded-none border-0"><EmptyHeader><EmptyMedia variant="icon" className="bg-status-error/10 text-status-error"><AlertTriangleIcon /></EmptyMedia><EmptyTitle>Failed to load Departments</EmptyTitle><EmptyDescription>{error ?? "Could not reach the backend."}</EmptyDescription></EmptyHeader><EmptyContent><Button type="button" variant="destructive" onClick={() => void load()}>Retry</Button></EmptyContent></Empty> : null}
-      {status === "loaded" && departments.length === 0 ? <Empty className="min-h-80 rounded-none border-0"><EmptyHeader><EmptyMedia variant="icon"><Building2Icon /></EmptyMedia><EmptyTitle>No Departments found</EmptyTitle><EmptyDescription>Create a Department to establish reusable defaults for future Agents.</EmptyDescription></EmptyHeader><EmptyContent><Button type="button" size="sm" onClick={openCreate}><PlusIcon />Create Department</Button></EmptyContent></Empty> : null}
-      {status === "loaded" && departments.length > 0 && visibleDepartments.length === 0 ? <Empty className="min-h-64 rounded-none border-0"><EmptyHeader><EmptyTitle>No matching Departments</EmptyTitle><EmptyDescription>No Department matches the current search and status filter.</EmptyDescription></EmptyHeader></Empty> : null}
+      {status === "loading" ? <ListEmptyState variant="loading" title="Loading Departments..." /> : null}
+      {status === "error" ? <ListEmptyState variant="error" title="Failed to load Departments" description={error ?? "Could not reach the backend."} onRetry={() => void load()} /> : null}
+      {status === "loaded" && departments.length === 0 ? <ListEmptyState variant="empty" icon={<Building2Icon />} title="No Departments found" description="Create a Department to establish reusable defaults for future Agents." action={<Button type="button" size="sm" onClick={openCreate}><PlusIcon />Create Department</Button>} /> : null}
+      {status === "loaded" && departments.length > 0 && visibleDepartments.length === 0 ? <ListEmptyState variant="empty" title="No matching Departments" description="No Department matches the current search and status filter." className="min-h-64" /> : null}
       {status === "loaded" && visibleDepartments.length > 0 ? <DataTable className="min-w-[850px]" columns={departmentColumns} rows={visibleDepartments} getRowKey={(item) => item.id} /> : null}
       {status === "loaded" ? <footer className="border-t border-divider bg-surface-interactive/30 px-4 py-2.5 text-xs text-text-muted">Showing {visibleDepartments.length} of {departments.length} {departments.length === 1 ? "Department" : "Departments"}</footer> : null}
     </section>

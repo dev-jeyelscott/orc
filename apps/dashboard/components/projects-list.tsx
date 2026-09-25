@@ -488,16 +488,16 @@ function ProjectsList() {
             disabled={controlsDisabled}
           >
             <NativeSelectOption value="name">
-              Name
+              Name (A–Z)
             </NativeSelectOption>
             <NativeSelectOption value="gitState">
-              Git state
+              Git state (clean first)
             </NativeSelectOption>
             <NativeSelectOption value="branch">
-              Branch
+              Branch (A–Z)
             </NativeSelectOption>
             <NativeSelectOption value="stack">
-              Stack
+              Stack (A–Z)
             </NativeSelectOption>
           </NativeSelect>
 
@@ -559,9 +559,19 @@ function ProjectsList() {
       data.projects.length > 0 ? (
         <div
           role="alert"
-          className="border-b border-divider bg-status-warning/5 px-4 py-2 text-xs text-status-warning"
+          className="flex flex-wrap items-center justify-between gap-2 border-b border-divider bg-status-warning/5 px-4 py-2 text-xs text-status-warning"
         >
-          {data.error}
+          <span>{data.error}</span>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            onClick={refresh}
+            disabled={isRefreshing}
+          >
+            Retry
+          </Button>
         </div>
       ) : null}
 
@@ -716,6 +726,7 @@ function ProjectsList() {
           <span
             className="inline-flex min-w-0 items-center gap-2 font-mono"
             title={data.workspaceRoot}
+            aria-label={`Workspace root: ${data.workspaceRoot}`}
           >
             <FolderIcon
               className="size-3.5 shrink-0"

@@ -1,6 +1,7 @@
-import { SearchIcon } from "lucide-react";
+import { SearchIcon, XIcon } from "lucide-react";
 import type { ChangeEvent } from "react";
 
+import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +39,20 @@ export function SearchInput({
         aria-label={rest["aria-label"]}
         disabled={disabled}
       />
+      {value ? (
+        <InputGroupAddon align="inline-end">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Clear ${rest["aria-label"]}`}
+            disabled={disabled}
+            onClick={() => onChange("")}
+          >
+            <XIcon />
+          </Button>
+        </InputGroupAddon>
+      ) : null}
     </InputGroup>
   );
 }

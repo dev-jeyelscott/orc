@@ -263,7 +263,7 @@ export function SkillsManager() {
       key: "description",
       header: "Description",
       render: (skill) => (
-        <p className="max-w-[34rem] truncate text-text-secondary">{skill.description || "No description"}</p>
+        <p className="max-w-[34rem] truncate text-text-secondary" title={skill.description || undefined}>{skill.description || "No description"}</p>
       ),
     },
     {
@@ -472,6 +472,10 @@ export function SkillsManager() {
               onClick={() => {
                 setLoadState(
                   "loading",
+                );
+
+                setRefreshing(
+                  true,
                 );
 
                 void load();

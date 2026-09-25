@@ -43,7 +43,7 @@ export function AgentsManager() {
   const visible = useMemo(() => getVisibleAgents(agents, query, departmentFilter, teamFilter, statusFilter), [agents, query, departmentFilter, teamFilter, statusFilter]);
   const teamName = (agent: Agent) => teams.find((team) => team.id === agent.currentTeamId)?.name ?? (agent.currentTeamId ? "Assigned Team" : "Unassigned");
   const edit = (agent: Agent) => <Button type="button" variant="ghost" size="icon-sm" aria-label={`Edit ${agent.name}`} onClick={() => setEditor({ agent })}><PencilIcon /></Button>;
-  const badge = (agent: Agent) => <span className="grid gap-1"><StatusBadge variant={agent.enabled ? "success" : "disabled"} label={agent.enabled ? "Enabled" : "Disabled"} entityLabel="Agent" />{agent.enabled && !agent.effective.enabled ? <span className="text-xs text-text-muted">Department disabled</span> : null}</span>;
+  const badge = (agent: Agent) => <span className="grid gap-1"><StatusBadge variant={agent.enabled ? "success" : "disabled"} label={agent.enabled ? "Enabled" : "Disabled"} entityLabel="Agent" />{agent.enabled && !agent.effective.enabled ? <StatusBadge variant="warning" label="Department disabled" entityLabel="Agent" dot={false} /> : null}</span>;
   const columns: DataTableColumn<Agent>[] = [
     { key: "agent", header: "Agent", render: (agent) => <><div className="font-medium">{agent.name}</div><div className="font-mono text-xs text-text-muted">{agent.slug}</div></> },
     { key: "department", header: "Department", render: (agent) => <>{agent.department.name}<div className="text-xs text-text-muted">{agent.effective.role}</div></> },
@@ -54,7 +54,7 @@ export function AgentsManager() {
     { key: "actions", header: "Actions", render: (agent) => edit(agent) },
   ];
   return <div className="flex min-w-0 flex-1 flex-col gap-5">
-    <header className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="font-heading text-2xl font-semibold">Agents</h1><p className="mt-1 text-sm text-text-muted">Manage reusable Agents, Department inheritance, and runtime configuration.</p></div><Button onClick={() => setEditor({ agent: null })} disabled={status !== "loaded" || departments.length === 0}><PlusIcon />Create Agent</Button></header>
+    <header className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="font-heading text-2xl font-semibold">Agents</h1><p className="mt-1 text-sm text-text-muted">Manage reusable Agents, Department inheritance, and runtime configuration.</p></div><Button onClick={() => setEditor({ agent: null })} disabled={status !== "loaded" || departments.length === 0} title={status === "loaded" && departments.length === 0 ? "Create a Department first" : undefined}><PlusIcon />Create Agent</Button></header>
     {status === "loaded" && departments.length === 0 ? <p className="rounded-md border border-border-default p-4 text-sm">An Agent requires a Department. <Link href="/departments" className="underline">Create a Department</Link> to get started.</p> : null}
     <section className="min-w-0 overflow-hidden rounded-lg border border-border-default bg-surface-elevated" aria-label="Agents browser">
       <div className="flex flex-wrap gap-3 border-b border-divider p-3">
