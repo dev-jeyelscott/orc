@@ -7,7 +7,6 @@ import {
   CircleDotIcon,
   ExternalLinkIcon,
   GitCommitHorizontalIcon,
-  Loader2Icon,
 } from "lucide-react";
 import type {
   ReactNode,
@@ -18,8 +17,11 @@ import type {
 } from "@orc/shared";
 
 import {
-  Badge,
-} from "@/components/ui/badge";
+  ListEmptyState,
+} from "@/components/patterns/empty-state";
+import {
+  StatusBadge,
+} from "@/components/patterns/status-badge";
 import {
   Button,
 } from "@/components/ui/button";
@@ -109,21 +111,13 @@ export function TaskObservabilityPanel({
 }: TaskObservabilityPanelProps) {
   if (!latestRunId) {
     return (
-      <section className="neon-surface flex min-h-[38rem] items-center justify-center rounded-lg border border-border-default bg-surface-elevated p-8 text-center shadow-xs">
-        <div>
-          <p className="text-sm font-medium text-text-secondary">
-            No run
-            observability yet
-          </p>
-
-          <p className="mt-1 text-xs text-text-muted">
-            A related run will
-            expose executions,
-            events, usage,
-            results, and commit
-            metadata here.
-          </p>
-        </div>
+      <section className="neon-surface flex min-h-[38rem] items-center justify-center rounded-lg border border-border-default bg-surface-elevated shadow-xs">
+        <ListEmptyState
+          variant="empty"
+          className="min-h-0"
+          title="No run observability yet"
+          description="A related run will expose executions, events, usage, results, and commit metadata here."
+        />
       </section>
     );
   }
@@ -133,16 +127,12 @@ export function TaskObservabilityPanel({
     !detail
   ) {
     return (
-      <section className="neon-surface flex min-h-[38rem] items-center justify-center rounded-lg border border-border-default bg-surface-elevated p-8 text-center shadow-xs">
-        <div className="flex items-center gap-2 text-sm text-text-muted">
-          <Loader2Icon
-            className="size-4 animate-spin motion-reduce:animate-none"
-            aria-hidden="true"
-          />
-
-          Loading run
-          observability...
-        </div>
+      <section className="neon-surface flex min-h-[38rem] items-center justify-center rounded-lg border border-border-default bg-surface-elevated shadow-xs">
+        <ListEmptyState
+          variant="loading"
+          className="min-h-0"
+          title="Loading run observability..."
+        />
       </section>
     );
   }
@@ -152,22 +142,18 @@ export function TaskObservabilityPanel({
     !detail
   ) {
     return (
-      <section className="flex min-h-[38rem] items-center justify-center rounded-lg border border-status-error/30 bg-status-error/5 p-8 text-center shadow-xs">
-        <div>
-          <AlertTriangleIcon
-            className="mx-auto size-5 text-status-error"
-            aria-hidden="true"
-          />
-
-          <p className="mt-2 text-sm font-medium text-status-error">
-            Unable to load
-            run observability
-          </p>
-
-          <p className="mt-1 text-xs text-text-muted">
-            {error}
-          </p>
-        </div>
+      <section className="flex min-h-[38rem] items-center justify-center rounded-lg border border-status-error/30 bg-status-error/5 shadow-xs">
+        <ListEmptyState
+          variant="error"
+          className="min-h-0"
+          icon={
+            <AlertTriangleIcon
+              aria-hidden="true"
+            />
+          }
+          title="Unable to load run observability"
+          description={error}
+        />
       </section>
     );
   }
@@ -360,15 +346,17 @@ export function TaskObservabilityPanel({
                       </td>
 
                       <td className="px-2 py-2.5">
-                        <Badge
+                        <StatusBadge
+                          dot={false}
+                          className="text-[10px]"
                           variant={getLifecycleBadgeVariant(
                             execution.status,
                           )}
-                        >
-                          {formatStatusLabel(
+                          label={formatStatusLabel(
                             execution.status,
                           )}
-                        </Badge>
+                          entityLabel="Execution"
+                        />
                       </td>
 
                       <td className="px-2 py-2.5 font-mono text-text-secondary">
@@ -400,15 +388,17 @@ export function TaskObservabilityPanel({
 
                       <td className="px-3 py-2.5">
                         {execution.resultStatus ? (
-                          <Badge
+                          <StatusBadge
+                            dot={false}
+                            className="text-[10px]"
                             variant={getResultBadgeVariant(
                               execution.resultStatus,
                             )}
-                          >
-                            {formatStatusLabel(
+                            label={formatStatusLabel(
                               execution.resultStatus,
                             )}
-                          </Badge>
+                            entityLabel="Result"
+                          />
                         ) : (
                           <span className="text-text-muted">
                             -
@@ -744,17 +734,18 @@ function MetricStateCard({
       </h2>
 
       <div className="mt-1 min-w-0">
-        <Badge
+        <StatusBadge
           variant={variant}
           className="max-w-full"
-        >
-          <span
-            className="truncate"
-            title={value}
-          >
-            {value}
-          </span>
-        </Badge>
+          label={
+            <span
+              className="truncate"
+              title={value}
+            >
+              {value}
+            </span>
+          }
+        />
       </div>
     </section>
   );

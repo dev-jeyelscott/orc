@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   BanIcon,
   ExternalLinkIcon,
@@ -9,9 +9,7 @@ import {
   LayoutGridIcon,
   ListChecksIcon,
   ListIcon,
-  MoreHorizontalIcon,
   RefreshCwIcon,
-  SearchIcon,
   Table2Icon,
 } from "lucide-react";
 import {
@@ -25,8 +23,22 @@ import type {
 } from "@orc/shared";
 
 import {
-  Badge,
-} from "@/components/ui/badge";
+  ListEmptyState,
+} from "@/components/patterns/empty-state";
+import {
+  DataTable,
+  type DataTableColumn,
+} from "@/components/patterns/data-table";
+import {
+  RowActionsMenu,
+  type RowActionsMenuItem,
+} from "@/components/patterns/row-actions-menu";
+import {
+  SearchInput,
+} from "@/components/patterns/search-input";
+import {
+  StatusBadge,
+} from "@/components/patterns/status-badge";
 import {
   Button,
 } from "@/components/ui/button";
@@ -34,38 +46,11 @@ import {
   ButtonGroup,
 } from "@/components/ui/button-group";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group";
-import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   DEFAULT_TASK_SORT_ORDER,
   DEFAULT_TASK_VIEW_MODE,
@@ -278,27 +263,13 @@ export function TaskQueue({
       aria-label="Tasks"
     >
       <div className="neon-surface flex flex-col gap-3 rounded-lg border border-border-default bg-surface-elevated p-3 shadow-xs lg:flex-row lg:items-center lg:justify-between">
-        <InputGroup className="w-full lg:max-w-md">
-          <InputGroupAddon>
-            <SearchIcon
-              aria-hidden="true"
-            />
-          </InputGroupAddon>
-
-          <InputGroupInput
-            type="search"
-            value={query}
-            onChange={(
-              event,
-            ) =>
-              onQueryChange(
-                event.target.value,
-              )
-            }
-            placeholder="Search tasks..."
-            aria-label="Search tasks by title, description, project, Team, ID, source, or status"
-          />
-        </InputGroup>
+        <SearchInput
+          className="w-full lg:max-w-md"
+          value={query}
+          onChange={onQueryChange}
+          placeholder="Search tasks..."
+          aria-label="Search tasks by title, description, project, Team, ID, source, or status"
+        />
 
         <div className="flex flex-wrap items-center gap-2">
           <ButtonGroup
@@ -426,31 +397,29 @@ export function TaskQueue({
 
       {visibleTasks.length ===
       0 ? (
-        <Empty className="neon-surface min-h-72 border border-border-default bg-surface-elevated shadow-xs">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <ListChecksIcon
-                aria-hidden="true"
-              />
-            </EmptyMedia>
-
-            <EmptyTitle>
-              {query.trim()
-                .length >
-              0
-                ? "No matching tasks"
-                : "No tasks yet"}
-            </EmptyTitle>
-
-            <EmptyDescription>
-              {query.trim()
-                .length >
-              0
-                ? "Change the search query to see other task history."
-                : "Create a task to start orchestrated work."}
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+        <ListEmptyState
+          variant="empty"
+          className="neon-surface min-h-72 border border-border-default bg-surface-elevated shadow-xs"
+          icon={
+            <ListChecksIcon
+              aria-hidden="true"
+            />
+          }
+          title={
+            query.trim()
+              .length >
+            0
+              ? "No matching tasks"
+              : "No tasks yet"
+          }
+          description={
+            query.trim()
+              .length >
+            0
+              ? "Change the search query to see other task history."
+              : "Create a task to start orchestrated work."
+          }
+        />
       ) : null}
 
       {visibleTasks.length >
@@ -545,96 +514,75 @@ function TaskTable({
   latestRunByTaskId,
   actions,
 }: CollectionViewProps) {
+  const columns: DataTableColumn<Task>[] = [
+    {
+      key: "title",
+      header: "Title",
+      className: "w-[34%] px-4 align-middle",
+      render: (task) => (
+        <TaskTitleBlock
+          task={task}
+          teamName={teamNameById.get(
+            task.teamId,
+          )}
+        />
+      ),
+    },
+    {
+      key: "description",
+      header: "Description",
+      className: "w-[44%] min-w-0 align-middle",
+      render: (task) => (
+        <p className="truncate text-sm text-text-secondary">
+          {normalizeTaskInstruction(
+            task.instruction,
+            200,
+          )}
+        </p>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      className: "w-[12%] align-middle",
+      render: (task) => (
+        <StatusBadge
+          variant={getLifecycleBadgeVariant(
+            task.status,
+          )}
+          label={formatStatusLabel(
+            task.status,
+          )}
+          entityLabel="Task"
+        />
+      ),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      className: "w-[10%] pe-4 text-end align-middle",
+      render: (task) => (
+        <TaskActions
+          task={task}
+          run={
+            latestRunByTaskId.get(
+              task.id,
+            ) ?? null
+          }
+          actions={actions}
+        />
+      ),
+    },
+  ];
+
   return (
-    <Table className="min-w-[64rem] table-fixed">
-      <TableHeader>
-        <TableRow className="bg-surface-interactive hover:bg-surface-interactive">
-          <TableHead className="w-[34%] px-4">
-            Title
-          </TableHead>
-
-          <TableHead className="w-[44%]">
-            Description
-          </TableHead>
-
-          <TableHead className="w-[12%]">
-            Status
-          </TableHead>
-
-          <TableHead className="w-[10%] pe-4 text-end">
-            Actions
-          </TableHead>
-        </TableRow>
-      </TableHeader>
-
-      <TableBody>
-        {tasks.map(
-          (task) => {
-            const run =
-              latestRunByTaskId.get(
-                task.id,
-              ) ?? null;
-
-            return (
-              <TableRow
-                key={
-                  task.id
-                }
-                className="bg-surface-card"
-              >
-                <TableCell className="px-4 py-3 align-middle">
-                  <TaskTitleBlock
-                    task={
-                      task
-                    }
-                    teamName={
-                      teamNameById.get(
-                        task.teamId,
-                      )
-                    }
-                  />
-                </TableCell>
-
-                <TableCell className="min-w-0 py-3 align-middle">
-                  <p className="truncate text-sm text-text-secondary">
-                    {normalizeTaskInstruction(
-                      task.instruction,
-                      200,
-                    )}
-                  </p>
-                </TableCell>
-
-                <TableCell className="py-3 align-middle">
-                  <Badge
-                    variant={getLifecycleBadgeVariant(
-                      task.status,
-                    )}
-                  >
-                    {formatStatusLabel(
-                      task.status,
-                    )}
-                  </Badge>
-                </TableCell>
-
-                <TableCell className="pe-4 py-3 align-middle">
-                  <TaskActions
-                    task={
-                      task
-                    }
-                    run={
-                      run
-                    }
-                    actions={
-                      actions
-                    }
-                  />
-                </TableCell>
-              </TableRow>
-            );
-          },
-        )}
-      </TableBody>
-    </Table>
+    <DataTable
+      className="min-w-[64rem] table-fixed"
+      columns={columns}
+      rows={tasks}
+      getRowKey={(task) => task.id}
+      rowClassName="bg-surface-card"
+    />
   );
 }
 
@@ -672,15 +620,15 @@ function TaskList({
                     }
                   </h2>
 
-                  <Badge
+                  <StatusBadge
                     variant={getLifecycleBadgeVariant(
                       task.status,
                     )}
-                  >
-                    {formatStatusLabel(
+                    label={formatStatusLabel(
                       task.status,
                     )}
-                  </Badge>
+                    entityLabel="Task"
+                  />
                 </div>
 
                 <p className="mt-1 truncate text-xs text-text-secondary">
@@ -756,15 +704,15 @@ function TaskDetailedList({
                       }
                     </h2>
 
-                    <Badge
+                    <StatusBadge
                       variant={getLifecycleBadgeVariant(
                         task.status,
                       )}
-                    >
-                      {formatStatusLabel(
+                      label={formatStatusLabel(
                         task.status,
                       )}
-                    </Badge>
+                      entityLabel="Task"
+                    />
                   </div>
 
                   <TaskMetadata
@@ -866,15 +814,15 @@ function TaskGrid({
                   }
                 </h2>
 
-                <Badge
+                <StatusBadge
                   variant={getLifecycleBadgeVariant(
                     task.status,
                   )}
-                >
-                  {formatStatusLabel(
+                  label={formatStatusLabel(
                     task.status,
                   )}
-                </Badge>
+                  entityLabel="Task"
+                />
               </div>
 
               <TaskMetadata
@@ -1066,6 +1014,79 @@ function TaskActions({
   const hasRunAction =
     Boolean(run);
 
+  const router =
+    useRouter();
+
+  const menuItems: RowActionsMenuItem[] =
+    run
+      ? [
+          {
+            label: "Open Run",
+            icon: (
+              <ExternalLinkIcon
+                aria-hidden="true"
+              />
+            ),
+            onClick: () =>
+              router.push(
+                `/runs/${run.id}`,
+              ),
+          },
+          ...(retryable
+            ? [
+                {
+                  label: "Retry Run",
+                  icon: (
+                    <RefreshCwIcon
+                      aria-hidden="true"
+                    />
+                  ),
+                  onClick: () =>
+                    void actions.onRetryRun(
+                      run.id,
+                    ),
+                  disabled: busy,
+                },
+              ]
+            : []),
+          ...(skippable
+            ? [
+                {
+                  label: "Skip Task",
+                  icon: (
+                    <ForwardIcon
+                      aria-hidden="true"
+                    />
+                  ),
+                  onClick: () =>
+                    void actions.onSkipRun(
+                      run.id,
+                    ),
+                  disabled: busy,
+                },
+              ]
+            : []),
+          ...(cancellable
+            ? [
+                {
+                  label: "Cancel Run",
+                  icon: (
+                    <BanIcon
+                      aria-hidden="true"
+                    />
+                  ),
+                  onClick: () =>
+                    void actions.onCancelRun(
+                      run.id,
+                    ),
+                  destructive: true,
+                  disabled: busy,
+                },
+              ]
+            : []),
+        ]
+      : [];
+
   return (
     <div className="flex shrink-0 items-center justify-end gap-1">
       <Button
@@ -1086,105 +1107,12 @@ function TaskActions({
 
       {hasRunAction &&
       run ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`More actions for ${task.title}`}
-              />
-            }
-          >
-            <MoreHorizontalIcon
-              aria-hidden="true"
-            />
-          </DropdownMenuTrigger>
-
-          <DropdownMenuContent
-            align="end"
-            className="w-44"
-          >
-            <DropdownMenuItem
-              render={
-                <Link
-                  href={`/runs/${run.id}`}
-                />
-              }
-            >
-              <ExternalLinkIcon
-                aria-hidden="true"
-              />
-
-              Open Run
-            </DropdownMenuItem>
-
-            {retryable ||
-            cancellable ||
-            skippable ? (
-              <DropdownMenuSeparator />
-            ) : null}
-
-            {retryable ? (
-              <DropdownMenuItem
-                disabled={
-                  busy
-                }
-                onClick={() =>
-                  void actions.onRetryRun(
-                    run.id,
-                  )
-                }
-              >
-                <RefreshCwIcon
-                  aria-hidden="true"
-                />
-
-                Retry Run
-              </DropdownMenuItem>
-            ) : null}
-
-            {skippable ? (
-              <DropdownMenuItem
-                disabled={
-                  busy
-                }
-                onClick={() =>
-                  void actions.onSkipRun(
-                    run.id,
-                  )
-                }
-              >
-                <ForwardIcon
-                  aria-hidden="true"
-                />
-
-                Skip Task
-              </DropdownMenuItem>
-            ) : null}
-
-            {cancellable ? (
-              <DropdownMenuItem
-                variant="destructive"
-                disabled={
-                  busy
-                }
-                onClick={() =>
-                  void actions.onCancelRun(
-                    run.id,
-                  )
-                }
-              >
-                <BanIcon
-                  aria-hidden="true"
-                />
-
-                Cancel Run
-              </DropdownMenuItem>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <RowActionsMenu
+          label={`More actions for ${task.title}`}
+          items={
+            menuItems
+          }
+        />
       ) : null}
     </div>
   );

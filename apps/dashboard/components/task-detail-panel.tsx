@@ -23,8 +23,11 @@ import type {
 } from "@orc/shared";
 
 import {
-  Badge,
-} from "@/components/ui/badge";
+  ListEmptyState,
+} from "@/components/patterns/empty-state";
+import {
+  StatusBadge,
+} from "@/components/patterns/status-badge";
 import {
   Button,
 } from "@/components/ui/button";
@@ -121,20 +124,13 @@ export function TaskDetailPanel({
 }: TaskDetailPanelProps) {
   if (!task) {
     return (
-      <section className="neon-surface flex min-h-[38rem] items-center justify-center rounded-lg border border-border-default bg-surface-elevated p-8 text-center shadow-xs">
-        <div>
-          <p className="text-sm font-medium text-text-secondary">
-            No task selected
-          </p>
-
-          <p className="mt-1 text-xs text-text-muted">
-            Select a task
-            from the queue to
-            inspect its
-            instruction and
-            workflow history.
-          </p>
-        </div>
+      <section className="neon-surface flex min-h-[38rem] items-center justify-center rounded-lg border border-border-default bg-surface-elevated shadow-xs">
+        <ListEmptyState
+          variant="empty"
+          className="min-h-0"
+          title="No task selected"
+          description="Select a task from the queue to inspect its instruction and workflow history."
+        />
       </section>
     );
   }
@@ -167,15 +163,15 @@ export function TaskDetailPanel({
                 {task.title}
               </h2>
 
-              <Badge
+              <StatusBadge
                 variant={getLifecycleBadgeVariant(
                   task.status,
                 )}
-              >
-                {formatStatusLabel(
+                label={formatStatusLabel(
                   task.status,
                 )}
-              </Badge>
+                entityLabel="Task"
+              />
             </div>
 
             <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2 font-mono text-[11px] text-text-muted">
@@ -629,15 +625,15 @@ function RelatedRunCard({
             )}
           </span>
 
-          <Badge
+          <StatusBadge
             variant={getLifecycleBadgeVariant(
               run.status,
             )}
-          >
-            {formatStatusLabel(
+            label={formatStatusLabel(
               run.status,
             )}
-          </Badge>
+            entityLabel="Run"
+          />
         </div>
 
         <span className="text-[11px] text-text-muted">

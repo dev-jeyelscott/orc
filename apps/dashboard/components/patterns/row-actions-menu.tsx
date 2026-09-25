@@ -9,6 +9,7 @@ export interface RowActionsMenuItem {
   icon?: ReactNode;
   onClick: () => void;
   destructive?: boolean;
+  disabled?: boolean;
 }
 
 interface RowActionsMenuProps {
@@ -30,7 +31,12 @@ export function RowActionsMenu({ label, items }: RowActionsMenuProps) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         {items.map((item) => (
-          <DropdownMenuItem key={item.label} variant={item.destructive ? "destructive" : "default"} onClick={item.onClick}>
+          <DropdownMenuItem
+            key={item.label}
+            variant={item.destructive ? "destructive" : "default"}
+            disabled={item.disabled}
+            onClick={item.onClick}
+          >
             {item.icon}
             {item.label}
           </DropdownMenuItem>

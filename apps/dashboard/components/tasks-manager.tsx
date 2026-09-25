@@ -31,8 +31,8 @@ import {
   TaskQueue,
 } from "@/components/task-queue";
 import {
-  Badge,
-} from "@/components/ui/badge";
+  StatusBadge,
+} from "@/components/patterns/status-badge";
 import {
   Button,
 } from "@/components/ui/button";
@@ -907,15 +907,15 @@ export function TasksManager() {
                 )}
               </span>
 
-              <Badge
+              <StatusBadge
                 variant={getLifecycleBadgeVariant(
                   activeRun.status,
                 )}
-              >
-                {formatStatusLabel(
+                label={formatStatusLabel(
                   activeRun.status,
                 )}
-              </Badge>
+                entityLabel="Run"
+              />
             </Button>
           ) : null}
 
