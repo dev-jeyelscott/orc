@@ -77,6 +77,32 @@ export function getLifecycleBadgeVariant(
   }
 }
 
+/** Maps persisted lifecycle statuses onto the shared status-dot color classes. */
+export function getLifecycleDotClass(
+  status: LifecycleStatus,
+): string {
+  switch (status) {
+    case "running":
+      return "bg-status-running";
+
+    case "completed":
+      return "bg-status-success";
+
+    case "failed":
+      return "bg-status-error";
+
+    case "starting":
+    case "blocked":
+      return "bg-status-warning";
+
+    case "pending":
+    case "cancelled":
+    case "skipped":
+    default:
+      return "bg-status-neutral";
+  }
+}
+
 /** Maps structured execution result statuses onto the shared semantic Badge variants. */
 export function getResultBadgeVariant(
   status: AgentExecution["resultStatus"],

@@ -38,6 +38,7 @@ import {
 import { ConfigurationStatus } from "@/components/configuration-status";
 import { HealthStatus } from "@/components/health-status";
 import { MetricCard } from "@/components/metric-card";
+import { ConfirmActionDialog } from "@/components/patterns/confirm-action-dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -68,6 +69,10 @@ import {
   formatEventAge,
   shortIdentifier,
 } from "@/lib/event-observability";
+import {
+  getLifecycleBadgeVariant,
+  getLifecycleDotClass,
+} from "@/lib/task-presentation";
 import { cn } from "@/lib/utils";
 import {
   cancelRun,
@@ -83,13 +88,6 @@ const STATUS_DISPLAY_ORDER: RunStatus[] = [
   "cancelled",
   "skipped",
 ];
-
-type BadgeVariant =
-  | "running"
-  | "success"
-  | "warning"
-  | "error"
-  | "neutral";
 
 type PrimaryMetricTone =
   | "success"
@@ -119,61 +117,6 @@ type MetricsSnapshot = {
 interface DashboardOverviewProps {
   initialData:
     DashboardSummary;
-}
-
-/**
- * Maps workflow and execution states to the shared semantic badge variants.
- */
-function statusVariant(
-  status: string,
-): BadgeVariant {
-  switch (
-    status
-  ) {
-    case "running":
-      return "running";
-
-    case "starting":
-      return "warning";
-
-    case "completed":
-      return "success";
-
-    case "failed":
-      return "error";
-
-    case "blocked":
-      return "warning";
-
-    default:
-      return "neutral";
-  }
-}
-
-/**
- * Returns the design-system status-dot class for one workflow state.
- */
-function statusDotClass(
-  status: RunStatus,
-): string {
-  switch (
-    status
-  ) {
-    case "running":
-      return "bg-status-running";
-
-    case "completed":
-      return "bg-status-success";
-
-    case "failed":
-      return "bg-status-error";
-
-    case "blocked":
-      return "bg-status-warning";
-
-    default:
-      return "bg-status-neutral";
-  }
 }
 
 /**
@@ -484,7 +427,7 @@ function StatusBadges({
               status
             }
             variant={
-              statusVariant(
+              getLifecycleBadgeVariant(
                 status,
               )
             }
@@ -596,6 +539,7 @@ function CurrentActivityCard({
   now,
   actionPending,
   actionError,
+  actionSuccess,
   onStop,
   onRetry,
 }: {
@@ -605,6 +549,8 @@ function CurrentActivityCard({
   actionPending:
     boolean;
   actionError:
+    string | null;
+  actionSuccess:
     string | null;
   onStop:
     () => void;
@@ -631,8 +577,23 @@ function CurrentActivityCard({
       activity.runStatus,
     );
 
+  const [confirmStopOpen, setConfirmStopOpen] = useState(false);
+
   return (
     <Card className="min-w-0">
+      <ConfirmActionDialog
+        open={confirmStopOpen}
+        title="Cancel this workflow?"
+        message="This stops the active run in progress. This cannot be undone."
+        confirmLabel="Stop run"
+        confirming={actionPending}
+        onOpenChange={setConfirmStopOpen}
+        onConfirm={() => {
+          setConfirmStopOpen(false);
+          onStop();
+        }}
+      />
+
       <CardHeader className="flex flex-row items-center justify-between gap-3">
         <CardTitle className="text-sm">
           Current System Activity
@@ -641,7 +602,7 @@ function CurrentActivityCard({
         {activity ? (
           <Badge
             variant={
-              statusVariant(
+              getLifecycleBadgeVariant(
                 activity.runStatus,
               )
             }
@@ -852,8 +813,8 @@ function CurrentActivityCard({
                   disabled={
                     actionPending
                   }
-                  onClick={
-                    onStop
+                  onClick={() =>
+                    setConfirmStopOpen(true)
                   }
                 >
                   <SquareIcon />
@@ -869,6 +830,15 @@ function CurrentActivityCard({
               >
                 {
                   actionError
+                }
+              </p>
+            ) : actionSuccess ? (
+              <p
+                role="status"
+                className="mt-3 text-xs text-status-success"
+              >
+                {
+                  actionSuccess
                 }
               </p>
             ) : null}
@@ -988,7 +958,7 @@ function ActiveExecutionCard({
 
         <Badge
           variant={
-            statusVariant(
+            getLifecycleBadgeVariant(
               execution.status,
             )
           }
@@ -1237,7 +1207,7 @@ function WorkflowStatusSection({
                   aria-hidden="true"
                   className={cn(
                     "size-1.5 shrink-0 rounded-full",
-                    statusDotClass(
+                    getLifecycleDotClass(
                       status,
                     ),
                   )}
@@ -1547,6 +1517,14 @@ export function DashboardOverview({
     >(null);
 
   const [
+    actionSuccess,
+    setActionSuccess,
+  ] =
+    useState<
+      string | null
+    >(null);
+
+  const [
     metricsSnapshot,
     setMetricsSnapshot,
   ] =
@@ -1668,6 +1646,20 @@ export function DashboardOverview({
       },
       [],
     );
+
+  useEffect(() => {
+    if (!actionSuccess) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setActionSuccess(null);
+    }, 4_000);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [actionSuccess]);
 
   useEffect(
     () => {
@@ -1828,6 +1820,10 @@ export function DashboardOverview({
       null,
     );
 
+    setActionSuccess(
+      null,
+    );
+
     try {
       await cancelRun(
         data.activity.runId,
@@ -1835,6 +1831,10 @@ export function DashboardOverview({
 
       await refreshDashboard(
         false,
+      );
+
+      setActionSuccess(
+        "Run stopped.",
       );
     } catch (
       error
@@ -1870,6 +1870,10 @@ export function DashboardOverview({
       null,
     );
 
+    setActionSuccess(
+      null,
+    );
+
     try {
       await retryRun(
         data.activity.runId,
@@ -1877,6 +1881,10 @@ export function DashboardOverview({
 
       await refreshDashboard(
         false,
+      );
+
+      setActionSuccess(
+        "Run retried.",
       );
     } catch (
       error
@@ -2083,7 +2091,7 @@ export function DashboardOverview({
               <div className="flex flex-wrap items-center gap-1.5">
                 <Badge
                   variant={
-                    statusVariant(
+                    getLifecycleBadgeVariant(
                       data.activity.runStatus,
                     )
                   }
@@ -2290,6 +2298,9 @@ export function DashboardOverview({
           }
           actionError={
             actionError
+          }
+          actionSuccess={
+            actionSuccess
           }
           onStop={() =>
             void handleStop()

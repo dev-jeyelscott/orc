@@ -6,6 +6,7 @@ import {
   ListIcon,
   PencilIcon,
   PlusIcon,
+  PowerIcon,
   RefreshCwIcon,
   TableIcon,
   UsersIcon,
@@ -51,7 +52,7 @@ import {
   type TeamStatusFilter,
   type TeamViewMode,
 } from "@/lib/team-presentation";
-import { getTeams } from "@/lib/teams";
+import { getTeams, updateTeam } from "@/lib/teams";
 import { cn } from "@/lib/utils";
 
 const teamViewModes: ViewToggleMode[] = [
@@ -143,7 +144,7 @@ function AgentAvatarStack({
 
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <AvatarGroup>
+      <AvatarGroup title={`Showing up to ${AGENT_AVATAR_LIMIT} Agent avatars`}>
         {visibleAgents.map((agent) => {
           const toneClass =
             agentToneClasses[
@@ -252,12 +253,18 @@ type TeamActionsProps = {
   team: Team;
   onManageAgents: (teamId: string) => void;
   onEdit: (teamId: string) => void;
+  onToggleEnabled: (team: Team) => void;
 };
 
 /**
- * Keeps Team row actions compact while preserving Agent management and Team editing.
+ * Keeps Team row actions compact while preserving Agent management, editing, and enable toggling.
  */
-function TeamActions({ team, onManageAgents, onEdit }: TeamActionsProps) {
+function TeamActions({
+  team,
+  onManageAgents,
+  onEdit,
+  onToggleEnabled,
+}: TeamActionsProps) {
   return (
     <RowActionsMenu
       label={`Actions for ${team.name}`}
@@ -272,6 +279,11 @@ function TeamActions({ team, onManageAgents, onEdit }: TeamActionsProps) {
           icon: <PencilIcon />,
           onClick: () => onEdit(team.id),
         },
+        {
+          label: team.enabled ? "Disable Team" : "Enable Team",
+          icon: <PowerIcon />,
+          onClick: () => onToggleEnabled(team),
+        },
       ]}
     />
   );
@@ -282,6 +294,7 @@ type TeamViewProps = {
   membersByTeam: Map<string, Agent[]>;
   onManageAgents: (teamId: string) => void;
   onEdit: (teamId: string) => void;
+  onToggleEnabled: (team: Team) => void;
 };
 
 /**
@@ -292,6 +305,7 @@ function TeamListView({
   membersByTeam,
   onManageAgents,
   onEdit,
+  onToggleEnabled,
 }: TeamViewProps) {
   const columns: DataTableColumn<Team>[] = [
     {
@@ -334,6 +348,7 @@ function TeamListView({
           team={team}
           onManageAgents={onManageAgents}
           onEdit={onEdit}
+          onToggleEnabled={onToggleEnabled}
         />
       ),
     },
@@ -358,6 +373,7 @@ function TeamDetailsView({
   membersByTeam,
   onManageAgents,
   onEdit,
+  onToggleEnabled,
 }: TeamViewProps) {
   const columns: DataTableColumn<Team>[] = [
     {
@@ -414,6 +430,7 @@ function TeamDetailsView({
           team={team}
           onManageAgents={onManageAgents}
           onEdit={onEdit}
+          onToggleEnabled={onToggleEnabled}
         />
       ),
     },
@@ -438,6 +455,7 @@ function TeamGridView({
   membersByTeam,
   onManageAgents,
   onEdit,
+  onToggleEnabled,
 }: TeamViewProps) {
   return (
     <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
@@ -459,6 +477,7 @@ function TeamGridView({
                   team={team}
                   onManageAgents={onManageAgents}
                   onEdit={onEdit}
+                  onToggleEnabled={onToggleEnabled}
                 />
               </div>
 
@@ -617,6 +636,18 @@ export function TeamsManager() {
     await loadWorkspace(null, status === "loaded");
   }
 
+  /**
+   * Flips a Team's enabled state from the row actions menu without opening the edit drawer.
+   */
+  async function toggleTeamEnabled(team: Team) {
+    try {
+      await updateTeam(team.id, { enabled: !team.enabled });
+      await loadWorkspace(null, true);
+    } catch (caught) {
+      setRefreshError(errorMessage(caught));
+    }
+  }
+
   const controlsDisabled = status !== "loaded" || teams.length === 0;
 
   return (
@@ -710,7 +741,10 @@ export function TeamsManager() {
             role="alert"
             className="flex flex-wrap items-center justify-between gap-2 border-b border-divider bg-status-error/5 px-4 py-2 text-xs text-status-error"
           >
-            <span>Failed to refresh Teams. {refreshError}</span>
+            <span className="flex items-center gap-1.5">
+              <AlertTriangleIcon className="size-3.5" aria-hidden="true" />
+              Failed to refresh Teams. {refreshError}
+            </span>
 
             <Button
               type="button"
@@ -807,6 +841,7 @@ export function TeamsManager() {
                   membersByTeam={membersByTeam}
                   onManageAgents={openAgentManagement}
                   onEdit={openEdit}
+                  onToggleEnabled={toggleTeamEnabled}
                 />
               ) : null}
 
@@ -816,6 +851,7 @@ export function TeamsManager() {
                   membersByTeam={membersByTeam}
                   onManageAgents={openAgentManagement}
                   onEdit={openEdit}
+                  onToggleEnabled={toggleTeamEnabled}
                 />
               ) : null}
 
@@ -825,6 +861,7 @@ export function TeamsManager() {
                   membersByTeam={membersByTeam}
                   onManageAgents={openAgentManagement}
                   onEdit={openEdit}
+                  onToggleEnabled={toggleTeamEnabled}
                 />
               ) : null}
             </>
@@ -837,8 +874,6 @@ export function TeamsManager() {
               Showing {visibleTeams.length} of {teams.length}{" "}
               {teams.length === 1 ? "Team" : "Teams"}
             </span>
-
-            <span>Agent avatars show up to {AGENT_AVATAR_LIMIT} members.</span>
           </footer>
         ) : null}
       </section>

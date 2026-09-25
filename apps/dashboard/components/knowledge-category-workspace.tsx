@@ -3,12 +3,15 @@
 import {
   AlertTriangleIcon,
   ArrowLeftIcon,
+  CheckIcon,
+  CopyIcon,
   FileTextIcon,
   RefreshCwIcon,
   UploadIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   Agent,
@@ -19,6 +22,7 @@ import type {
 } from "@orc/shared";
 import type { Skill } from "@orc/shared";
 
+import { SearchInput } from "@/components/patterns/search-input";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -54,8 +58,21 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
+const KNOWLEDGE_WORKSPACE_TABS = ["vault-files", "ingest", "review-queue"] as const;
+type KnowledgeWorkspaceTab = (typeof KNOWLEDGE_WORKSPACE_TABS)[number];
+
+function isKnowledgeWorkspaceTab(value: string | null): value is KnowledgeWorkspaceTab {
+  return KNOWLEDGE_WORKSPACE_TABS.includes(value as KnowledgeWorkspaceTab);
+}
+
 /** Loads one Knowledge Category and renders its read-only vault browsing workspace. */
 export function KnowledgeCategoryWorkspace({ categoryId }: { categoryId: string }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const activeTab = isKnowledgeWorkspaceTab(searchParams.get("tab"))
+    ? (searchParams.get("tab") as KnowledgeWorkspaceTab)
+    : "vault-files";
+
   const [category, setCategory] = useState<KnowledgeCategory | null>(null);
   const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
@@ -138,7 +155,14 @@ export function KnowledgeCategoryWorkspace({ categoryId }: { categoryId: string 
         <p className="text-sm text-text-muted">Specialist: <span className="text-text-secondary">{agents.find((agent) => agent.id === category.specialistAgentId)?.name ?? "Not configured"}</span> · Ingestion Skill: <span className="text-text-secondary">{skills.find((skill) => skill.id === category.ingestionSkillId)?.name ?? "Not configured"}</span></p>
       </header>
 
-      <Tabs defaultValue="vault-files">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          const params = new URLSearchParams(searchParams.toString());
+          params.set("tab", value);
+          router.replace(`/knowledge/${categoryId}?${params.toString()}`, { scroll: false });
+        }}
+      >
         <TabsList>
           <TabsTrigger value="vault-files">Vault Files</TabsTrigger>
           <TabsTrigger value="ingest">Ingest</TabsTrigger>
@@ -328,6 +352,32 @@ function VaultFilesTab({ category }: { category: KnowledgeCategory }) {
         ) : null}
       </section>
     </div>
+  );
+}
+
+/** Copies a full identifier to the clipboard and briefly confirms the copy. */
+function CopyIdentifierButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard access can be unavailable (permissions, non-secure context); no-op.
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void copy()}
+      aria-label={`Copy ${label}`}
+      className="inline-flex size-4 items-center justify-center text-text-muted hover:text-text-primary"
+    >
+      {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
+    </button>
   );
 }
 

@@ -31,6 +31,12 @@ import {
   TaskQueue,
 } from "@/components/task-queue";
 import {
+  ConfirmActionDialog,
+} from "@/components/patterns/confirm-action-dialog";
+import {
+  ListEmptyState,
+} from "@/components/patterns/empty-state";
+import {
   StatusBadge,
 } from "@/components/patterns/status-badge";
 import {
@@ -227,6 +233,18 @@ export function TasksManager() {
     useState<Team[]>(
       [],
     );
+
+  const [
+    pendingConfirm,
+    setPendingConfirm,
+  ] =
+    useState<
+      | {
+          runId: string;
+          kind: "cancel" | "skip" | "approve";
+        }
+      | null
+    >(null);
 
   /**
    * Loads filesystem-backed Project metadata without allowing discovery failure
@@ -723,21 +741,10 @@ export function TasksManager() {
     );
   }
 
-  /**
-   * Cancels an active related Run after explicit operator confirmation and
-   * reloads authoritative workflow state.
-   */
-  async function cancelRelatedRun(
+  /** Cancels an active related Run and reloads authoritative workflow state. */
+  async function executeCancelRun(
     runId: string,
   ): Promise<void> {
-    if (
-      !window.confirm(
-        "Cancel this active workflow?",
-      )
-    ) {
-      return;
-    }
-
     setBusyRunId(
       runId,
     );
@@ -764,21 +771,10 @@ export function TasksManager() {
     }
   }
 
-  /**
-   * Skips one active Notion Auto Mode Run and reloads workflow state after the
-   * scheduler is signalled.
-   */
-  async function skipRelatedRun(
+  /** Skips one active Notion Auto Mode Run and reloads workflow state. */
+  async function executeSkipRun(
     runId: string,
   ): Promise<void> {
-    if (
-      !window.confirm(
-        "Skip this Notion task and continue to the next Ready task?",
-      )
-    ) {
-      return;
-    }
-
     setBusyRunId(
       runId,
     );
@@ -810,7 +806,7 @@ export function TasksManager() {
    * Auto Mode intake can proceed to the next queued Notion Task, then reloads
    * authoritative workflow state.
    */
-  async function approveRelatedRun(
+  async function executeApproveRun(
     runId: string,
   ): Promise<void> {
     setBusyRunId(
@@ -838,6 +834,73 @@ export function TasksManager() {
       );
     }
   }
+
+  /** Opens the shared confirmation dialog for a Cancel/Skip/Approve run action. */
+  function requestConfirm(
+    runId: string,
+    kind: "cancel" | "skip" | "approve",
+  ): void {
+    setPendingConfirm({
+      runId,
+      kind,
+    });
+  }
+
+  /** Runs the confirmed pending action, then clears the dialog. */
+  async function confirmPendingAction(): Promise<void> {
+    if (
+      !pendingConfirm
+    ) {
+      return;
+    }
+
+    const {
+      runId,
+      kind,
+    } = pendingConfirm;
+
+    setPendingConfirm(
+      null,
+    );
+
+    if (
+      kind ===
+      "cancel"
+    ) {
+      await executeCancelRun(
+        runId,
+      );
+    } else if (
+      kind ===
+      "skip"
+    ) {
+      await executeSkipRun(
+        runId,
+      );
+    } else {
+      await executeApproveRun(
+        runId,
+      );
+    }
+  }
+
+  const confirmCopy = {
+    cancel: {
+      title: "Cancel this workflow?",
+      message: "Cancel this active workflow? This cannot be undone.",
+      confirmLabel: "Cancel run",
+    },
+    skip: {
+      title: "Skip this task?",
+      message: "Skip this Notion task and continue to the next Ready task?",
+      confirmLabel: "Skip task",
+    },
+    approve: {
+      title: "Approve this run?",
+      message: "Approve this run's result and continue to the next Ready task?",
+      confirmLabel: "Approve run",
+    },
+  } as const;
 
   /**
    * Retries the final execution only for backend-supported failed or blocked
@@ -1015,6 +1078,20 @@ export function TasksManager() {
             )}
           </div>
         </section>
+      ) : !loading &&
+        workError &&
+        tasks.length ===
+          0 ? (
+        <ListEmptyState
+          variant="error"
+          title="Unable to load tasks"
+          description={
+            workError
+          }
+          onRetry={() =>
+            void refreshAll()
+          }
+        />
       ) : (
         <TaskQueue
           tasks={

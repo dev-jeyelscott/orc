@@ -56,6 +56,7 @@ export function TeamDetailWorkspace({ teamId }: { teamId: string }) {
     requestRef.current = controller;
     setStatus("loading");
     setError(null);
+    setTeam(null);
 
     try {
       const nextTeam = await getTeam(teamId, controller.signal);
@@ -157,15 +158,32 @@ export function TeamDetailWorkspace({ teamId }: { teamId: string }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5">
       <header className="flex flex-col gap-3">
-        <Button
-          variant="ghost"
-          size="sm"
-          render={<Link href="/teams" />}
-          className="w-fit -ml-2"
-        >
-          <ArrowLeftIcon />
-          Teams
-        </Button>
+        <div className="flex flex-col gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            render={<Link href="/teams" />}
+            className="w-fit -ml-2"
+          >
+            <ArrowLeftIcon />
+            Teams
+          </Button>
+
+          <nav
+            aria-label="Breadcrumb"
+            className="flex items-center gap-1.5 pl-1 text-xs text-text-muted"
+          >
+            <Link href="/teams" className="hover:text-text-primary">
+              Teams
+            </Link>
+
+            <span aria-hidden="true">/</span>
+
+            <span aria-current="page" className="truncate text-text-secondary">
+              {team.name}
+            </span>
+          </nav>
+        </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">

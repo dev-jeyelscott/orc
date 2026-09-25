@@ -5,9 +5,11 @@ import {
   BookOpenIcon,
   PencilIcon,
   PlusIcon,
+  PowerIcon,
   RefreshCwIcon,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { Agent, KnowledgeCategory, Skill } from "@orc/shared";
@@ -27,7 +29,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
-import { getKnowledgeCategories } from "@/lib/knowledge";
+import { getKnowledgeCategories, updateKnowledgeCategory } from "@/lib/knowledge";
 import { getAgents } from "@/lib/agents";
 import { getSkills } from "@/lib/skills";
 import { cn } from "@/lib/utils";
@@ -42,6 +44,7 @@ function errorMessage(error: unknown): string {
 
 /** Renders the Knowledge Category catalog: browse, create, and edit configured categories. */
 export function KnowledgeManager() {
+  const router = useRouter();
   const [categories, setCategories] = useState<KnowledgeCategory[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -107,6 +110,15 @@ export function KnowledgeManager() {
     void load();
   }
 
+  async function toggleEnabled(item: KnowledgeCategory) {
+    try {
+      await updateKnowledgeCategory(item.id, { enabled: !item.enabled });
+      await load();
+    } catch (caught) {
+      console.error(errorMessage(caught));
+    }
+  }
+
   const categoryColumns: DataTableColumn<KnowledgeCategory>[] = [
     {
       key: "category",
@@ -123,17 +135,49 @@ export function KnowledgeManager() {
         </Link>
       ),
     },
-    { key: "vault", header: "Vault directory", className: "font-mono text-sm text-text-secondary", render: (item) => item.vaultRootPath },
+    {
+      key: "vault",
+      header: "Vault directory",
+      className: "max-w-64 font-mono text-sm text-text-secondary",
+      render: (item) => (
+        <span className="block truncate" title={item.vaultRootPath}>
+          {item.vaultRootPath}
+        </span>
+      ),
+    },
     {
       key: "ingestion",
       header: "Ingestion",
       className: "text-sm",
-      render: (item) => (
-        <>
-          <div>{specialistName(item)}</div>
-          <div className="text-xs text-text-muted">{skillName(item)}</div>
-        </>
-      ),
+      render: (item) => {
+        const specialist = specialistName(item);
+        const skill = skillName(item);
+        const notConfigured = specialist === "Not configured" || skill === "Not configured";
+
+        return (
+          <>
+            <div className="flex items-center gap-1.5">
+              {notConfigured ? (
+                <AlertTriangleIcon
+                  className="size-3.5 shrink-0 text-status-warning"
+                  aria-hidden="true"
+                />
+              ) : null}
+              <span className={cn(specialist === "Not configured" && "text-status-warning")}>
+                {specialist}
+              </span>
+            </div>
+            <div
+              className={cn(
+                "text-xs text-text-muted",
+                skill === "Not configured" && "text-status-warning",
+              )}
+            >
+              {skill}
+            </div>
+          </>
+        );
+      },
     },
     { key: "updated", header: "Updated", className: "text-xs text-text-muted", render: (item) => formatUpdatedAt(item.updatedAt) },
     {
@@ -146,10 +190,19 @@ export function KnowledgeManager() {
       header: <span className="sr-only">Actions</span>,
       className: "text-right",
       render: (item) => (
-        <RowActionsMenu
-          label={`Actions for ${item.name}`}
-          items={[{ label: "Edit Category", icon: <PencilIcon />, onClick: () => openEdit(item.id) }]}
-        />
+        <div onClick={(event) => event.stopPropagation()}>
+          <RowActionsMenu
+            label={`Actions for ${item.name}`}
+            items={[
+              { label: "Edit Category", icon: <PencilIcon />, onClick: () => openEdit(item.id) },
+              {
+                label: item.enabled ? "Disable Category" : "Enable Category",
+                icon: <PowerIcon />,
+                onClick: () => void toggleEnabled(item),
+              },
+            ]}
+          />
+        </div>
       ),
     },
   ];
@@ -241,7 +294,13 @@ export function KnowledgeManager() {
         ) : null}
 
         {status === "loaded" && visibleCategories.length > 0 ? (
-          <DataTable className="min-w-[720px]" columns={categoryColumns} rows={visibleCategories} getRowKey={(item) => item.id} />
+          <DataTable
+            className="min-w-[720px]"
+            columns={categoryColumns}
+            rows={visibleCategories}
+            getRowKey={(item) => item.id}
+            onRowClick={(item) => router.push(`/knowledge/${item.id}`)}
+          />
         ) : null}
 
         {status === "loaded" ? (
