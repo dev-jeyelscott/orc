@@ -20,6 +20,7 @@ import {
   RefreshCcwIcon,
 } from "lucide-react";
 
+import { DataTable, type DataTableColumn } from "@/components/patterns/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,14 +30,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   describeDomainEvent,
   eventBadgeVariant,
@@ -392,6 +385,43 @@ export function EventsList() {
     isLoading ||
     isRefreshing;
 
+  const eventColumns: DataTableColumn<DomainEvent>[] = [
+    {
+      key: "timestamp",
+      header: "Timestamp",
+      className: "w-44 font-mono text-[11px] text-text-muted",
+      render: (event) => formatEventTimestampUtc(event.createdAt),
+    },
+    {
+      key: "type",
+      header: "Type",
+      className: "w-52",
+      render: (event) => <EventType event={event} />,
+    },
+    {
+      key: "description",
+      header: "Description",
+      className: "whitespace-normal text-xs leading-5 text-text-secondary",
+      render: (event) => describeDomainEvent(event),
+    },
+    {
+      key: "project",
+      header: "Project",
+      className: "w-64 max-w-64",
+      render: (event) => (
+        <span title={event.projectPath} className="block truncate font-mono text-[11px] text-text-secondary">
+          {event.projectPath}
+        </span>
+      ),
+    },
+    {
+      key: "references",
+      header: "References",
+      className: "w-64 text-xs",
+      render: (event) => <EventReferences event={event} />,
+    },
+  ];
+
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
@@ -486,86 +516,12 @@ export function EventsList() {
               No domain events recorded yet.
             </div>
           ) : (
-            <Table className="min-w-[980px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-44 text-xs text-text-muted">
-                    Timestamp
-                  </TableHead>
-                  <TableHead className="w-52 text-xs text-text-muted">
-                    Type
-                  </TableHead>
-                  <TableHead className="text-xs text-text-muted">
-                    Description
-                  </TableHead>
-                  <TableHead className="w-64 text-xs text-text-muted">
-                    Project
-                  </TableHead>
-                  <TableHead className="w-64 text-xs text-text-muted">
-                    References
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-
-              <TableBody>
-                {data.events.map(
-                  (
-                    event,
-                  ) => (
-                    <TableRow
-                      key={
-                        event.id
-                      }
-                    >
-                      <TableCell className="font-mono text-[11px] text-text-muted">
-                        {
-                          formatEventTimestampUtc(
-                            event.createdAt,
-                          )
-                        }
-                      </TableCell>
-
-                      <TableCell>
-                        <EventType
-                          event={
-                            event
-                          }
-                        />
-                      </TableCell>
-
-                      <TableCell className="whitespace-normal text-xs leading-5 text-text-secondary">
-                        {
-                          describeDomainEvent(
-                            event,
-                          )
-                        }
-                      </TableCell>
-
-                      <TableCell className="max-w-64">
-                        <span
-                          title={
-                            event.projectPath
-                          }
-                          className="block truncate font-mono text-[11px] text-text-secondary"
-                        >
-                          {
-                            event.projectPath
-                          }
-                        </span>
-                      </TableCell>
-
-                      <TableCell className="text-xs">
-                        <EventReferences
-                          event={
-                            event
-                          }
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ),
-                )}
-              </TableBody>
-            </Table>
+            <DataTable
+              className="min-w-[980px]"
+              columns={eventColumns}
+              rows={data.events}
+              getRowKey={(event) => event.id}
+            />
           )}
 
           {data ? (

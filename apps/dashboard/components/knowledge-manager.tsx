@@ -3,11 +3,9 @@
 import {
   AlertTriangleIcon,
   BookOpenIcon,
-  MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
   RefreshCwIcon,
-  SearchIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -15,14 +13,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Agent, KnowledgeCategory, Skill } from "@orc/shared";
 
 import { KnowledgeConfigDrawer } from "@/components/knowledge-config-drawer";
-import { Badge } from "@/components/ui/badge";
+import { DataTable, type DataTableColumn } from "@/components/patterns/data-table";
+import { RowActionsMenu } from "@/components/patterns/row-actions-menu";
+import { SearchInput } from "@/components/patterns/search-input";
+import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Empty,
   EmptyContent,
@@ -31,9 +26,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Spinner } from "@/components/ui/spinner";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getKnowledgeCategories } from "@/lib/knowledge";
 import { getAgents } from "@/lib/agents";
 import { getSkills } from "@/lib/skills";
@@ -114,6 +107,53 @@ export function KnowledgeManager() {
     void load();
   }
 
+  const categoryColumns: DataTableColumn<KnowledgeCategory>[] = [
+    {
+      key: "category",
+      header: "Category",
+      render: (item) => (
+        <Link href={`/knowledge/${item.id}`} className="flex items-center gap-3">
+          <div className="flex size-9 items-center justify-center rounded-md border border-border-default bg-surface-interactive text-brand-accent">
+            <BookOpenIcon className="size-4" />
+          </div>
+          <div>
+            <div className="font-medium text-text-primary">{item.name}</div>
+            <div className="font-mono text-[11px] text-text-muted">{item.slug}</div>
+          </div>
+        </Link>
+      ),
+    },
+    { key: "vault", header: "Vault directory", className: "font-mono text-sm text-text-secondary", render: (item) => item.vaultRootPath },
+    {
+      key: "ingestion",
+      header: "Ingestion",
+      className: "text-sm",
+      render: (item) => (
+        <>
+          <div>{specialistName(item)}</div>
+          <div className="text-xs text-text-muted">{skillName(item)}</div>
+        </>
+      ),
+    },
+    { key: "updated", header: "Updated", className: "text-xs text-text-muted", render: (item) => formatUpdatedAt(item.updatedAt) },
+    {
+      key: "status",
+      header: "Status",
+      render: (item) => <StatusBadge variant={item.enabled ? "success" : "disabled"} label={item.enabled ? "Enabled" : "Disabled"} entityLabel="Category" />,
+    },
+    {
+      key: "actions",
+      header: <span className="sr-only">Actions</span>,
+      className: "text-right",
+      render: (item) => (
+        <RowActionsMenu
+          label={`Actions for ${item.name}`}
+          items={[{ label: "Edit Category", icon: <PencilIcon />, onClick: () => openEdit(item.id) }]}
+        />
+      ),
+    },
+  ];
+
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -134,19 +174,13 @@ export function KnowledgeManager() {
         aria-label="Knowledge Categories browser"
       >
         <div className="flex flex-wrap items-center gap-3 border-b border-divider p-3">
-          <InputGroup className="min-w-56 flex-1">
-            <InputGroupAddon>
-              <SearchIcon />
-            </InputGroupAddon>
-            <InputGroupInput
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search Knowledge Categories..."
-              aria-label="Search Knowledge Categories"
-              disabled={status !== "loaded"}
-            />
-          </InputGroup>
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            placeholder="Search Knowledge Categories..."
+            aria-label="Search Knowledge Categories"
+            disabled={status !== "loaded"}
+          />
           <Button type="button" variant="outline" onClick={refresh} disabled={refreshing}>
             <RefreshCwIcon className={cn(refreshing && "animate-spin motion-reduce:animate-none")} />
             Refresh
@@ -207,60 +241,7 @@ export function KnowledgeManager() {
         ) : null}
 
         {status === "loaded" && visibleCategories.length > 0 ? (
-          <Table className="min-w-[720px]">
-            <TableHeader className="bg-surface-interactive/45">
-              <TableRow className="hover:bg-transparent">
-                <TableHead>Category</TableHead>
-                <TableHead>Vault directory</TableHead>
-                <TableHead>Ingestion</TableHead>
-                <TableHead>Updated</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>
-                  <span className="sr-only">Actions</span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {visibleCategories.map((item) => (
-                <TableRow key={item.id} className="h-16 border-divider hover:bg-surface-interactive/45">
-                  <TableCell>
-                    <Link href={`/knowledge/${item.id}`} className="flex items-center gap-3">
-                      <div className="flex size-9 items-center justify-center rounded-md border border-border-default bg-surface-interactive text-brand-accent">
-                        <BookOpenIcon className="size-4" />
-                      </div>
-                      <div>
-                        <div className="font-medium text-text-primary">{item.name}</div>
-                        <div className="font-mono text-[11px] text-text-muted">{item.slug}</div>
-                      </div>
-                    </Link>
-                  </TableCell>
-                  <TableCell className="font-mono text-sm text-text-secondary">{item.vaultRootPath}</TableCell>
-                  <TableCell className="text-sm"><div>{specialistName(item)}</div><div className="text-xs text-text-muted">{skillName(item)}</div></TableCell>
-                  <TableCell className="text-xs text-text-muted">{formatUpdatedAt(item.updatedAt)}</TableCell>
-                  <TableCell>
-                    <Badge variant={item.enabled ? "success" : "disabled"}>
-                      {item.enabled ? "Enabled" : "Disabled"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={<Button type="button" variant="ghost" size="icon-sm" aria-label={`Actions for ${item.name}`} />}
-                      >
-                        <MoreHorizontalIcon />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => openEdit(item.id)}>
-                          <PencilIcon />
-                          Edit Category
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable className="min-w-[720px]" columns={categoryColumns} rows={visibleCategories} getRowKey={(item) => item.id} />
         ) : null}
 
         {status === "loaded" ? (

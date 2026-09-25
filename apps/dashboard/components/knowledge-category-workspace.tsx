@@ -19,7 +19,7 @@ import type {
 } from "@orc/shared";
 import type { Skill } from "@orc/shared";
 
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -129,9 +129,7 @@ export function KnowledgeCategoryWorkspace({ categoryId }: { categoryId: string 
       <header className="flex flex-col gap-2">
         <div className="flex items-center gap-3">
           <h1 className="font-heading text-2xl font-semibold text-text-primary">{category.name}</h1>
-          <Badge variant={category.enabled ? "success" : "disabled"}>
-            {category.enabled ? "Enabled" : "Disabled"}
-          </Badge>
+          <StatusBadge variant={category.enabled ? "success" : "disabled"} label={category.enabled ? "Enabled" : "Disabled"} entityLabel="Category" />
         </div>
         <p className="text-sm text-text-muted">
           {category.description || "No description."} Vault directory:{" "}
@@ -551,7 +549,7 @@ function IngestTab({ category }: { category: KnowledgeCategory }) {
                   ) : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <Badge variant={batchStatusVariant(batch.status)}>{batchStatusLabel(batch.status)}</Badge>
+                  <StatusBadge variant={batchStatusVariant(batch.status)} label={batchStatusLabel(batch.status)} entityLabel="Batch" />
                   {batch.status === "uploaded" || batch.status === "failed" ? (
                     <Button
                       type="button"

@@ -21,7 +21,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Label } from "@/components/ui/label";
@@ -378,8 +378,8 @@ function ProposalCard({
   return (
     <li className="flex flex-col gap-3 rounded-lg border border-border-default bg-surface-elevated p-4 shadow-xs">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant={operationVariant(proposal.operation)}>{proposal.operation}</Badge>
-        <Badge variant={reviewStatusVariant(proposal.reviewStatus)}>{proposal.reviewStatus.replace("_", " ")}</Badge>
+        <StatusBadge variant={operationVariant(proposal.operation)} label={proposal.operation} entityLabel="Operation" />
+        <StatusBadge variant={reviewStatusVariant(proposal.reviewStatus)} label={proposal.reviewStatus.replace("_", " ")} entityLabel="Review" />
         <span className="font-mono text-xs text-text-muted">{proposal.targetPath}</span>
         {proposal.targetHeading ? <span className="text-xs text-text-muted">§ {proposal.targetHeading}</span> : null}
         <span className="ms-auto text-xs text-text-muted">
