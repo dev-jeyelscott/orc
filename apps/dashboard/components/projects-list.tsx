@@ -7,7 +7,6 @@ import {
   LayoutGridIcon,
   ListIcon,
   RefreshCwIcon,
-  SearchIcon,
   TableIcon,
 } from "lucide-react"
 import {
@@ -28,8 +27,12 @@ import {
   ProjectGrid,
   ProjectTable,
 } from "@/components/project-table"
+import { SearchInput } from "@/components/patterns/search-input"
+import {
+  ViewToggle,
+  type ViewToggleMode,
+} from "@/components/patterns/view-toggle"
 import { Button } from "@/components/ui/button"
-import { ButtonGroup } from "@/components/ui/button-group"
 import {
   Empty,
   EmptyContent,
@@ -38,11 +41,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group"
 import {
   NativeSelect,
   NativeSelectOption,
@@ -75,6 +73,30 @@ const gitStateSortOrder: Record<
   dirty: 1,
   unknown: 2,
 }
+
+const projectViewModes: ViewToggleMode[] = [
+  {
+    value: "list",
+    label: "List",
+    icon: (
+      <ListIcon aria-hidden="true" />
+    ),
+  },
+  {
+    value: "details",
+    label: "Details",
+    icon: (
+      <TableIcon aria-hidden="true" />
+    ),
+  },
+  {
+    value: "grid",
+    label: "Grid",
+    icon: (
+      <LayoutGridIcon aria-hidden="true" />
+    ),
+  },
+]
 
 /**
  * Produces a useful user-facing message from an unknown project-loading failure.
@@ -442,24 +464,14 @@ function ProjectsList() {
           </span>
         </div>
 
-        <InputGroup className="w-full min-w-0">
-          <InputGroupAddon>
-            <SearchIcon
-              aria-hidden="true"
-            />
-          </InputGroupAddon>
-
-          <InputGroupInput
-            type="search"
-            value={query}
-            onChange={(event) =>
-              setQuery(event.target.value)
-            }
-            placeholder="Search projects, paths, branches, stacks..."
-            aria-label="Search projects"
-            disabled={controlsDisabled}
-          />
-        </InputGroup>
+        <SearchInput
+          className="w-full min-w-0"
+          value={query}
+          onChange={setQuery}
+          placeholder="Search projects, paths, branches, stacks..."
+          aria-label="Search projects"
+          disabled={controlsDisabled}
+        />
 
         <div className="flex min-w-0 flex-wrap items-center gap-2 xl:justify-end">
           <NativeSelect
@@ -506,76 +518,18 @@ function ProjectsList() {
             Refresh
           </Button>
 
-          <ButtonGroup
+          <ViewToggle
             className="w-full sm:w-auto"
             aria-label="Project view mode"
-          >
-            <Button
-              type="button"
-              variant="outline"
-              className={cn(
-                "flex-1 sm:flex-none",
-                viewMode === "list" &&
-                  "border-brand-accent/50 bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/15",
-              )}
-              aria-pressed={
-                viewMode === "list"
-              }
-              onClick={() =>
-                setViewMode("list")
-              }
-              disabled={controlsDisabled}
-            >
-              <ListIcon
-                aria-hidden="true"
-              />
-              List
-            </Button>
-
-            <Button
-              type="button"
-              variant="outline"
-              className={cn(
-                "flex-1 sm:flex-none",
-                viewMode === "details" &&
-                  "border-brand-accent/50 bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/15",
-              )}
-              aria-pressed={
-                viewMode === "details"
-              }
-              onClick={() =>
-                setViewMode("details")
-              }
-              disabled={controlsDisabled}
-            >
-              <TableIcon
-                aria-hidden="true"
-              />
-              Details
-            </Button>
-
-            <Button
-              type="button"
-              variant="outline"
-              className={cn(
-                "flex-1 sm:flex-none",
-                viewMode === "grid" &&
-                  "border-brand-accent/50 bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/15",
-              )}
-              aria-pressed={
-                viewMode === "grid"
-              }
-              onClick={() =>
-                setViewMode("grid")
-              }
-              disabled={controlsDisabled}
-            >
-              <LayoutGridIcon
-                aria-hidden="true"
-              />
-              Grid
-            </Button>
-          </ButtonGroup>
+            value={viewMode}
+            onChange={(value) =>
+              setViewMode(
+                value as ViewMode,
+              )
+            }
+            modes={projectViewModes}
+            disabled={controlsDisabled}
+          />
         </div>
       </div>
 

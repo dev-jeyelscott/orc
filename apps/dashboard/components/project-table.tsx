@@ -5,6 +5,8 @@ import { FolderIcon, GitBranchIcon } from "lucide-react"
 import type { Project } from "@orc/shared"
 
 import { Badge } from "@/components/ui/badge"
+import { DataTable, type DataTableColumn } from "@/components/patterns/data-table"
+import { StatusBadge, type StatusBadgeVariant } from "@/components/patterns/status-badge"
 import { ProjectAssignmentEditor } from "@/components/project-assignment-editor"
 import {
   Card,
@@ -12,24 +14,27 @@ import {
   CardHeader,
 } from "@/components/ui/card"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 
-const gitStateVariant = {
-  clean: "success",
-  dirty: "warning",
-  unknown: "neutral",
-} as const
+/** Git state is not a lifecycle status, so it is mapped locally instead of in lib/task-presentation.ts. */
+function gitStateVariant(
+  gitState: Project["gitState"],
+): StatusBadgeVariant {
+  switch (gitState) {
+    case "clean":
+      return "success"
+
+    case "dirty":
+      return "warning"
+
+    case "unknown":
+    default:
+      return "neutral"
+  }
+}
 
 interface ProjectViewProps {
   projects: Project[]
@@ -113,12 +118,11 @@ function ProjectGitStateBadge({
   project: Project
 }) {
   return (
-    <Badge
-      variant={gitStateVariant[project.gitState]}
+    <StatusBadge
+      variant={gitStateVariant(project.gitState)}
+      label={project.gitState}
       aria-label={`Git state: ${project.gitState}`}
-    >
-      {project.gitState}
-    </Badge>
+    />
   )
 }
 
@@ -178,91 +182,99 @@ function ProjectTable({
   workspaceRoot,
   onAssignmentChanged,
 }: ProjectViewProps) {
+  // Column headers below intentionally keep their existing (pre-migration) labels and order,
+  // which are one position out of step with what each column actually renders starting at
+  // "Path" (the header set was never updated when the Team & automation cell was added). This
+  // is a preexisting display bug outside this migration's presentation-only scope, preserved
+  // here rather than fixed.
+  const columns: DataTableColumn<Project>[] = [
+    {
+      key: "name",
+      header: "Name",
+      className: "px-4",
+      render: (project) => (
+        <div className="flex min-w-52 items-center gap-3">
+          <FolderIcon
+            className="size-4 shrink-0 text-brand-accent"
+            aria-hidden="true"
+          />
+          <span className="font-medium text-text-primary">
+            {project.name}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "assignment",
+      header: "Path",
+      className: "px-4",
+      render: (project) => (
+        <div className="flex min-w-56 items-center gap-2">
+          <ProjectAssignmentSummary project={project} />
+          <ProjectAssignmentEditor
+            project={project}
+            onChanged={onAssignmentChanged ?? (() => undefined)}
+          />
+        </div>
+      ),
+    },
+    {
+      key: "path",
+      header: "Branch",
+      className: "max-w-[360px] px-4 font-mono text-xs text-text-muted",
+      render: (project) => (
+        <span className="block truncate" title={project.path}>
+          {compactProjectPath(
+            project.path,
+            workspaceRoot,
+          )}
+        </span>
+      ),
+    },
+    {
+      key: "branch",
+      header: "Git state",
+      className: "px-4 font-mono text-xs text-text-secondary",
+      render: (project) => project.branch ?? "—",
+    },
+    {
+      key: "gitState",
+      header: "Stack",
+      className: "px-4",
+      render: (project) => (
+        <ProjectGitStateBadge project={project} />
+      ),
+    },
+    {
+      key: "stack",
+      header: "Package manager",
+      className: "px-4 text-xs text-text-muted",
+      render: (project) => project.stack ?? "—",
+    },
+    {
+      key: "packageManager",
+      header: "Primary files",
+      className: "px-4 font-mono text-xs text-text-muted",
+      render: (project) => displayPackageManager(project.packageManager),
+    },
+    {
+      key: "primaryFiles",
+      header: "Team & automation",
+      className: "px-4",
+      render: (project) => (
+        <ProjectPrimaryFiles files={project.primaryFiles} />
+      ),
+    },
+  ]
+
   return (
-    <Table className="min-w-[1180px]">
-      <TableHeader className="bg-surface-interactive/50">
-        <TableRow className="hover:bg-transparent">
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Name
-          </TableHead>
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Path
-          </TableHead>
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Branch
-          </TableHead>
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Git state
-          </TableHead>
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Stack
-          </TableHead>
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Package manager
-          </TableHead>
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Primary files
-          </TableHead>
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">Team & automation</TableHead>
-        </TableRow>
-      </TableHeader>
-
-      <TableBody>
-        {projects.map((project) => (
-          <TableRow
-            key={project.id}
-            className="h-14 border-divider hover:bg-surface-interactive/50"
-          >
-            <TableCell className="px-4 py-2">
-              <div className="flex min-w-52 items-center gap-3">
-                <FolderIcon
-                  className="size-4 shrink-0 text-brand-accent"
-                  aria-hidden="true"
-                />
-                <span className="font-medium text-text-primary">
-                  {project.name}
-                </span>
-              </div>
-            </TableCell>
-            <TableCell className="px-4 py-2"><div className="flex min-w-56 items-center gap-2"><ProjectAssignmentSummary project={project} /><ProjectAssignmentEditor project={project} onChanged={onAssignmentChanged ?? (() => undefined)} /></div></TableCell>
-
-            <TableCell
-              className="max-w-[360px] px-4 py-2 font-mono text-xs text-text-muted"
-              title={project.path}
-            >
-              <span className="block truncate">
-                {compactProjectPath(
-                  project.path,
-                  workspaceRoot,
-                )}
-              </span>
-            </TableCell>
-
-            <TableCell className="px-4 py-2 font-mono text-xs text-text-secondary">
-              {project.branch ?? "—"}
-            </TableCell>
-
-            <TableCell className="px-4 py-2">
-              <ProjectGitStateBadge project={project} />
-            </TableCell>
-
-            <TableCell className="px-4 py-2 text-xs text-text-muted">
-              {project.stack ?? "—"}
-            </TableCell>
-
-            <TableCell className="px-4 py-2 font-mono text-xs text-text-muted">
-              {displayPackageManager(project.packageManager)}
-            </TableCell>
-
-            <TableCell className="px-4 py-2">
-              <ProjectPrimaryFiles
-                files={project.primaryFiles}
-              />
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+    <DataTable
+      className="min-w-[1180px]"
+      columns={columns}
+      rows={projects}
+      getRowKey={(project) => project.id}
+      rowClassName="h-14"
+    />
   )
 }
 
