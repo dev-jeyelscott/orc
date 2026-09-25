@@ -60,6 +60,7 @@ import {
 import {
   DEVELOPMENT_TEAM_ID,
   RESOLUTION_TEAM_ID,
+  RESOLUTION_TEAM_SLUG,
 } from "../db/seed-ids.js";
 import {
   agents,
@@ -149,7 +150,6 @@ const testConfigRoots: string[] = [];
  */
 let currentConfigRoot = "";
 
-const RESOLUTION_TEAM_SLUG = "beta";
 
 /**
  * Builds a successful structured worker result for Team-scoped workflow regression tests.
@@ -251,9 +251,9 @@ async function createTestAgent(
 
 /**
  * Writes a file-only `team.yaml` shadow for the Resolution seed Team (slug
- * `beta`) into the isolated `configRoot`, declaring `agentSlug` as its sole
+ * RESOLUTION_TEAM_SLUG) into the isolated `configRoot`, declaring `agentSlug` as its sole
  * member so `validateWorkflowGraph`'s file-level "Agent must be a Team
- * member" check passes. This never touches the real `.orc/teams/beta/` or
+ * member" check passes. This never touches the real `.orc/` or
  * runs any DB projection -- the real seed Team's actual membership lives
  * only in the shared PostgreSQL `team_members` table, untouched here.
  */
@@ -263,7 +263,7 @@ async function shadowResolutionTeamFile(configRoot: string, agentSlug: string): 
     {
       version: 1,
       slug: RESOLUTION_TEAM_SLUG,
-      name: "Beta",
+      name: "Resolution Team",
       description: "",
       enabled: true,
       members: [agentSlug],

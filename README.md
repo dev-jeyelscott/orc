@@ -97,6 +97,17 @@ Roll out in this order:
 
 ## Validation
 
+Server tests never use the development database. They run against a dedicated
+`<DATABASE_URL name>_test` database (override with `TEST_DATABASE_URL`; the name
+must end in `_test`), which is wiped and re-migrated at the start of every run
+and reset to that baseline after each test file. Tests also get a temporary
+`.orc/` tree, so the real `~/orc/app/.orc` is never read or written. Create the
+test database once, owned by the app role:
+
+```bash
+sudo -u postgres createdb -O orc orc_test
+```
+
 Run focused checks first:
 
 ```bash

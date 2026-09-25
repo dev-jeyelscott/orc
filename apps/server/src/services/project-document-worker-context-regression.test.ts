@@ -164,7 +164,7 @@ vi.mock("./agent-execution-service.js", async (importOriginal) => {
 
 const { db } = await import("../db/client.js");
 
-const { RESOLUTION_TEAM_ID } = await import("../db/seed-ids.js");
+const { RESOLUTION_TEAM_ID, RESOLUTION_TEAM_SLUG } = await import("../db/seed-ids.js");
 
 const {
   agents,
@@ -209,24 +209,24 @@ const createdRoots: string[] = [];
  * canonical file authority (roadmap Spec 5/8): the owning Team must have
  * `.orc/teams/<slug>/team.yaml` and every referenced Agent must resolve to
  * `.orc/agents/<slug>/agent.yaml`. This suite reuses the real seeded
- * `RESOLUTION_TEAM_ID` row (slug `beta`) rather than creating a Team, so
+ * `RESOLUTION_TEAM_ID` row (slug RESOLUTION_TEAM_SLUG) rather than creating a Team, so
  * each test gets its own private `.orc/` root -- never the real app
- * `.orc/` -- materializes a matching `beta` team.yaml in it (via
- * `createTeam`, which upserts the existing "beta" row by slug without
+ * `.orc/` -- materializes a matching team.yaml in it (via
+ * `createTeam`, which upserts the existing seed row by slug without
  * touching its id or membership), and creates every Agent/Department
  * fixture through the file-authoritative services against that same root.
  */
 async function makeConfigRoot(): Promise<string> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "orc-project-doc-regression-test-"));
   createdRoots.push(root);
-  await createTeam({ slug: "beta", name: "Beta", description: "", enabled: true }, root);
+  await createTeam({ slug: RESOLUTION_TEAM_SLUG, name: "Resolution Team", description: "", enabled: true }, root);
   return root;
 }
 
 /**
  * Publish/Draft-graph validation checks every referenced Agent against
  * `team.yaml`'s own `members` slug list (not `team_members`), so the
- * synthetic "beta" file created above must be updated with each test's
+ * synthetic team file created above must be updated with each test's
  * Agent slugs directly -- `replaceTeamMembers` is not used here because it
  * would overwrite this suite's deliberately controlled
  * `layer`/`executionOrder` seeding with its own synthetic placeholders.
@@ -234,8 +234,8 @@ async function makeConfigRoot(): Promise<string> {
 async function setResolutionTeamMembers(configRoot: string, agentSlugs: readonly string[]): Promise<void> {
   await writeTeamFile(
     configRoot,
-    { version: 1, slug: "beta", name: "Beta", description: "", enabled: true, members: [...agentSlugs] },
-    { previousSlug: "beta", expectedRevision: null },
+    { version: 1, slug: RESOLUTION_TEAM_SLUG, name: "Resolution Team", description: "", enabled: true, members: [...agentSlugs] },
+    { previousSlug: RESOLUTION_TEAM_SLUG, expectedRevision: null },
   );
 }
 

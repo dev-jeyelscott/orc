@@ -21,3 +21,6 @@ export const DEVELOPMENT_BUILDER_AGENT_ID =
 
 export const DEVELOPMENT_QA_AGENT_ID =
   "00000000-0000-4000-8000-000000000103";
+
+/** Slug migration 0011 seeds for RESOLUTION_TEAM_ID on a fresh database. */
+export const RESOLUTION_TEAM_SLUG = "resolution";
