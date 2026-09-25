@@ -1,4 +1,5 @@
 import { env } from "./env.js";
+import { queryClient } from "../db/client.js";
 import { synchronizeConfiguration } from "../services/config-sync-service.js";
 
 /**
@@ -8,17 +9,22 @@ import { synchronizeConfiguration } from "../services/config-sync-service.js";
  * its PostgreSQL table in dependency order.
  */
 async function main() {
-  const result = await synchronizeConfiguration(env.ORC_CONFIG_ROOT);
+  try {
+    const result = await synchronizeConfiguration(env.ORC_CONFIG_ROOT);
 
-  if (result.status === "invalid") {
-    console.log(`Configuration is invalid (${result.errorCount} issue(s)). Sync refused; run "pnpm config:validate" for details.`);
-    process.exitCode = 1;
-    return;
+    if (result.status === "invalid") {
+      console.log(`Configuration is invalid (${result.errorCount} issue(s)). Sync refused; run "pnpm config:validate" for details.`);
+      process.exitCode = 1;
+      return;
+    }
+
+    console.log(
+      `Synced. ${result.departmentCount} department(s), ${result.agentCount} agent(s), ${result.skillCount} skill(s), ${result.teamCount} team(s), ${result.projectCount} project(s).`,
+    );
+  } finally {
+    // Close the pool so the CLI exits instead of idling on open connections.
+    await queryClient.end();
   }
-
-  console.log(
-    `Synced. ${result.departmentCount} department(s), ${result.agentCount} agent(s), ${result.skillCount} skill(s), ${result.teamCount} team(s), ${result.projectCount} project(s).`,
-  );
 }
 
 main().catch((error) => {
