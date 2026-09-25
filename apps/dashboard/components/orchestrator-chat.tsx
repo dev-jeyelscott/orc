@@ -13,8 +13,10 @@ import {
 import {
   AlertTriangleIcon,
   BotIcon,
+  CircleAlertIcon,
   LoaderCircleIcon,
 } from "lucide-react";
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -30,6 +32,7 @@ import { OrchestratorConversation } from "@/components/orchestrator-conversation
 import { OrchestratorInspector } from "@/components/orchestrator-inspector";
 import { OrchestratorInspectorDrawer } from "@/components/orchestrator-inspector-drawer";
 import { OrchestratorWorkbench } from "@/components/orchestrator-workbench";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -1687,9 +1690,11 @@ export function OrchestratorChat() {
       {workspaceError ? (
         <div
           role="status"
-          className="shrink-0 rounded-md border border-status-warning/30 bg-status-warning/5 px-3 py-2 text-xs text-status-warning"
+          className="flex shrink-0 items-start gap-2 rounded-md border border-status-warning/30 bg-status-warning/5 px-3 py-2 text-xs text-status-warning"
         >
-          {workspaceError}
+          <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
+
+          <span>{workspaceError}</span>
         </div>
       ) : null}
 
@@ -1708,7 +1713,11 @@ export function OrchestratorChat() {
 
       {switchingWorkspace ? (
         <Card className="min-h-0 flex-1">
-          <CardContent className="flex min-h-72 flex-1 items-center justify-center p-6 text-center">
+          <CardContent
+            role="status"
+            aria-live="polite"
+            className="flex min-h-72 flex-1 items-center justify-center p-6 text-center"
+          >
             <div>
               <LoaderCircleIcon className="mx-auto size-6 animate-spin text-brand-accent" />
 
@@ -1732,6 +1741,16 @@ export function OrchestratorChat() {
               <p className="mt-1 text-xs leading-5 text-text-muted">
                 The Orchestrator requires a filesystem-discovered Git project before a conversation can be created.
               </p>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                render={<Link href="/projects" />}
+              >
+                Add a project
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -1749,6 +1768,16 @@ export function OrchestratorChat() {
               <p className="mt-1 text-xs leading-5 text-text-muted">
                 Configure at least one Team before creating a Team-scoped Orchestrator conversation.
               </p>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                render={<Link href="/teams" />}
+              >
+                Create a Team
+              </Button>
             </div>
           </CardContent>
         </Card>

@@ -31,6 +31,7 @@ import { RunExecutionInspector } from "@/components/run-execution-inspector";
 import { RunExecutionsTable } from "@/components/run-executions-table";
 import { RunInspectorDrawer } from "@/components/run-inspector-drawer";
 import { RunWorkflowPipeline } from "@/components/run-workflow-pipeline";
+import { ConfirmActionDialog } from "@/components/patterns/confirm-action-dialog";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import {
   Breadcrumb,
@@ -218,6 +219,20 @@ export function RunDetailWorkspace({
     );
 
   const [
+    actionSuccessState,
+    setActionSuccessState,
+  ] =
+    useState<DetailErrorState | null>(
+      null,
+    );
+
+  const [
+    confirmCancelOpen,
+    setConfirmCancelOpen,
+  ] =
+    useState(false);
+
+  const [
     actionPending,
     setActionPending,
   ] =
@@ -386,6 +401,12 @@ export function RunDetailWorkspace({
       ? actionErrorState.message
       : null;
 
+  const actionSuccess =
+    actionSuccessState?.runId ===
+    runId
+      ? actionSuccessState.message
+      : null;
+
   useEffect(() => {
     let disposed =
       false;
@@ -434,6 +455,20 @@ export function RunDetailWorkspace({
     detail,
   ]);
 
+  useEffect(() => {
+    if (!actionSuccessState) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setActionSuccessState(null);
+    }, 4_000);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [actionSuccessState]);
+
   const selectedExecution =
     useMemo(
       () =>
@@ -456,19 +491,15 @@ export function RunDetailWorkspace({
   const handleCancel =
     useCallback(
       async () => {
-        if (
-          !window.confirm(
-            "Cancel this active workflow?",
-          )
-        ) {
-          return;
-        }
-
         setActionPending(
           "cancel",
         );
 
         setActionErrorState(
+          null,
+        );
+
+        setActionSuccessState(
           null,
         );
 
@@ -478,6 +509,11 @@ export function RunDetailWorkspace({
           );
 
           await loadDetail();
+
+          setActionSuccessState({
+            runId,
+            message: "Run cancelled.",
+          });
         } catch (error) {
           setActionErrorState({
             runId,
@@ -512,12 +548,21 @@ export function RunDetailWorkspace({
           null,
         );
 
+        setActionSuccessState(
+          null,
+        );
+
         try {
           await retryRun(
             runId,
           );
 
           await loadDetail();
+
+          setActionSuccessState({
+            runId,
+            message: "Run retried.",
+          });
         } catch (error) {
           setActionErrorState({
             runId,
@@ -628,11 +673,27 @@ export function RunDetailWorkspace({
           actionPending
         }
         onCancel={() =>
-          void handleCancel()
+          setConfirmCancelOpen(true)
         }
         onRetry={() =>
           void handleRetry()
         }
+      />
+
+      <ConfirmActionDialog
+        open={confirmCancelOpen}
+        title="Cancel this workflow?"
+        message="Cancel this active workflow? This cannot be undone."
+        confirmLabel="Cancel run"
+        confirming={
+          actionPending ===
+          "cancel"
+        }
+        onOpenChange={setConfirmCancelOpen}
+        onConfirm={() => {
+          setConfirmCancelOpen(false);
+          void handleCancel();
+        }}
       />
 
       {detailError ? (
@@ -658,6 +719,15 @@ export function RunDetailWorkspace({
           <CircleAlertIcon className="size-3.5 shrink-0" />
           {
             actionError
+          }
+        </div>
+      ) : actionSuccess ? (
+        <div
+          role="status"
+          className="flex min-h-8 items-center gap-2 rounded-md border border-status-success/40 bg-status-success/5 px-3 text-[10px] text-status-success"
+        >
+          {
+            actionSuccess
           }
         </div>
       ) : null}
@@ -1056,7 +1126,7 @@ function SummaryFact({
     <div
       className={`min-w-0 px-3 py-2.5 ${className ?? ""}`}
     >
-      <dt className="text-[9px] font-medium uppercase tracking-wide text-text-muted">
+      <dt className="text-[10px] font-medium uppercase tracking-wide text-text-muted">
         {label}
       </dt>
 
@@ -1066,7 +1136,7 @@ function SummaryFact({
             title ??
             value
           }
-          className={`min-w-0 flex-1 truncate text-[11px] font-medium text-text-primary ${
+          className={`min-w-0 flex-1 truncate text-xs font-medium text-text-primary ${
             mono
               ? "font-mono tabular-nums"
               : ""
@@ -1093,7 +1163,7 @@ function TerminalMetadata({
     AgentExecution;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-3 whitespace-nowrap text-[10px]">
+    <div className="flex min-w-0 items-center gap-3 whitespace-nowrap text-xs">
       <span className="shrink-0 text-text-muted">
         Harness{" "}
         <strong className="font-medium capitalize text-text-secondary">
@@ -1141,7 +1211,7 @@ function TerminalMetadata({
             execution.status,
           )}
           entityLabel="Execution"
-          className="ms-0.5 h-4 px-1.5 text-[9px]"
+          className="ms-0.5 h-4 px-1.5 text-[10px]"
         />
       </span>
 

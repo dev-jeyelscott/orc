@@ -204,6 +204,7 @@ function VaultFilesTab({ category }: { category: KnowledgeCategory }) {
   const [previewStatus, setPreviewStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [fileQuery, setFileQuery] = useState("");
 
   const loadFiles = useCallback(async () => {
     try {
@@ -256,6 +257,12 @@ function VaultFilesTab({ category }: { category: KnowledgeCategory }) {
     void loadFiles();
   }
 
+  const visibleFiles = useMemo(() => {
+    const normalized = fileQuery.trim().toLowerCase();
+    if (!normalized) return files;
+    return files.filter((file) => file.name.toLowerCase().includes(normalized));
+  }, [files, fileQuery]);
+
   return (
     <div className="grid min-w-0 gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
       <section className="min-w-0 overflow-hidden rounded-lg border border-border-default bg-surface-elevated shadow-xs">
@@ -265,6 +272,17 @@ function VaultFilesTab({ category }: { category: KnowledgeCategory }) {
             <RefreshCwIcon className={cn(refreshing && "animate-spin motion-reduce:animate-none")} />
           </Button>
         </div>
+
+        {listStatus === "loaded" && files.length > 0 ? (
+          <div className="border-b border-divider p-2">
+            <SearchInput
+              value={fileQuery}
+              onChange={setFileQuery}
+              placeholder="Search files..."
+              aria-label="Search vault files"
+            />
+          </div>
+        ) : null}
 
         {listStatus === "loading" ? (
           <Empty className="min-h-40 rounded-none border-0">
@@ -292,9 +310,16 @@ function VaultFilesTab({ category }: { category: KnowledgeCategory }) {
           </Empty>
         ) : null}
 
-        {listStatus === "loaded" && files.length > 0 ? (
+        {listStatus === "loaded" && files.length > 0 && visibleFiles.length === 0 ? (
+          <Empty className="min-h-40 rounded-none border-0">
+            <EmptyTitle>No matching files</EmptyTitle>
+            <EmptyDescription>No file name matches your search.</EmptyDescription>
+          </Empty>
+        ) : null}
+
+        {listStatus === "loaded" && visibleFiles.length > 0 ? (
           <ul className="divide-y divide-divider">
-            {files.map((file) => (
+            {visibleFiles.map((file) => (
               <li key={file.path}>
                 <button
                   type="button"
@@ -441,11 +466,18 @@ function IngestTab({ category }: { category: KnowledgeCategory }) {
     };
   }, [loadBatches]);
 
+  const fileNameIsValid = fileName.trim().toLowerCase().endsWith(".md");
+
   async function uploadSource(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitError(null);
 
-    if (!fileName.trim().toLowerCase().endsWith(".md")) {
+    if (!ready) {
+      setSubmitError("Configure an enabled specialist Agent and ingestion Skill before uploading a source.");
+      return;
+    }
+
+    if (!fileNameIsValid) {
       setSubmitError("Source file name must end with .md");
       return;
     }
@@ -519,7 +551,11 @@ function IngestTab({ category }: { category: KnowledgeCategory }) {
             value={fileName}
             onChange={(event) => setFileName(event.target.value)}
             placeholder="knowledge.md"
+            aria-invalid={fileName.trim().length > 0 && !fileNameIsValid}
           />
+          {fileName.trim().length > 0 && !fileNameIsValid ? (
+            <p className="text-sm text-status-error">Source file name must end with .md</p>
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -535,7 +571,7 @@ function IngestTab({ category }: { category: KnowledgeCategory }) {
 
         {submitError ? <p className="text-sm text-status-error">{submitError}</p> : null}
 
-        <Button type="submit" disabled={submitting} className="w-fit">
+        <Button type="submit" disabled={submitting || !ready} className="w-fit">
           <UploadIcon />
           {submitting ? "Uploading..." : "Upload source"}
         </Button>
@@ -587,10 +623,14 @@ function IngestTab({ category }: { category: KnowledgeCategory }) {
               <li key={batch.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
                 <div className="flex min-w-0 flex-col gap-1">
                   <span className="truncate text-sm font-medium text-text-primary">{batch.sourceFileName}</span>
-                  <span className="font-mono text-xs text-text-muted">{batch.sourceContentHash.slice(0, 12)}</span>
+                  <span className="flex items-center gap-1.5 font-mono text-xs text-text-muted">
+                    {batch.sourceContentHash.slice(0, 12)}
+                    <CopyIdentifierButton value={batch.sourceContentHash} label="content hash" />
+                  </span>
                   {batch.status === "committed" && batch.vaultCommitSha ? (
-                    <span className="font-mono text-xs text-text-muted">
+                    <span className="flex items-center gap-1.5 font-mono text-xs text-text-muted">
                       Commit <span className="text-text-secondary">{batch.vaultCommitSha.slice(0, 12)}</span>
+                      <CopyIdentifierButton value={batch.vaultCommitSha} label="commit SHA" />
                       {batch.committedAt ? ` · ${new Date(batch.committedAt).toLocaleString()}` : null}
                     </span>
                   ) : null}

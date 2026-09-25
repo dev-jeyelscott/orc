@@ -1115,11 +1115,17 @@ export function TasksManager() {
           onViewTask={
             handleViewTask
           }
-          onCancelRun={
-            cancelRelatedRun
+          onCancelRun={(runId) =>
+            requestConfirm(
+              runId,
+              "cancel",
+            )
           }
-          onSkipRun={
-            skipRelatedRun
+          onSkipRun={(runId) =>
+            requestConfirm(
+              runId,
+              "skip",
+            )
           }
           onRetryRun={
             retryRelatedRun
@@ -1157,17 +1163,74 @@ export function TasksManager() {
         busyRunId={
           busyRunId
         }
-        onCancelRun={
-          cancelRelatedRun
+        onCancelRun={(runId) =>
+          requestConfirm(
+            runId,
+            "cancel",
+          )
         }
-        onSkipRun={
-          skipRelatedRun
+        onSkipRun={(runId) =>
+          requestConfirm(
+            runId,
+            "skip",
+          )
         }
-        onApproveRun={
-          approveRelatedRun
+        onApproveRun={(runId) =>
+          requestConfirm(
+            runId,
+            "approve",
+          )
         }
         onRetryRun={
           retryRelatedRun
+        }
+      />
+
+      <ConfirmActionDialog
+        open={
+          pendingConfirm !==
+          null
+        }
+        title={
+          pendingConfirm
+            ? confirmCopy[
+                pendingConfirm.kind
+              ].title
+            : ""
+        }
+        message={
+          pendingConfirm
+            ? confirmCopy[
+                pendingConfirm.kind
+              ].message
+            : ""
+        }
+        confirmLabel={
+          pendingConfirm
+            ? confirmCopy[
+                pendingConfirm.kind
+              ].confirmLabel
+            : undefined
+        }
+        destructive={
+          pendingConfirm?.kind !==
+          "approve"
+        }
+        confirming={
+          busyRunId !==
+          null
+        }
+        onOpenChange={(open) => {
+          if (
+            !open
+          ) {
+            setPendingConfirm(
+              null,
+            );
+          }
+        }}
+        onConfirm={() =>
+          void confirmPendingAction()
         }
       />
 

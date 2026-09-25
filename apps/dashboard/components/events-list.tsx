@@ -225,6 +225,8 @@ export function EventsList() {
       string | null
     >(null);
 
+  const [justUpdated, setJustUpdated] = useState(false);
+
   const abortRef =
     useRef<
       AbortController | null
@@ -287,6 +289,11 @@ export function EventsList() {
           setError(
             null,
           );
+
+          if (refresh) {
+            setJustUpdated(true);
+            setTimeout(() => setJustUpdated(false), 1500);
+          }
         } catch (
           requestError
         ) {
@@ -409,7 +416,11 @@ export function EventsList() {
       header: "Project",
       className: "w-64 max-w-64",
       render: (event) => (
-        <span title={event.projectPath} className="block truncate font-mono text-[11px] text-text-secondary">
+        <span
+          title={event.projectPath}
+          aria-label={event.projectPath}
+          className="block truncate font-mono text-[11px] text-text-secondary"
+        >
           {event.projectPath}
         </span>
       ),
@@ -435,28 +446,38 @@ export function EventsList() {
           </p>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={
-            requestPending
-          }
-          onClick={() =>
-            void loadPage(
-              page,
-              true,
-            )
-          }
-        >
-          <RefreshCcwIcon
-            className={
-              isRefreshing
-                ? "animate-spin"
-                : undefined
+        <div className="flex items-center gap-2">
+          <span
+            aria-live="polite"
+            className="text-xs text-status-success transition-opacity"
+            style={{ opacity: justUpdated ? 1 : 0 }}
+          >
+            Updated
+          </span>
+
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={
+              requestPending
             }
-          />
-          Refresh
-        </Button>
+            onClick={() =>
+              void loadPage(
+                page,
+                true,
+              )
+            }
+          >
+            <RefreshCcwIcon
+              className={
+                isRefreshing
+                  ? "animate-spin"
+                  : undefined
+              }
+            />
+            Refresh
+          </Button>
+        </div>
       </header>
 
       {error ? (

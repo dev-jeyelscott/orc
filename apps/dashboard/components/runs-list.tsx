@@ -7,6 +7,7 @@ import {
   ListIcon,
   RefreshCwIcon,
   SearchIcon,
+  SlidersHorizontalIcon,
   TableIcon,
 } from "lucide-react";
 import {

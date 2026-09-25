@@ -323,7 +323,7 @@ function MetricFact({
       </div>
 
       {detail ? (
-        <div className="mt-1 min-w-0 text-[9px] leading-3 text-text-muted">
+        <div className="mt-1 min-w-0 text-[10px] leading-3 text-text-muted">
           {detail}
         </div>
       ) : null}
@@ -342,7 +342,7 @@ function HeaderFact({
 }: HeaderFactProps) {
   return (
     <div className="min-w-0 border-divider px-3 py-2.5 max-xl:border-b xl:border-l">
-      <p className="text-[9px] font-medium uppercase tracking-wide text-text-muted">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-text-muted">
         {label}
       </p>
 
@@ -351,7 +351,7 @@ function HeaderFact({
           title
         }
         className={cn(
-          "mt-1 min-w-0 truncate text-[11px] font-medium text-text-secondary",
+          "mt-1 min-w-0 truncate text-xs font-medium text-text-secondary",
           mono &&
             "font-mono tabular-nums",
         )}
@@ -373,7 +373,7 @@ function DefinitionRow({
 }: DefinitionRowProps) {
   return (
     <div className="grid min-w-0 grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-3 py-1">
-      <dt className="text-[10px] leading-5 text-text-muted">
+      <dt className="text-xs leading-5 text-text-muted">
         {label}
       </dt>
 
@@ -382,7 +382,7 @@ function DefinitionRow({
           title
         }
         className={cn(
-          "min-w-0 break-words text-[10px] leading-5 font-medium text-text-secondary",
+          "min-w-0 break-words text-xs leading-5 font-medium text-text-secondary",
           mono &&
             "font-mono tabular-nums",
         )}
@@ -1577,7 +1577,10 @@ export function AgentExecutionDetail({
     !detail
   ) {
     return (
-      <div className="flex min-h-64 items-center justify-center rounded-lg border border-border-default bg-surface-card">
+      <div
+        role="status"
+        className="flex min-h-64 items-center justify-center rounded-lg border border-border-default bg-surface-card"
+      >
         <div className="flex items-center gap-2 text-xs text-text-muted">
           <Spinner className="size-4" />
           Loading agent execution...
