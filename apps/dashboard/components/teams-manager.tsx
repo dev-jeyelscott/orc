@@ -4,11 +4,9 @@ import {
   AlertTriangleIcon,
   LayoutGridIcon,
   ListIcon,
-  MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
   RefreshCwIcon,
-  SearchIcon,
   TableIcon,
   UsersIcon,
 } from "lucide-react";
@@ -18,22 +16,20 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Agent, Team } from "@orc/shared";
 
 import { TeamConfigDrawer } from "@/components/team-config-drawer";
+import { DataTable, type DataTableColumn } from "@/components/patterns/data-table";
+import { FilterSelect } from "@/components/patterns/filter-select";
+import { RowActionsMenu } from "@/components/patterns/row-actions-menu";
+import { SearchInput } from "@/components/patterns/search-input";
+import { StatusBadge } from "@/components/patterns/status-badge";
+import { ViewToggle, type ViewToggleMode } from "@/components/patterns/view-toggle";
 import {
   Avatar,
   AvatarFallback,
   AvatarGroup,
   AvatarGroupCount,
 } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Empty,
   EmptyContent,
@@ -42,24 +38,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group";
-import {
-  NativeSelect,
-  NativeSelectOption,
-} from "@/components/ui/native-select";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { getAgents } from "@/lib/agents";
 import {
   AGENT_AVATAR_LIMIT,
@@ -74,6 +53,12 @@ import {
 } from "@/lib/team-presentation";
 import { getTeams } from "@/lib/teams";
 import { cn } from "@/lib/utils";
+
+const teamViewModes: ViewToggleMode[] = [
+  { value: "list", label: "List", icon: <ListIcon aria-hidden="true" /> },
+  { value: "details", label: "Detailed", icon: <TableIcon aria-hidden="true" /> },
+  { value: "grid", label: "Grid", icon: <LayoutGridIcon aria-hidden="true" /> },
+];
 
 const agentToneClasses = [
   "bg-brand-accent/15 text-brand-accent",
@@ -249,17 +234,6 @@ function TeamIdentity({ team, compact = false }: TeamIdentityProps) {
 }
 
 /**
- * Renders the persisted Team enabled state using the existing semantic status system.
- */
-function TeamStatusBadge({ team }: { team: Team }) {
-  return (
-    <Badge variant={team.enabled ? "success" : "disabled"}>
-      {team.enabled ? "Enabled" : "Disabled"}
-    </Badge>
-  );
-}
-
-/**
  * Renders a compact relative and absolute update timestamp matching the list hierarchy.
  */
 function TeamUpdatedAt({ value }: { value: string }) {
@@ -285,32 +259,21 @@ type TeamActionsProps = {
  */
 function TeamActions({ team, onManageAgents, onEdit }: TeamActionsProps) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Actions for ${team.name}`}
-          />
-        }
-      >
-        <MoreHorizontalIcon aria-hidden="true" />
-      </DropdownMenuTrigger>
-
-      <DropdownMenuContent align="end" className="w-44">
-        <DropdownMenuItem onClick={() => onManageAgents(team.id)}>
-          <UsersIcon />
-          Manage Agents
-        </DropdownMenuItem>
-
-        <DropdownMenuItem onClick={() => onEdit(team.id)}>
-          <PencilIcon />
-          Edit Team
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <RowActionsMenu
+      label={`Actions for ${team.name}`}
+      items={[
+        {
+          label: "Manage Agents",
+          icon: <UsersIcon />,
+          onClick: () => onManageAgents(team.id),
+        },
+        {
+          label: "Edit Team",
+          icon: <PencilIcon />,
+          onClick: () => onEdit(team.id),
+        },
+      ]}
+    />
   );
 }
 
@@ -330,69 +293,60 @@ function TeamListView({
   onManageAgents,
   onEdit,
 }: TeamViewProps) {
+  const columns: DataTableColumn<Team>[] = [
+    {
+      key: "team",
+      header: "Team",
+      className: "px-4",
+      render: (team) => <TeamIdentity team={team} />,
+    },
+    {
+      key: "agents",
+      header: "Agents",
+      className: "px-4",
+      render: (team) => (
+        <AgentAvatarStack agents={membersByTeam.get(team.id) ?? []} />
+      ),
+    },
+    {
+      key: "updated",
+      header: "Updated",
+      className: "px-4",
+      render: (team) => <TeamUpdatedAt value={team.updatedAt} />,
+    },
+    {
+      key: "status",
+      header: "Status",
+      className: "px-4",
+      render: (team) => (
+        <StatusBadge
+          variant={team.enabled ? "success" : "disabled"}
+          label={team.enabled ? "Enabled" : "Disabled"}
+        />
+      ),
+    },
+    {
+      key: "actions",
+      header: <span className="sr-only">Actions</span>,
+      className: "w-14 px-3 text-right",
+      render: (team) => (
+        <TeamActions
+          team={team}
+          onManageAgents={onManageAgents}
+          onEdit={onEdit}
+        />
+      ),
+    },
+  ];
+
   return (
-    <Table className="min-w-[900px]">
-      <TableHeader className="bg-surface-interactive/45">
-        <TableRow className="hover:bg-transparent">
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Team
-          </TableHead>
-
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Agents
-          </TableHead>
-
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Updated
-          </TableHead>
-
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Status
-          </TableHead>
-
-          <TableHead className="h-9 w-14 px-3 text-right text-xs text-text-secondary">
-            <span className="sr-only">Actions</span>
-          </TableHead>
-        </TableRow>
-      </TableHeader>
-
-      <TableBody>
-        {teams.map((team) => {
-          const members = membersByTeam.get(team.id) ?? [];
-
-          return (
-            <TableRow
-              key={team.id}
-              className="h-16 border-divider hover:bg-surface-interactive/45"
-            >
-              <TableCell className="px-4 py-2.5">
-                <TeamIdentity team={team} />
-              </TableCell>
-
-              <TableCell className="px-4 py-2.5">
-                <AgentAvatarStack agents={members} />
-              </TableCell>
-
-              <TableCell className="px-4 py-2.5">
-                <TeamUpdatedAt value={team.updatedAt} />
-              </TableCell>
-
-              <TableCell className="px-4 py-2.5">
-                <TeamStatusBadge team={team} />
-              </TableCell>
-
-              <TableCell className="px-3 py-2.5 text-right">
-                <TeamActions
-                  team={team}
-                  onManageAgents={onManageAgents}
-                  onEdit={onEdit}
-                />
-              </TableCell>
-            </TableRow>
-          );
-        })}
-      </TableBody>
-    </Table>
+    <DataTable
+      className="min-w-[900px]"
+      columns={columns}
+      rows={teams}
+      getRowKey={(team) => team.id}
+      rowClassName="h-16"
+    />
   );
 }
 
@@ -405,80 +359,74 @@ function TeamDetailsView({
   onManageAgents,
   onEdit,
 }: TeamViewProps) {
+  const columns: DataTableColumn<Team>[] = [
+    {
+      key: "team",
+      header: "Team",
+      className: "px-4",
+      render: (team) => <TeamIdentity team={team} />,
+    },
+    {
+      key: "agents",
+      header: "Agents",
+      className: "px-4",
+      render: (team) => (
+        <AgentAvatarStack
+          agents={membersByTeam.get(team.id) ?? []}
+          showCount
+        />
+      ),
+    },
+    {
+      key: "enabledAgents",
+      header: "Enabled Agents",
+      className: "px-4 font-mono text-xs text-text-secondary",
+      render: (team) => {
+        const members = membersByTeam.get(team.id) ?? [];
+        const enabledMembers = members.filter((agent) => agent.enabled).length;
+
+        return `${enabledMembers}/${members.length}`;
+      },
+    },
+    {
+      key: "updated",
+      header: "Updated",
+      className: "px-4",
+      render: (team) => <TeamUpdatedAt value={team.updatedAt} />,
+    },
+    {
+      key: "status",
+      header: "Status",
+      className: "px-4",
+      render: (team) => (
+        <StatusBadge
+          variant={team.enabled ? "success" : "disabled"}
+          label={team.enabled ? "Enabled" : "Disabled"}
+        />
+      ),
+    },
+    {
+      key: "actions",
+      header: <span className="sr-only">Actions</span>,
+      className: "w-14 px-3 text-right",
+      render: (team) => (
+        <TeamActions
+          team={team}
+          onManageAgents={onManageAgents}
+          onEdit={onEdit}
+        />
+      ),
+    },
+  ];
+
   return (
-    <Table className="min-w-[1120px]">
-      <TableHeader className="bg-surface-interactive/45">
-        <TableRow className="hover:bg-transparent">
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Team
-          </TableHead>
-
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Agents
-          </TableHead>
-
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Enabled Agents
-          </TableHead>
-
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Updated
-          </TableHead>
-
-          <TableHead className="h-9 px-4 text-xs text-text-secondary">
-            Status
-          </TableHead>
-
-          <TableHead className="h-9 w-14 px-3 text-right text-xs text-text-secondary">
-            <span className="sr-only">Actions</span>
-          </TableHead>
-        </TableRow>
-      </TableHeader>
-
-      <TableBody>
-        {teams.map((team) => {
-          const members = membersByTeam.get(team.id) ?? [];
-          const enabledMembers = members.filter(
-            (agent) => agent.enabled,
-          ).length;
-
-          return (
-            <TableRow
-              key={team.id}
-              className="h-16 border-divider hover:bg-surface-interactive/45"
-            >
-              <TableCell className="px-4 py-2.5">
-                <TeamIdentity team={team} />
-              </TableCell>
-
-              <TableCell className="px-4 py-2.5">
-                <AgentAvatarStack agents={members} showCount />
-              </TableCell>
-
-              <TableCell className="px-4 py-2.5 font-mono text-xs text-text-secondary">
-                {enabledMembers}/{members.length}
-              </TableCell>
-
-              <TableCell className="px-4 py-2.5">
-                <TeamUpdatedAt value={team.updatedAt} />
-              </TableCell>
-
-              <TableCell className="px-4 py-2.5">
-                <TeamStatusBadge team={team} />
-              </TableCell>
-
-              <TableCell className="px-3 py-2.5 text-right">
-                <TeamActions
-                  team={team}
-                  onManageAgents={onManageAgents}
-                  onEdit={onEdit}
-                />
-              </TableCell>
-            </TableRow>
-          );
-        })}
-      </TableBody>
-    </Table>
+    <DataTable
+      className="min-w-[1120px]"
+      columns={columns}
+      rows={teams}
+      getRowKey={(team) => team.id}
+      rowClassName="h-16"
+    />
   );
 }
 
@@ -515,7 +463,7 @@ function TeamGridView({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <TeamStatusBadge team={team} />
+                <StatusBadge variant={team.enabled ? "success" : "disabled"} label={team.enabled ? "Enabled" : "Disabled"} />
               </div>
             </CardHeader>
 
@@ -695,55 +643,40 @@ export function TeamsManager() {
         aria-label="Teams browser"
       >
         <div className="grid gap-3 border-b border-divider p-3 xl:grid-cols-[minmax(18rem,1fr)_auto] xl:items-center">
-          <InputGroup className="w-full min-w-0 xl:max-w-xl">
-            <InputGroupAddon>
-              <SearchIcon aria-hidden="true" />
-            </InputGroupAddon>
-
-            <InputGroupInput
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search teams or Agents..."
-              aria-label="Search Teams"
-              disabled={controlsDisabled}
-            />
-          </InputGroup>
+          <SearchInput
+            className="w-full min-w-0 xl:max-w-xl"
+            value={query}
+            onChange={setQuery}
+            placeholder="Search teams or Agents..."
+            aria-label="Search Teams"
+            disabled={controlsDisabled}
+          />
 
           <div className="flex min-w-0 flex-wrap items-center gap-2 xl:justify-end">
-            <NativeSelect
-              size="default"
+            <FilterSelect
               className="w-full sm:w-44"
+              options={[
+                { value: "name", label: "Sorted by Name" },
+                { value: "updatedAt", label: "Recently updated" },
+              ]}
               value={sortKey}
-              onChange={(event) =>
-                setSortKey(event.target.value as TeamSortKey)
-              }
+              onChange={(value) => setSortKey(value as TeamSortKey)}
               aria-label="Sort Teams"
               disabled={controlsDisabled}
-            >
-              <NativeSelectOption value="name">
-                Sorted by Name
-              </NativeSelectOption>
+            />
 
-              <NativeSelectOption value="updatedAt">
-                Recently updated
-              </NativeSelectOption>
-            </NativeSelect>
-
-            <NativeSelect
-              size="default"
+            <FilterSelect
               className="w-full sm:w-36"
+              options={[
+                { value: "all", label: "All Teams" },
+                { value: "enabled", label: "Enabled" },
+                { value: "disabled", label: "Disabled" },
+              ]}
               value={statusFilter}
-              onChange={(event) =>
-                setStatusFilter(event.target.value as TeamStatusFilter)
-              }
+              onChange={(value) => setStatusFilter(value as TeamStatusFilter)}
               aria-label="Filter Teams by status"
               disabled={controlsDisabled}
-            >
-              <NativeSelectOption value="all">All Teams</NativeSelectOption>
-              <NativeSelectOption value="enabled">Enabled</NativeSelectOption>
-              <NativeSelectOption value="disabled">Disabled</NativeSelectOption>
-            </NativeSelect>
+            />
 
             <Button
               type="button"
@@ -761,58 +694,14 @@ export function TeamsManager() {
               Refresh
             </Button>
 
-            <ButtonGroup
+            <ViewToggle
               className="w-full sm:w-auto"
               aria-label="Team view mode"
-            >
-              <Button
-                type="button"
-                variant="outline"
-                className={cn(
-                  "flex-1 sm:flex-none",
-                  viewMode === "list" &&
-                    "border-brand-accent/50 bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/15",
-                )}
-                aria-pressed={viewMode === "list"}
-                onClick={() => setViewMode("list")}
-                disabled={controlsDisabled}
-              >
-                <ListIcon aria-hidden="true" />
-                List
-              </Button>
-
-              <Button
-                type="button"
-                variant="outline"
-                className={cn(
-                  "flex-1 sm:flex-none",
-                  viewMode === "details" &&
-                    "border-brand-accent/50 bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/15",
-                )}
-                aria-pressed={viewMode === "details"}
-                onClick={() => setViewMode("details")}
-                disabled={controlsDisabled}
-              >
-                <TableIcon aria-hidden="true" />
-                Detailed
-              </Button>
-
-              <Button
-                type="button"
-                variant="outline"
-                className={cn(
-                  "flex-1 sm:flex-none",
-                  viewMode === "grid" &&
-                    "border-brand-accent/50 bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/15",
-                )}
-                aria-pressed={viewMode === "grid"}
-                onClick={() => setViewMode("grid")}
-                disabled={controlsDisabled}
-              >
-                <LayoutGridIcon aria-hidden="true" />
-                Grid
-              </Button>
-            </ButtonGroup>
+              value={viewMode}
+              onChange={(value) => setViewMode(value as TeamViewMode)}
+              modes={teamViewModes}
+              disabled={controlsDisabled}
+            />
           </div>
         </div>
 

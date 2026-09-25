@@ -28,6 +28,8 @@ import type {
   Team,
 } from "@orc/shared";
 
+import { DataTable, type DataTableColumn } from "@/components/patterns/data-table";
+import { StatusBadge } from "@/components/patterns/status-badge";
 import {
   Avatar,
   AvatarFallback,
@@ -72,14 +74,6 @@ import {
   NativeSelectOption,
 } from "@/components/ui/native-select";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   AGENT_VIEW_MODES,
   type AgentViewMode,
@@ -274,17 +268,18 @@ function AgentStatus({
 
   return (
     <div className="grid gap-1">
-      <Badge
+      <StatusBadge
         variant={
           agent.effective.enabled
             ? "success"
             : "disabled"
         }
-      >
-        {agent.effective.enabled
-          ? "Enabled"
-          : "Disabled"}
-      </Badge>
+        label={
+          agent.effective.enabled
+            ? "Enabled"
+            : "Disabled"
+        }
+      />
 
       {reason ? (
         <span className="text-[11px] text-text-muted">
@@ -344,72 +339,64 @@ function TeamMemberTable({
   disabled,
   onRemove,
 }: MemberViewProps) {
+  const columns: DataTableColumn<Agent>[] = [
+    {
+      key: "agent",
+      header: "Agent",
+      className: "px-4",
+      render: (agent) => <AgentIdentity agent={agent} />,
+    },
+    {
+      key: "department",
+      header: "Department / Role",
+      className: "px-4",
+      render: (agent) => (
+        <>
+          <p className="text-sm text-text-primary">
+            {agent.department.name}
+          </p>
+
+          <p className="mt-0.5 text-xs text-text-muted">
+            {agent.effective.role}
+          </p>
+        </>
+      ),
+    },
+    {
+      key: "runtime",
+      header: "Effective runtime",
+      className: "px-4",
+      render: (agent) => <AgentRuntime agent={agent} />,
+    },
+    {
+      key: "status",
+      header: "Status",
+      className: "px-4",
+      render: (agent) => <AgentStatus agent={agent} />,
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      className: "w-28 px-4 text-right",
+      render: (agent) => (
+        <MemberActions
+          agent={agent}
+          disabled={disabled}
+          onRemove={onRemove}
+        />
+      ),
+    },
+  ];
+
   return (
     <div className="overflow-x-auto">
-      <Table className="min-w-[900px]">
-        <TableHeader className="bg-surface-interactive/45">
-          <TableRow className="hover:bg-transparent">
-            <TableHead className="h-9 px-4 text-xs text-text-secondary">
-              Agent
-            </TableHead>
-
-            <TableHead className="h-9 px-4 text-xs text-text-secondary">
-              Department / Role
-            </TableHead>
-
-            <TableHead className="h-9 px-4 text-xs text-text-secondary">
-              Effective runtime
-            </TableHead>
-
-            <TableHead className="h-9 px-4 text-xs text-text-secondary">
-              Status
-            </TableHead>
-
-            <TableHead className="h-9 w-28 px-4 text-right text-xs text-text-secondary">
-              Actions
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-
-        <TableBody>
-          {agents.map((agent) => (
-            <TableRow
-              key={agent.id}
-              className="h-16 border-divider hover:bg-surface-interactive/45"
-            >
-              <TableCell className="px-4 py-2.5">
-                <AgentIdentity agent={agent} />
-              </TableCell>
-
-              <TableCell className="px-4 py-2.5">
-                <p className="text-sm text-text-primary">
-                  {agent.department.name}
-                </p>
-
-                <p className="mt-0.5 text-xs text-text-muted">
-                  {agent.effective.role}
-                </p>
-              </TableCell>
-
-              <TableCell className="px-4 py-2.5">
-                <AgentRuntime agent={agent} />
-              </TableCell>
-
-              <TableCell className="px-4 py-2.5">
-                <AgentStatus agent={agent} />
-              </TableCell>
-
-              <TableCell className="px-4 py-2.5 text-right">
-                <MemberActions
-                  agent={agent}
-                  disabled={disabled}
-                  onRemove={onRemove}
-                />
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      <DataTable
+        className="min-w-[900px]"
+        columns={columns}
+        rows={agents}
+        getRowKey={(agent) => agent.id}
+        rowClassName="h-16"
+      />
     </div>
   );
 }

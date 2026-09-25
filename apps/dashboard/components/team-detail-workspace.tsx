@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { Team } from "@orc/shared";
 
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -174,9 +174,10 @@ export function TeamDetailWorkspace({ teamId }: { teamId: string }) {
                 {team.name}
               </h1>
 
-              <Badge variant={team.enabled ? "success" : "disabled"}>
-                {team.enabled ? "Enabled" : "Disabled"}
-              </Badge>
+              <StatusBadge
+                variant={team.enabled ? "success" : "disabled"}
+                label={team.enabled ? "Enabled" : "Disabled"}
+              />
 
             </div>
 
