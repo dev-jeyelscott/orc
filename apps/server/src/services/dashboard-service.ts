@@ -5,6 +5,7 @@ import {
   eq,
   inArray,
   isNotNull,
+  isNull,
   sql,
 } from "drizzle-orm";
 import type {
@@ -442,7 +443,8 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
           enabled:
             sql<number>`count(*) filter (where ${agents.enabled} = true)::int`,
         })
-        .from(agents),
+        .from(agents)
+        .where(isNull(agents.archivedAt)),
 
       db
         .select()

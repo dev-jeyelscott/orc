@@ -1,15 +1,15 @@
 import path from "node:path";
 
-import { eq } from "drizzle-orm";
+import { eq, isNull } from "drizzle-orm";
 
 import { env } from "../config/env.js";
 import { clearConfigOutOfSync, markConfigOutOfSync } from "../config/health-state.js";
 import { loadConfigGraph, type ConfigGraph } from "../config/loader.js";
 import {
-  removeAgentProjection,
   removeDepartmentProjection,
   removeSkillProjection,
   removeTeamProjection,
+  retireAgentProjection,
   syncAgentProjection,
   syncAgentSkillAssignments,
   syncDepartmentProjection,
@@ -166,7 +166,8 @@ export async function getConfigRemovalCandidates(configRoot: string = env.ORC_CO
 
   const [departmentRows, agentRows, skillRows, teamRows, assignmentRows] = await Promise.all([
     db.select({ slug: departments.slug }).from(departments),
-    db.select({ slug: agents.slug }).from(agents),
+    // Archived Agents are file-less by design; they are not removal candidates.
+    db.select({ slug: agents.slug }).from(agents).where(isNull(agents.archivedAt)),
     db.select({ slug: skills.slug }).from(skills),
     db.select({ slug: teams.slug }).from(teams),
     db.select({ projectPath: projectTeamAssignments.projectPath }).from(projectTeamAssignments),
@@ -209,11 +210,14 @@ export async function previewSyncGraph(configRoot: string = env.ORC_CONFIG_ROOT)
   return loadConfigGraph(configRoot);
 }
 
-/** Removes explicitly-selected safe removal candidates' PostgreSQL projections. Never removes a file. */
+/**
+ * Removes explicitly-selected safe removal candidates' PostgreSQL projections.
+ * Never removes a file. Agents still referenced by history are archived.
+ */
 export async function removeConfigProjections(candidates: readonly ConfigRemovalCandidate[]): Promise<void> {
   for (const candidate of candidates) {
     if (candidate.resourceType === "department") await removeDepartmentProjection(candidate.slug);
-    if (candidate.resourceType === "agent") await removeAgentProjection(candidate.slug);
+    if (candidate.resourceType === "agent") await retireAgentProjection(candidate.slug);
     if (candidate.resourceType === "skill") await removeSkillProjection(candidate.slug);
     if (candidate.resourceType === "team") await removeTeamProjection(candidate.slug);
   }

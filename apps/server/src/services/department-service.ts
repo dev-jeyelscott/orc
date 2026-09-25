@@ -1,6 +1,7 @@
 import {
   asc,
   eq,
+  isNull,
   sql,
 } from "drizzle-orm";
 
@@ -99,6 +100,7 @@ async function loadAgentCounts(): Promise<Map<string, number>> {
       count: sql<number>`count(*)::int`,
     })
     .from(agents)
+    .where(isNull(agents.archivedAt))
     .groupBy(agents.departmentId);
 
   return new Map(rows.map((row) => [row.departmentId, row.count]));

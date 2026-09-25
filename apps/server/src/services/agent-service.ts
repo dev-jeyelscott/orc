@@ -3,6 +3,7 @@ import {
   asc,
   eq,
   inArray,
+  isNull,
   sql,
 } from "drizzle-orm";
 
@@ -25,7 +26,7 @@ import {
 import { markConfigOutOfSync } from "../config/health-state.js";
 import { loadConfigGraph } from "../config/loader.js";
 import {
-  removeAgentProjection,
+  retireAgentProjection,
   syncAgentProjection,
   syncAgentSkillAssignments,
 } from "../config/projection-sync.js";
@@ -37,6 +38,7 @@ import {
   agents,
   agentSkills,
   departments,
+  knowledgeCategories,
   runs,
   teamMembers,
 } from "../db/schema.js";
@@ -449,6 +451,7 @@ export async function listAgents(configRoot: string = env.ORC_CONFIG_ROOT): Prom
           agents.id,
         ),
       )
+      .where(isNull(agents.archivedAt))
       .orderBy(
         asc(
           departments.name,
@@ -684,12 +687,14 @@ export async function updateAgent(
 }
 
 /**
- * Permanently deletes an unassigned Agent only when no active Run snapshot contains it.
+ * Deletes an unassigned Agent only when no active Run snapshot contains it.
  *
- * Historical workflow snapshots are never updated. Team membership must be
- * removed beforehand. Safety guards run against PostgreSQL first (the
- * authoritative source for membership/Run state), then the canonical file is
- * removed, then its projection row.
+ * Historical workflow snapshots are never updated. Team membership and any
+ * Knowledge Category specialist role must be removed beforehand. Safety
+ * guards run against PostgreSQL first (the authoritative source for
+ * membership/Run state), then the canonical file is removed, then its
+ * projection row is retired: deleted, or archived when Run, workflow, or
+ * knowledge history still references it.
  */
 export async function deleteAgent(
   id:
@@ -733,6 +738,17 @@ export async function deleteAgent(
 
         const [member] = await tx.select({ id: teamMembers.id }).from(teamMembers).where(eq(teamMembers.agentId, id));
         if (member) throw new AgentServiceError("Remove the Agent from its Team before deleting it", 409);
+
+        const specialistFor = await tx
+          .select({ name: knowledgeCategories.name })
+          .from(knowledgeCategories)
+          .where(eq(knowledgeCategories.specialistAgentId, id));
+        if (specialistFor.length) {
+          throw new AgentServiceError(
+            `Agent is the specialist for Knowledge Category ${specialistFor.map((category) => `"${category.name}"`).join(", ")}; choose another specialist before deleting it`,
+            409,
+          );
+        }
 
         const activeRuns =
           await tx
@@ -812,7 +828,7 @@ export async function deleteAgent(
   }
 
   try {
-    await removeAgentProjection(slug);
+    await retireAgentProjection(slug);
     return true;
   } catch (error) {
     markConfigOutOfSync({ reason: "Agent projection removal failed after canonical file delete", resourceType: "agent", resourceId: slug });
@@ -855,6 +871,7 @@ export async function listEnabledAgentsForFutureRuns(): Promise<
             departments.enabled,
             true,
           ),
+          isNull(agents.archivedAt),
         ),
       )
       .orderBy(

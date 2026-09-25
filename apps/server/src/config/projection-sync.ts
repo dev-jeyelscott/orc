@@ -138,6 +138,8 @@ export async function syncAgentProjection(
     sandboxModeOverride: config.permissions.sandboxMode,
     canCommitOverride: config.permissions.commit,
     additionalPrompt: instructions,
+    // A canonical file for this slug means the Agent is live again.
+    archivedAt: null,
   };
 
   const [row] = await tx
@@ -149,9 +151,37 @@ export async function syncAgentProjection(
   return row;
 }
 
-/** Removes an Agent's PostgreSQL projection row by slug. A no-op if it was never synced. */
-export async function removeAgentProjection(slug: string, tx: DbOrTx = db): Promise<void> {
-  await tx.delete(agents).where(eq(agents.slug, slug));
+/**
+ * Retires an Agent's projection row once its canonical file is gone. Rows
+ * still referenced by workflow revisions, knowledge ingestion batches, or
+ * Run skill snapshots cannot be deleted, so they are archived (disabled,
+ * `archived_at` set) and that history keeps resolving; other rows are
+ * deleted, with Agent Executions keeping their own name/role snapshot.
+ */
+export async function retireAgentProjection(
+  slug: string,
+  tx: DbOrTx = db,
+): Promise<"deleted" | "archived" | "missing"> {
+  const [row] = await tx.select({ id: agents.id }).from(agents).where(eq(agents.slug, slug));
+  if (!row) return "missing";
+
+  try {
+    // Savepoint, so a restricting reference only rolls back this delete.
+    await tx.transaction(async (inner) => {
+      await inner.delete(agents).where(eq(agents.id, row.id));
+    });
+    return "deleted";
+  } catch (error) {
+    // 23001 restrict_violation (ON DELETE RESTRICT) / 23503 foreign_key_violation.
+    const code = (error as { code?: string }).code;
+    if (code !== "23001" && code !== "23503") throw error;
+  }
+
+  await tx
+    .update(agents)
+    .set({ archivedAt: new Date(), enabled: false, updatedAt: new Date() })
+    .where(eq(agents.id, row.id));
+  return "archived";
 }
 
 /**

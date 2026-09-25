@@ -19,7 +19,10 @@ import {
   agentExecutions,
   agents,
   departments,
+  knowledgeCategories,
+  runAgentSkills,
   runs,
+  skillVersions,
   teamMembers,
 } from "../db/schema.js";
 import {
@@ -379,6 +382,62 @@ describe(
         );
       },
     );
+
+    it("archives instead of deleting an Agent that Run history still references", async () => {
+      const root = await makeConfigRoot();
+      const source = await createTestAgent("Archived");
+      const run = await createTestRun({ agents: [], routes: [] }, "completed");
+      const contentHash = crypto.randomUUID().replaceAll("-", "").padEnd(64, "0");
+      await db.insert(skillVersions).values({ contentHash, content: "Skill body." });
+      await db.insert(runAgentSkills).values({ runId: run.id, agentId: source.id, skillSlug: "historical-skill", name: "Historical Skill", contentHash });
+
+      expect(await deleteAgent(source.id, null, root)).toBe(true);
+
+      const [archived] = await db.select().from(agents).where(eq(agents.id, source.id));
+      expect(archived).toMatchObject({ enabled: false, archivedAt: expect.any(Date) });
+      expect((await listAgents(root)).map((agent) => agent.id)).not.toContain(source.id);
+      expect((await listEnabledAgentsForFutureRuns()).map((agent) => agent.id)).not.toContain(source.id);
+    });
+
+    it("refuses to delete a Knowledge Category specialist before touching its canonical file", async () => {
+      const root = await makeConfigRoot();
+      const department = await createDepartment(
+        {
+          slug: `test-department-specialist-${crypto.randomUUID()}`,
+          name: "Test Specialist Department",
+          role: "Specialist",
+          harness: "codex",
+          defaultModel: "default",
+          defaultReasoning: "high",
+          systemPrompt: "Act as the specialist test agent.",
+          canWrite: false,
+          canRunCommands: true,
+          canCommit: false,
+        },
+        root,
+      );
+      createdDepartmentIds.add(department.id);
+      const agent = await createAgent(
+        { departmentId: department.id, slug: `test-specialist-${crypto.randomUUID()}`, name: "Test Specialist", enabled: true, additionalPrompt: "" },
+        root,
+      );
+      createdAgentIds.add(agent.id);
+      const [category] = await db
+        .insert(knowledgeCategories)
+        .values({ slug: `test-category-${crypto.randomUUID()}`, name: "Test Guidelines", vaultRootPath: "test-guidelines", specialistAgentId: agent.id })
+        .returning();
+
+      try {
+        await expect(deleteAgent(agent.id, null, root)).rejects.toMatchObject({
+          statusCode: 409,
+          message: expect.stringContaining('"Test Guidelines"'),
+        });
+        await expect(fs.stat(path.join(root, "agents", agent.slug, "agent.yaml"))).resolves.toBeTruthy();
+        expect(await getAgent(agent.id, root)).not.toBeNull();
+      } finally {
+        await db.delete(knowledgeCategories).where(eq(knowledgeCategories.id, category.id));
+      }
+    });
 
     it(
       "rejects deletion when an active run snapshot contains the agent",

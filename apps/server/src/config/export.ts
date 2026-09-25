@@ -219,7 +219,7 @@ export async function exportConfigFromDatabase(options: ExportOptions): Promise<
     plannedFiles.push({ filePath: path.join(dir, "prompt.md"), content: department.systemPrompt });
   }
 
-  for (const agent of agentRows) {
+  for (const agent of agentRows.filter((row) => row.archivedAt === null)) {
     const departmentSlug = departmentSlugById.get(agent.departmentId);
     if (!departmentSlug) {
       throw new ConfigExportError(`Agent "${agent.slug}" references a Department that no longer exists`);

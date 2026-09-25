@@ -514,6 +514,13 @@ export const agents =
         )
           .notNull()
           .default(""),
+      /**
+       * Set when an Agent is deleted but Run/workflow/knowledge history still
+       * references it: the row stays for that history, hidden from
+       * configuration views. Syncing a canonical file with the same slug
+       * clears it again.
+       */
+      archivedAt: timestamp("archived_at", { withTimezone: true }),
       ...timestamps,
     },
     (table) => [
