@@ -31,7 +31,7 @@ import { RunExecutionInspector } from "@/components/run-execution-inspector";
 import { RunExecutionsTable } from "@/components/run-executions-table";
 import { RunInspectorDrawer } from "@/components/run-inspector-drawer";
 import { RunWorkflowPipeline } from "@/components/run-workflow-pipeline";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/patterns/status-badge";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -795,18 +795,18 @@ function RunHeader({
               "Workflow run"}
           </h1>
 
-          <Badge
+          <StatusBadge
             variant={runStatusVariant(
               detail.run
                 .status,
             )}
-            className="h-5 px-2 text-[10px]"
-          >
-            {formatStatusLabel(
+            label={formatStatusLabel(
               detail.run
                 .status,
             )}
-          </Badge>
+            entityLabel="Run"
+            className="h-5 px-2 text-[10px]"
+          />
 
           <span className="text-[11px] text-text-secondary">
             {currentRunStateLabel(
@@ -1121,7 +1121,7 @@ function TerminalMetadata({
 
       <span className="shrink-0 text-text-muted">
         Status{" "}
-        <Badge
+        <StatusBadge
           variant={
             execution.status ===
             "running"
@@ -1137,12 +1137,12 @@ function TerminalMetadata({
                     ? "warning"
                     : "neutral"
           }
-          className="ms-0.5 h-4 px-1.5 text-[9px]"
-        >
-          {formatStatusLabel(
+          label={formatStatusLabel(
             execution.status,
           )}
-        </Badge>
+          entityLabel="Execution"
+          className="ms-0.5 h-4 px-1.5 text-[9px]"
+        />
       </span>
 
       <span className="hidden shrink-0 text-text-muted md:inline">

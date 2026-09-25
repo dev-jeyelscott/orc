@@ -4,7 +4,7 @@ import type {
   RunMonitoringDetail,
 } from "@orc/shared";
 
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/patterns/status-badge";
 import {
   Card,
 } from "@/components/ui/card";
@@ -216,16 +216,16 @@ function WorkflowPipelineStep({
       </div>
 
       <div className="flex min-w-0 items-center justify-between gap-2 ps-7">
-        <Badge
+        <StatusBadge
           variant={workflowStateVariant(
             step.state,
           )}
-          className="h-4 max-w-24 truncate px-1.5 text-[9px]"
-        >
-          {workflowStepLabel(
+          label={workflowStepLabel(
             step,
           )}
-        </Badge>
+          entityLabel="Step"
+          className="h-4 max-w-24 truncate px-1.5 text-[9px]"
+        />
 
         <span className="shrink-0 text-[9px] tabular-nums text-text-muted">
           {step.durationMs !==

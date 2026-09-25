@@ -7,7 +7,7 @@ import { cancelRun, getRun, retryRun } from "@/lib/workflows";
 import { harnessOptions } from "@/lib/harness-options";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/patterns/status-badge";
 
 const activeStatuses = new Set(["pending", "running"]);
 const selectClassName = "h-8 rounded-lg border bg-transparent px-2 text-sm";
@@ -42,7 +42,7 @@ export function RunDetail({ runId }: { runId: string }) {
   const effectiveModel = retryModel ?? lastExecution?.model ?? harnessCatalog.models[0];
   const effectiveReasoning = retryReasoning ?? lastExecution?.reasoning ?? harnessCatalog.reasoning[0];
   return <div className="flex flex-col gap-6">
-    <Card><CardHeader className="flex-row items-center justify-between"><div><CardTitle>{task?.title ?? "Run"}</CardTitle><p className="mt-1 text-sm text-text-muted">{run.projectPath}</p></div><div className="flex items-center gap-3"><Badge variant={run.status === "completed" ? "success" : run.status === "running" ? "running" : run.status === "blocked" || run.status === "failed" ? "error" : "neutral"}>{run.status}</Badge>{activeStatuses.has(run.status) && <Button variant="destructive" onClick={() => void cancel()} disabled={cancelling}>{cancelling ? "Cancelling…" : "Cancel run"}</Button>}</div></CardHeader><CardContent className="flex flex-col gap-2 text-sm text-text-muted">{task && <p className="whitespace-pre-wrap">{task.instruction}</p>}<p>{run.terminalReason ?? `Execution ${run.executionCount} of 3`}</p></CardContent></Card>
+    <Card><CardHeader className="flex-row items-center justify-between"><div><CardTitle>{task?.title ?? "Run"}</CardTitle><p className="mt-1 text-sm text-text-muted">{run.projectPath}</p></div><div className="flex items-center gap-3"><StatusBadge variant={run.status === "completed" ? "success" : run.status === "running" ? "running" : run.status === "blocked" || run.status === "failed" ? "error" : "neutral"} label={run.status} entityLabel="Run" />{activeStatuses.has(run.status) && <Button variant="destructive" onClick={() => void cancel()} disabled={cancelling}>{cancelling ? "Cancelling…" : "Cancel run"}</Button>}</div></CardHeader><CardContent className="flex flex-col gap-2 text-sm text-text-muted">{task && <p className="whitespace-pre-wrap">{task.instruction}</p>}<p>{run.terminalReason ?? `Execution ${run.executionCount} of 3`}</p></CardContent></Card>
     {(run.status === "failed" || run.status === "blocked") && <div className="flex flex-wrap items-center gap-2">
       <select
         value={effectiveHarness}

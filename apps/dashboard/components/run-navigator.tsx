@@ -8,7 +8,7 @@ import type {
   RunMonitoringSummary,
 } from "@orc/shared";
 
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -244,16 +244,16 @@ function RunNavigatorRow({
       <div className="flex min-w-0 items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
-            <Badge
+            <StatusBadge
               variant={runStatusVariant(
                 run.status,
               )}
-              className="h-4 px-1.5 text-[9px] uppercase"
-            >
-              {formatStatusLabel(
+              label={formatStatusLabel(
                 run.status,
               )}
-            </Badge>
+              entityLabel="Run"
+              className="h-4 px-1.5 text-[9px] uppercase"
+            />
 
             <p className="min-w-0 flex-1 truncate text-xs font-medium text-text-primary">
               {run.taskTitle ??

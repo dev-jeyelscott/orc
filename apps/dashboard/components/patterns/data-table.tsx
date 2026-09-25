@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,8 @@ export interface DataTableColumn<T> {
   render: (row: T) => ReactNode;
 }
 
+type DataTableRowProps = Omit<ComponentPropsWithoutRef<typeof TableRow>, "key" | "children">;
+
 interface DataTableProps<T> {
   columns: DataTableColumn<T>[];
   rows: T[];
@@ -17,6 +19,8 @@ interface DataTableProps<T> {
   className?: string;
   rowClassName?: string;
   onRowClick?: (row: T) => void;
+  /** Extra per-row props (className, aria-*, tabIndex, onKeyDown, …) for rows that need more than a click handler, e.g. keyboard-selectable rows. Merged onto the row's own className/onClick rather than replacing them. */
+  getRowProps?: (row: T) => DataTableRowProps;
 }
 
 /**
@@ -32,6 +36,7 @@ export function DataTable<T>({
   className,
   rowClassName,
   onRowClick,
+  getRowProps,
 }: DataTableProps<T>) {
   return (
     <Table className={className}>
@@ -45,19 +50,36 @@ export function DataTable<T>({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {rows.map((row) => (
-          <TableRow
-            key={getRowKey(row)}
-            className={cn("border-divider hover:bg-surface-interactive/45", onRowClick && "cursor-pointer", rowClassName)}
-            onClick={onRowClick ? () => onRowClick(row) : undefined}
-          >
-            {columns.map((column) => (
-              <TableCell key={column.key} className={column.className}>
-                {column.render(row)}
-              </TableCell>
-            ))}
-          </TableRow>
-        ))}
+        {rows.map((row) => {
+          const { className: extraClassName, onClick: extraOnClick, ...restRowProps } = getRowProps?.(row) ?? {};
+
+          return (
+            <TableRow
+              key={getRowKey(row)}
+              className={cn(
+                "border-divider hover:bg-surface-interactive/45",
+                onRowClick && "cursor-pointer",
+                rowClassName,
+                extraClassName,
+              )}
+              onClick={
+                onRowClick || extraOnClick
+                  ? (event) => {
+                      onRowClick?.(row);
+                      extraOnClick?.(event);
+                    }
+                  : undefined
+              }
+              {...restRowProps}
+            >
+              {columns.map((column) => (
+                <TableCell key={column.key} className={column.className}>
+                  {column.render(row)}
+                </TableCell>
+              ))}
+            </TableRow>
+          );
+        })}
       </TableBody>
     </Table>
   );

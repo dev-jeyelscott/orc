@@ -25,21 +25,11 @@ import {
   RunCollectionViews,
   type RunViewMode,
 } from "@/components/run-collection-views";
+import { ListEmptyState } from "@/components/patterns/empty-state";
+import { FilterSelect } from "@/components/patterns/filter-select";
+import { SearchInput } from "@/components/patterns/search-input";
+import { ViewToggle } from "@/components/patterns/view-toggle";
 import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group";
 import {
   NativeSelect,
   NativeSelectOption,
@@ -50,7 +40,6 @@ import {
   PaginationEllipsis,
   PaginationItem,
 } from "@/components/ui/pagination";
-import { Spinner } from "@/components/ui/spinner";
 import {
   RUN_STATUS_FILTERS,
   formatRelativeTime,
@@ -114,6 +103,32 @@ function statusLabel(
     status.slice(1)
   );
 }
+
+const runStatusFilterOptions =
+  RUN_STATUS_FILTERS.map(
+    (status) => ({
+      value: status,
+      label: statusLabel(status),
+    }),
+  );
+
+const runViewModes = [
+  {
+    value: "list",
+    label: "List",
+    icon: <ListIcon aria-hidden="true" />,
+  },
+  {
+    value: "details",
+    label: "Detailed",
+    icon: <TableIcon aria-hidden="true" />,
+  },
+  {
+    value: "grid",
+    label: "Grid",
+    icon: <LayoutGridIcon aria-hidden="true" />,
+  },
+];
 
 /**
  * Returns a compact pagination model that keeps the current page and boundary pages discoverable.
@@ -503,55 +518,31 @@ export function RunsList() {
         aria-label="Runs browser"
       >
         <div className="flex min-w-0 flex-col gap-2 border-b border-divider p-3 xl:flex-row xl:items-center">
-          <InputGroup className="min-w-0 flex-1 xl:max-w-md">
-            <InputGroupAddon>
-              <SearchIcon
-                aria-hidden="true"
-              />
-            </InputGroupAddon>
+          <SearchInput
+            className="min-w-0 flex-1 xl:max-w-md"
+            value={search}
+            onChange={(value) => {
+              setSearch(value);
+              setCurrentPage(1);
+            }}
+            placeholder="Search runs..."
+            aria-label="Search runs"
+            disabled={controlsDisabled}
+          />
 
-            <InputGroupInput
-              type="search"
-              value={search}
-              onChange={(event) => {
-                setSearch(
-                  event.target.value,
-                );
-                setCurrentPage(1);
-              }}
-              placeholder="Search runs..."
-              aria-label="Search runs"
-              disabled={controlsDisabled}
-            />
-          </InputGroup>
-
-          <NativeSelect
-            size="default"
+          <FilterSelect
             className="w-full sm:w-40"
+            options={runStatusFilterOptions}
             value={statusFilter}
-            onChange={(event) => {
+            onChange={(value) => {
               setStatusFilter(
-                event.target
-                  .value as RunStatusFilter,
+                value as RunStatusFilter,
               );
               setCurrentPage(1);
             }}
             aria-label="Filter runs by status"
             disabled={controlsDisabled}
-          >
-            {RUN_STATUS_FILTERS.map(
-              (status) => (
-                <NativeSelectOption
-                  key={status}
-                  value={status}
-                >
-                  {statusLabel(
-                    status,
-                  )}
-                </NativeSelectOption>
-              ),
-            )}
-          </NativeSelect>
+          />
 
           <NativeSelect
             size="default"
@@ -632,76 +623,18 @@ export function RunsList() {
             />
           </Button>
 
-          <ButtonGroup
+          <ViewToggle
             className="w-full xl:ml-auto xl:w-auto"
             aria-label="Run view mode"
-          >
-            <Button
-              type="button"
-              variant="outline"
-              className={cn(
-                "flex-1 xl:flex-none",
-                viewMode === "list" &&
-                  "border-brand-accent/50 bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/15",
-              )}
-              aria-pressed={
-                viewMode === "list"
-              }
-              onClick={() =>
-                setViewMode("list")
-              }
-              disabled={controlsDisabled}
-            >
-              <ListIcon
-                aria-hidden="true"
-              />
-              List
-            </Button>
-
-            <Button
-              type="button"
-              variant="outline"
-              className={cn(
-                "flex-1 xl:flex-none",
-                viewMode === "details" &&
-                  "border-brand-accent/50 bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/15",
-              )}
-              aria-pressed={
-                viewMode === "details"
-              }
-              onClick={() =>
-                setViewMode("details")
-              }
-              disabled={controlsDisabled}
-            >
-              <TableIcon
-                aria-hidden="true"
-              />
-              Detailed
-            </Button>
-
-            <Button
-              type="button"
-              variant="outline"
-              className={cn(
-                "flex-1 xl:flex-none",
-                viewMode === "grid" &&
-                  "border-brand-accent/50 bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/15",
-              )}
-              aria-pressed={
-                viewMode === "grid"
-              }
-              onClick={() =>
-                setViewMode("grid")
-              }
-              disabled={controlsDisabled}
-            >
-              <LayoutGridIcon
-                aria-hidden="true"
-              />
-              Grid
-            </Button>
-          </ButtonGroup>
+            value={viewMode}
+            onChange={(value) =>
+              setViewMode(
+                value as RunViewMode,
+              )
+            }
+            modes={runViewModes}
+            disabled={controlsDisabled}
+          />
         </div>
 
         {runsError &&
@@ -734,102 +667,51 @@ export function RunsList() {
         <div className="min-w-0 overflow-x-auto">
           {initialLoading &&
           runs.length === 0 ? (
-            <Empty className="min-h-80 rounded-none border-0">
-              <Spinner className="size-6" />
-
-              <EmptyTitle>
-                Loading runs...
-              </EmptyTitle>
-            </Empty>
+            <ListEmptyState
+              variant="loading"
+              title="Loading runs..."
+            />
           ) : null}
 
           {!initialLoading &&
           runsError &&
           runs.length === 0 ? (
-            <Empty className="min-h-80 rounded-none border-0">
-              <EmptyHeader>
-                <EmptyMedia
-                  variant="icon"
-                  className="bg-status-error/10 text-status-error"
-                >
-                  <AlertTriangleIcon />
-                </EmptyMedia>
-
-                <EmptyTitle>
-                  Failed to load runs
-                </EmptyTitle>
-
-                <EmptyDescription>
-                  {runsError}
-                </EmptyDescription>
-              </EmptyHeader>
-
-              <EmptyContent>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() =>
-                    void loadRuns({
-                      manual: true,
-                    })
-                  }
-                  disabled={refreshing}
-                >
-                  Retry
-                </Button>
-              </EmptyContent>
-            </Empty>
+            <ListEmptyState
+              variant="error"
+              icon={<AlertTriangleIcon />}
+              title="Failed to load runs"
+              description={runsError}
+              onRetry={() =>
+                void loadRuns({
+                  manual: true,
+                })
+              }
+            />
           ) : null}
 
           {!initialLoading &&
           !runsError &&
           collectionState ===
             "empty" ? (
-            <Empty className="min-h-80 rounded-none border-0">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <InboxIcon />
-                </EmptyMedia>
-
-                <EmptyTitle>
-                  No runs yet
-                </EmptyTitle>
-
-                <EmptyDescription>
-                  Workflow runs will appear here after they are created by the existing task and orchestration flows.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
+            <ListEmptyState
+              variant="empty"
+              icon={<InboxIcon />}
+              title="No runs yet"
+              description="Workflow runs will appear here after they are created by the existing task and orchestration flows."
+            />
           ) : null}
 
           {!initialLoading &&
           collectionState ===
             "filtered-empty" ? (
-            <Empty className="min-h-80 rounded-none border-0">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <SearchIcon />
-                </EmptyMedia>
-
-                <EmptyTitle>
-                  No runs match these filters
-                </EmptyTitle>
-
-                <EmptyDescription>
-                  Adjust the search, status, or project filter to broaden the collection.
-                </EmptyDescription>
-              </EmptyHeader>
-
-              <EmptyContent>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={clearFilters}
-                >
-                  Clear filters
-                </Button>
-              </EmptyContent>
-            </Empty>
+            <ListEmptyState
+              variant="empty"
+              icon={<SearchIcon />}
+              title="No runs match these filters"
+              description="Adjust the search, status, or project filter to broaden the collection."
+              onRetry={clearFilters}
+              retryLabel="Clear filters"
+            />
           ) : null}
 
           {collectionState ===

@@ -13,7 +13,7 @@ import type {
   RunMonitoringSummary,
 } from "@orc/shared";
 
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -54,7 +54,6 @@ const statusBadgeVariant = {
   cancelled: "disabled",
   skipped: "neutral",
 } as const;
-
 
 /**
  * Produces a compact stable Run identifier for collection surfaces.
@@ -105,34 +104,6 @@ function exactTimestamp(
   )
     ? value
     : date.toLocaleString();
-}
-
-/**
- * Renders one semantic status badge using the existing dashboard status-token variants.
- */
-function RunStatusBadge({
-  run,
-}: {
-  run: RunMonitoringSummary;
-}) {
-  return (
-    <Badge
-      variant={
-        statusBadgeVariant[
-          run.status
-        ]
-      }
-      aria-label={`Run status: ${run.status}`}
-    >
-      <span
-        className="size-1.5 rounded-full bg-current"
-        aria-hidden="true"
-      />
-      {statusLabel(
-        run.status,
-      )}
-    </Badge>
-  );
 }
 
 /**
@@ -361,8 +332,10 @@ export function RunCollectionViews({
                     }
                   />
                 </div>
-                <RunStatusBadge
-                  run={run}
+                <StatusBadge
+                  variant={statusBadgeVariant[run.status]}
+                  label={statusLabel(run.status)}
+                  aria-label={`Run status: ${run.status}`}
                 />
               </div>
 
@@ -502,8 +475,10 @@ export function RunCollectionViews({
                 />
               </TableCell>
               <TableCell className="px-4 py-2">
-                <RunStatusBadge
-                  run={run}
+                <StatusBadge
+                  variant={statusBadgeVariant[run.status]}
+                  label={statusLabel(run.status)}
+                  aria-label={`Run status: ${run.status}`}
                 />
               </TableCell>
               <TableCell className="max-w-[220px] px-4 py-2">
@@ -623,8 +598,10 @@ export function RunCollectionViews({
               />
             </TableCell>
             <TableCell className="px-4 py-2">
-              <RunStatusBadge
-                run={run}
+              <StatusBadge
+                variant={statusBadgeVariant[run.status]}
+                label={statusLabel(run.status)}
+                aria-label={`Run status: ${run.status}`}
               />
             </TableCell>
             <TableCell className="max-w-[220px] px-4 py-2">

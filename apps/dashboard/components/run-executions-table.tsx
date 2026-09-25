@@ -13,21 +13,17 @@ import type {
   AgentExecution,
 } from "@orc/shared";
 
-import { Badge } from "@/components/ui/badge";
+import {
+  DataTable,
+  type DataTableColumn,
+} from "@/components/patterns/data-table";
+import { StatusBadge } from "@/components/patterns/status-badge";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   executionDurationMs,
   formatCompactNumber,
@@ -168,6 +164,208 @@ function OverviewRunExecutionsTable({
     AgentExecution[];
   className?: string;
 }) {
+  const columns: DataTableColumn<AgentExecution>[] = [
+    {
+      key: "agent",
+      header: (
+        <>
+          <p>Agent</p>
+          <p className="text-[9px] font-normal text-text-muted">
+            Role, layer, order
+          </p>
+        </>
+      ),
+      className: "min-w-36 whitespace-normal px-3 py-2.5 align-top",
+      render: (execution) => (
+        <>
+          <Link
+            href={`/agent-executions/${execution.id}`}
+            className="font-medium text-link hover:underline"
+          >
+            {execution.agentName}
+          </Link>
+
+          <p className="mt-0.5 text-[10px] text-text-muted">
+            {execution.agentRole}
+          </p>
+
+          <p className="mt-0.5 text-[9px] tabular-nums text-text-muted">
+            L{execution.layer} / O{execution.executionOrder}
+          </p>
+        </>
+      ),
+    },
+    {
+      key: "runtime",
+      header: (
+        <>
+          <p>Runtime</p>
+          <p className="text-[9px] font-normal text-text-muted">
+            Harness, model, reasoning
+          </p>
+        </>
+      ),
+      className: "min-w-40 max-w-52 whitespace-normal px-3 py-2.5 align-top",
+      render: (execution) => (
+        <>
+          <p className="capitalize text-text-secondary">
+            {execution.harness}
+          </p>
+
+          <p className="mt-0.5 truncate font-mono text-[9px] text-text-muted">
+            {execution.model}
+          </p>
+
+          <p className="mt-0.5 capitalize text-[9px] text-text-muted">
+            {execution.reasoning}
+          </p>
+        </>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      className: "whitespace-normal px-3 py-2.5 align-top",
+      render: (execution) => (
+        <StatusBadge
+          variant={executionStatusVariant(execution.status)}
+          label={formatStatusLabel(execution.status)}
+          entityLabel="Execution"
+          className="h-4 px-1.5 text-[9px]"
+        />
+      ),
+    },
+    {
+      key: "result",
+      header: (
+        <>
+          <p>Result</p>
+          <p className="text-[9px] font-normal text-text-muted">
+            Outcome and failure
+          </p>
+        </>
+      ),
+      className: "min-w-40 max-w-56 whitespace-normal px-3 py-2.5 align-top",
+      render: (execution) => (
+        <>
+          <p className="text-text-secondary">
+            {executionResultLabel(execution)}
+          </p>
+
+          {execution.failureReason ? (
+            <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-status-error">
+              {execution.failureReason}
+            </p>
+          ) : null}
+
+          {execution.repairAttempted ? (
+            <span className="mt-1 inline-flex items-center gap-1 text-[9px] text-status-warning">
+              <WrenchIcon className="size-2.5" />
+              Repair attempted
+            </span>
+          ) : null}
+        </>
+      ),
+    },
+    {
+      key: "timing",
+      header: (
+        <>
+          <p>Timing</p>
+          <p className="text-[9px] font-normal text-text-muted">
+            Started and completion
+          </p>
+        </>
+      ),
+      className: "min-w-36 whitespace-normal px-3 py-2.5 align-top tabular-nums",
+      render: (execution) => {
+        const elapsed = executionDurationMs(execution);
+
+        return (
+          <>
+            <p className="whitespace-nowrap text-text-secondary">
+              {formatDateTime(execution.startedAt)}
+            </p>
+
+            <p className="mt-0.5 whitespace-nowrap text-[9px] text-text-muted">
+              {execution.completedAt
+                ? `Completed ${formatDateTime(execution.completedAt)}`
+                : elapsed !== null
+                  ? `Elapsed ${formatDuration(elapsed)}`
+                  : "Completion unavailable"}
+            </p>
+          </>
+        );
+      },
+    },
+    {
+      key: "process",
+      header: (
+        <>
+          <p>Process</p>
+          <p className="text-[9px] font-normal text-text-muted">
+            PID and exit
+          </p>
+        </>
+      ),
+      className: "whitespace-normal px-3 py-2.5 align-top font-mono tabular-nums",
+      render: (execution) => (
+        <>
+          <p className="text-text-secondary">
+            PID {execution.pid ?? "Unavailable"}
+          </p>
+
+          <p className="mt-0.5 text-[9px] text-text-muted">
+            Exit {execution.exitCode ?? "Unavailable"}
+          </p>
+        </>
+      ),
+    },
+    {
+      key: "usage",
+      header: (
+        <>
+          <p>Usage</p>
+          <p className="text-[9px] font-normal text-text-muted">
+            Tokens and context
+          </p>
+        </>
+      ),
+      className: "whitespace-normal px-3 py-2.5 align-top tabular-nums",
+      render: (execution) => {
+        const tokens = normalizeTokenUsage(execution.tokenUsage);
+        const context = normalizeContextUsage(execution.contextUsage);
+
+        return (
+          <>
+            <p className="text-text-secondary">
+              {tokens?.totalTokens !== null && tokens?.totalTokens !== undefined
+                ? formatCompactNumber(tokens.totalTokens)
+                : "Unavailable"}
+            </p>
+
+            <p className="mt-0.5 text-[9px] text-text-muted">
+              Context {context ? `${context.percent.toFixed(0)}%` : "Unavailable"}
+            </p>
+          </>
+        );
+      },
+    },
+    {
+      key: "commit",
+      header: "Commit",
+      className: "whitespace-normal px-3 py-2.5 align-top font-mono",
+      render: (execution) =>
+        execution.commitHash ? (
+          <span className="text-link">
+            {shortIdentifier(execution.commitHash)}
+          </span>
+        ) : (
+          <span className="text-text-muted">Unavailable</span>
+        ),
+    },
+  ];
+
   return (
     <Card
       className={cn(
@@ -193,101 +391,12 @@ function OverviewRunExecutionsTable({
 
       <CardContent className="min-w-0 p-0">
         {executions.length ? (
-          <Table className="min-w-[940px] text-[11px]">
-            <TableHeader>
-              <TableRow className="bg-surface-interactive/40 hover:bg-surface-interactive/40">
-                <TableHead className="h-auto px-3 py-2">
-                  <p>
-                    Agent
-                  </p>
-                  <p className="text-[9px] font-normal text-text-muted">
-                    Role,
-                    layer,
-                    order
-                  </p>
-                </TableHead>
-
-                <TableHead className="h-auto px-3 py-2">
-                  <p>
-                    Runtime
-                  </p>
-                  <p className="text-[9px] font-normal text-text-muted">
-                    Harness,
-                    model,
-                    reasoning
-                  </p>
-                </TableHead>
-
-                <TableHead className="h-auto px-3 py-2">
-                  Status
-                </TableHead>
-
-                <TableHead className="h-auto px-3 py-2">
-                  <p>
-                    Result
-                  </p>
-                  <p className="text-[9px] font-normal text-text-muted">
-                    Outcome
-                    and
-                    failure
-                  </p>
-                </TableHead>
-
-                <TableHead className="h-auto px-3 py-2">
-                  <p>
-                    Timing
-                  </p>
-                  <p className="text-[9px] font-normal text-text-muted">
-                    Started
-                    and
-                    completion
-                  </p>
-                </TableHead>
-
-                <TableHead className="h-auto px-3 py-2">
-                  <p>
-                    Process
-                  </p>
-                  <p className="text-[9px] font-normal text-text-muted">
-                    PID and
-                    exit
-                  </p>
-                </TableHead>
-
-                <TableHead className="h-auto px-3 py-2">
-                  <p>
-                    Usage
-                  </p>
-                  <p className="text-[9px] font-normal text-text-muted">
-                    Tokens
-                    and
-                    context
-                  </p>
-                </TableHead>
-
-                <TableHead className="h-auto px-3 py-2">
-                  Commit
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-
-            <TableBody>
-              {executions.map(
-                (
-                  execution,
-                ) => (
-                  <OverviewExecutionRow
-                    key={
-                      execution.id
-                    }
-                    execution={
-                      execution
-                    }
-                  />
-                ),
-              )}
-            </TableBody>
-          </Table>
+          <DataTable
+            className="min-w-[940px] text-[11px]"
+            columns={columns}
+            rows={executions}
+            getRowKey={(execution) => execution.id}
+          />
         ) : (
           <div className="px-4 py-8 text-center text-sm text-text-muted">
             Preparing
@@ -297,191 +406,6 @@ function OverviewRunExecutionsTable({
         )}
       </CardContent>
     </Card>
-  );
-}
-
-/**
- * Renders one existing overview row with grouped runtime, timing, process, and usage telemetry.
- */
-function OverviewExecutionRow({
-  execution,
-}: {
-  execution:
-    AgentExecution;
-}) {
-  const tokens =
-    normalizeTokenUsage(
-      execution.tokenUsage,
-    );
-
-  const context =
-    normalizeContextUsage(
-      execution.contextUsage,
-    );
-
-  const elapsed =
-    executionDurationMs(
-      execution,
-    );
-
-  return (
-    <TableRow className="border-divider hover:bg-surface-interactive/40">
-      <TableCell className="min-w-36 whitespace-normal px-3 py-2.5 align-top">
-        <Link
-          href={`/agent-executions/${execution.id}`}
-          className="font-medium text-link hover:underline"
-        >
-          {
-            execution.agentName
-          }
-        </Link>
-
-        <p className="mt-0.5 text-[10px] text-text-muted">
-          {
-            execution.agentRole
-          }
-        </p>
-
-        <p className="mt-0.5 text-[9px] tabular-nums text-text-muted">
-          L
-          {
-            execution.layer
-          }{" "}
-          / O
-          {
-            execution.executionOrder
-          }
-        </p>
-      </TableCell>
-
-      <TableCell className="min-w-40 max-w-52 whitespace-normal px-3 py-2.5 align-top">
-        <p className="capitalize text-text-secondary">
-          {
-            execution.harness
-          }
-        </p>
-
-        <p className="mt-0.5 truncate font-mono text-[9px] text-text-muted">
-          {
-            execution.model
-          }
-        </p>
-
-        <p className="mt-0.5 capitalize text-[9px] text-text-muted">
-          {
-            execution.reasoning
-          }
-        </p>
-      </TableCell>
-
-      <TableCell className="whitespace-normal px-3 py-2.5 align-top">
-        <Badge
-          variant={executionStatusVariant(
-            execution.status,
-          )}
-          className="h-4 px-1.5 text-[9px]"
-        >
-          {formatStatusLabel(
-            execution.status,
-          )}
-        </Badge>
-      </TableCell>
-
-      <TableCell className="min-w-40 max-w-56 whitespace-normal px-3 py-2.5 align-top">
-        <p className="text-text-secondary">
-          {executionResultLabel(
-            execution,
-          )}
-        </p>
-
-        {execution.failureReason ? (
-          <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-status-error">
-            {
-              execution.failureReason
-            }
-          </p>
-        ) : null}
-
-        {execution.repairAttempted ? (
-          <span className="mt-1 inline-flex items-center gap-1 text-[9px] text-status-warning">
-            <WrenchIcon className="size-2.5" />
-            Repair
-            attempted
-          </span>
-        ) : null}
-      </TableCell>
-
-      <TableCell className="min-w-36 whitespace-normal px-3 py-2.5 align-top tabular-nums">
-        <p className="whitespace-nowrap text-text-secondary">
-          {formatDateTime(
-            execution.startedAt,
-          )}
-        </p>
-
-        <p className="mt-0.5 whitespace-nowrap text-[9px] text-text-muted">
-          {execution.completedAt
-            ? `Completed ${formatDateTime(
-                execution.completedAt,
-              )}`
-            : elapsed !==
-                null
-              ? `Elapsed ${formatDuration(
-                  elapsed,
-                )}`
-              : "Completion unavailable"}
-        </p>
-      </TableCell>
-
-      <TableCell className="whitespace-normal px-3 py-2.5 align-top font-mono tabular-nums">
-        <p className="text-text-secondary">
-          PID{" "}
-          {execution.pid ??
-            "Unavailable"}
-        </p>
-
-        <p className="mt-0.5 text-[9px] text-text-muted">
-          Exit{" "}
-          {execution.exitCode ??
-            "Unavailable"}
-        </p>
-      </TableCell>
-
-      <TableCell className="whitespace-normal px-3 py-2.5 align-top tabular-nums">
-        <p className="text-text-secondary">
-          {tokens?.totalTokens !==
-            null &&
-          tokens?.totalTokens !==
-            undefined
-            ? formatCompactNumber(
-                tokens.totalTokens,
-              )
-            : "Unavailable"}
-        </p>
-
-        <p className="mt-0.5 text-[9px] text-text-muted">
-          Context{" "}
-          {context
-            ? `${context.percent.toFixed(
-                0,
-              )}%`
-            : "Unavailable"}
-        </p>
-      </TableCell>
-
-      <TableCell className="whitespace-normal px-3 py-2.5 align-top font-mono">
-        {execution.commitHash ? (
-          <span className="text-link">
-            {shortIdentifier(
-              execution.commitHash,
-            )}
-          </span>
-        ) : (
-          <span className="text-text-muted">
-            Unavailable
-          </span>
-        )}
-      </TableCell>
-    </TableRow>
   );
 }
 
@@ -504,6 +428,142 @@ function OperatorRunExecutionsTable({
   ) => void;
   className?: string;
 }) {
+  const selectable =
+    typeof onSelectExecution ===
+    "function";
+
+  const columns: DataTableColumn<AgentExecution>[] = [
+    {
+      key: "attempt",
+      header: "Attempt",
+      className: "w-12 px-2 py-1.5 text-center font-mono tabular-nums text-text-secondary",
+      render: (execution) => executions.indexOf(execution) + 1,
+    },
+    {
+      key: "agent",
+      header: "Agent",
+      className: "w-40 min-w-0 px-2 py-1.5",
+      render: (execution) => {
+        const selected =
+          selectedExecutionId ===
+          execution.id;
+
+        return (
+          <>
+            <div className="flex min-w-0 items-center gap-1">
+              <span
+                title={execution.agentName}
+                className="min-w-0 flex-1 truncate font-medium text-text-primary"
+              >
+                {execution.agentName}
+              </span>
+
+              <Link
+                href={`/agent-executions/${execution.id}`}
+                aria-label={`Open standalone execution detail for ${execution.agentName}`}
+                title="Open standalone execution detail"
+                className="shrink-0 rounded-sm text-text-muted hover:text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <ExternalLinkIcon className="size-3" />
+              </Link>
+            </div>
+
+            {selected ? (
+              <span className="sr-only">
+                Selected execution.
+              </span>
+            ) : null}
+          </>
+        );
+      },
+    },
+    {
+      key: "layer",
+      header: "Layer",
+      className: "w-14 px-2 py-1.5 text-center tabular-nums text-text-secondary",
+      render: (execution) => execution.layer,
+    },
+    {
+      key: "harness",
+      header: "Harness / Model",
+      className: "w-36 min-w-0 px-2 py-1.5",
+      render: (execution) => (
+        <p className="truncate capitalize text-text-secondary">
+          {execution.harness} /{" "}
+          <span
+            title={execution.model}
+            className="font-mono normal-case"
+          >
+            {execution.model}
+          </span>
+        </p>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status / Result",
+      className: "w-40 px-2 py-1.5",
+      render: (execution) => (
+        <div className="flex min-w-0 items-center gap-1.5">
+          <StatusBadge
+            variant={executionStatusVariant(execution.status)}
+            label={formatStatusLabel(execution.status)}
+            entityLabel="Execution"
+            className="h-4 shrink-0 px-1.5 text-[9px]"
+          />
+
+          <span
+            title={executionResultLabel(execution)}
+            className="min-w-0 truncate text-[9px] text-text-muted"
+          >
+            {executionResultLabel(execution)}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "duration",
+      header: "Duration",
+      className: "w-20 px-2 py-1.5 font-mono tabular-nums text-text-secondary",
+      render: (execution) =>
+        formatDuration(executionDurationMs(execution)),
+    },
+    {
+      key: "commit",
+      header: "Commit",
+      className: "w-24 truncate px-2 py-1.5 font-mono text-text-secondary",
+      render: (execution) =>
+        execution.commitHash
+          ? shortIdentifier(execution.commitHash)
+          : "Unavailable",
+    },
+  ];
+
+  /**
+   * Makes execution-row selection available to keyboard users without hijacking child links.
+   */
+  function handleKeyDown(
+    event:
+      KeyboardEvent<HTMLTableRowElement>,
+    execution: AgentExecution,
+  ): void {
+    if (
+      event.target !==
+      event.currentTarget
+    ) {
+      return;
+    }
+
+    if (
+      event.key === "Enter" ||
+      event.key === " "
+    ) {
+      event.preventDefault();
+      onSelectExecution?.(execution.id);
+    }
+  }
+
   return (
     <Card
       className={cn(
@@ -529,79 +589,41 @@ function OperatorRunExecutionsTable({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {executions.length ? (
-          <Table className="min-w-[660px] table-fixed text-[10px]">
-            <colgroup>
-              <col className="w-12" />
-              <col className="w-40" />
-              <col className="w-14" />
-              <col className="w-36" />
-              <col className="w-40" />
-              <col className="w-20" />
-              <col className="w-24" />
-            </colgroup>
+          <DataTable
+            className="min-w-[660px] table-fixed text-[10px]"
+            columns={columns}
+            rows={executions}
+            getRowKey={(execution) => execution.id}
+            onRowClick={
+              selectable
+                ? (execution) => onSelectExecution?.(execution.id)
+                : undefined
+            }
+            getRowProps={(execution) => {
+              const selected =
+                selectedExecutionId ===
+                execution.id;
 
-            <TableHeader>
-              <TableRow className="bg-surface-interactive/40 hover:bg-surface-interactive/40">
-                <TableHead className="h-8 px-2 text-[10px]">
-                  Attempt
-                </TableHead>
-
-                <TableHead className="h-8 px-2 text-[10px]">
-                  Agent
-                </TableHead>
-
-                <TableHead className="h-8 px-2 text-[10px]">
-                  Layer
-                </TableHead>
-
-                <TableHead className="h-8 px-2 text-[10px]">
-                  Harness /
-                  Model
-                </TableHead>
-
-                <TableHead className="h-8 px-2 text-[10px]">
-                  Status /
-                  Result
-                </TableHead>
-
-                <TableHead className="h-8 px-2 text-[10px]">
-                  Duration
-                </TableHead>
-
-                <TableHead className="h-8 px-2 text-[10px]">
-                  Commit
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-
-            <TableBody>
-              {executions.map(
-                (
-                  execution,
-                  index,
-                ) => (
-                  <OperatorExecutionRow
-                    key={
-                      execution.id
-                    }
-                    execution={
-                      execution
-                    }
-                    attemptNumber={
-                      index + 1
-                    }
-                    selected={
-                      selectedExecutionId ===
-                      execution.id
-                    }
-                    onSelectExecution={
-                      onSelectExecution
-                    }
-                  />
+              return {
+                tabIndex: selectable ? 0 : undefined,
+                "aria-current": selected ? "true" : undefined,
+                "aria-label": selectable
+                  ? `Inspect ${execution.agentName} execution attempt ${
+                      executions.indexOf(execution) + 1
+                    }`
+                  : undefined,
+                onKeyDown: selectable
+                  ? (event) => handleKeyDown(event, execution)
+                  : undefined,
+                className: cn(
+                  "h-9",
+                  selected &&
+                    "bg-status-running/10 ring-1 ring-inset ring-status-running/50 hover:bg-status-running/10",
                 ),
-              )}
-            </TableBody>
-          </Table>
+              };
+            }}
+            rowClassName="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring"
+          />
         ) : (
           <div className="flex min-h-32 items-center justify-center px-4 text-center text-xs text-text-muted">
             No
@@ -613,212 +635,5 @@ function OperatorRunExecutionsTable({
         )}
       </div>
     </Card>
-  );
-}
-
-/**
- * Renders one stable-height selectable persisted execution attempt.
- */
-function OperatorExecutionRow({
-  execution,
-  attemptNumber,
-  selected,
-  onSelectExecution,
-}: {
-  execution:
-    AgentExecution;
-  attemptNumber:
-    number;
-  selected: boolean;
-  onSelectExecution?: (
-    executionId: string,
-  ) => void;
-}) {
-  const elapsed =
-    executionDurationMs(
-      execution,
-    );
-
-  const selectable =
-    typeof onSelectExecution ===
-    "function";
-
-  /**
-   * Selects this execution for the terminal and inspector without route navigation.
-   */
-  function handleSelect(): void {
-    onSelectExecution?.(
-      execution.id,
-    );
-  }
-
-  /**
-   * Makes execution-row selection available to keyboard users without hijacking child links.
-   */
-  function handleKeyDown(
-    event:
-      KeyboardEvent<HTMLTableRowElement>,
-  ): void {
-    if (
-      event.target !==
-      event.currentTarget
-    ) {
-      return;
-    }
-
-    if (
-      event.key ===
-        "Enter" ||
-      event.key ===
-        " "
-    ) {
-      event.preventDefault();
-      handleSelect();
-    }
-  }
-
-  return (
-    <TableRow
-      tabIndex={
-        selectable
-          ? 0
-          : undefined
-      }
-      aria-current={
-        selected
-          ? "true"
-          : undefined
-      }
-      aria-label={
-        selectable
-          ? `Inspect ${execution.agentName} execution attempt ${attemptNumber}`
-          : undefined
-      }
-      onClick={
-        selectable
-          ? handleSelect
-          : undefined
-      }
-      onKeyDown={
-        selectable
-          ? handleKeyDown
-          : undefined
-      }
-      className={cn(
-        "h-9 border-divider hover:bg-surface-interactive/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring",
-        selectable &&
-          "cursor-pointer",
-        selected &&
-          "bg-status-running/10 ring-1 ring-inset ring-status-running/50 hover:bg-status-running/10",
-      )}
-    >
-      <TableCell className="px-2 py-1.5 text-center font-mono tabular-nums text-text-secondary">
-        {
-          attemptNumber
-        }
-      </TableCell>
-
-      <TableCell className="min-w-0 px-2 py-1.5">
-        <div className="flex min-w-0 items-center gap-1">
-          <span
-            title={
-              execution.agentName
-            }
-            className="min-w-0 flex-1 truncate font-medium text-text-primary"
-          >
-            {
-              execution.agentName
-            }
-          </span>
-
-          <Link
-            href={`/agent-executions/${execution.id}`}
-            aria-label={`Open standalone execution detail for ${execution.agentName}`}
-            title="Open standalone execution detail"
-            className="shrink-0 rounded-sm text-text-muted hover:text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-          >
-            <ExternalLinkIcon className="size-3" />
-          </Link>
-        </div>
-
-        {selected ? (
-          <span className="sr-only">
-            Selected
-            execution.
-          </span>
-        ) : null}
-      </TableCell>
-
-      <TableCell className="px-2 py-1.5 text-center tabular-nums text-text-secondary">
-        {
-          execution.layer
-        }
-      </TableCell>
-
-      <TableCell className="min-w-0 px-2 py-1.5">
-        <p className="truncate capitalize text-text-secondary">
-          {
-            execution.harness
-          }{" "}
-          /{" "}
-          <span
-            title={
-              execution.model
-            }
-            className="font-mono normal-case"
-          >
-            {
-              execution.model
-            }
-          </span>
-        </p>
-      </TableCell>
-
-      <TableCell className="px-2 py-1.5">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <Badge
-            variant={executionStatusVariant(
-              execution.status,
-            )}
-            className="h-4 shrink-0 px-1.5 text-[9px]"
-          >
-            {formatStatusLabel(
-              execution.status,
-            )}
-          </Badge>
-
-          <span
-            title={executionResultLabel(
-              execution,
-            )}
-            className="min-w-0 truncate text-[9px] text-text-muted"
-          >
-            {executionResultLabel(
-              execution,
-            )}
-          </span>
-        </div>
-      </TableCell>
-
-      <TableCell className="px-2 py-1.5 font-mono tabular-nums text-text-secondary">
-        {formatDuration(
-          elapsed,
-        )}
-      </TableCell>
-
-      <TableCell
-        title={
-          execution.commitHash ??
-          undefined
-        }
-        className="truncate px-2 py-1.5 font-mono text-text-secondary"
-      >
-        {execution.commitHash
-          ? shortIdentifier(
-              execution.commitHash,
-            )
-          : "Unavailable"}
-      </TableCell>
-    </TableRow>
   );
 }
