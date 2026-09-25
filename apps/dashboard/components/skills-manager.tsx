@@ -20,8 +20,18 @@ import {
   SkillConfigDrawer,
 } from "@/components/skill-config-drawer";
 import {
-  Badge,
-} from "@/components/ui/badge";
+  DataTable,
+  type DataTableColumn,
+} from "@/components/patterns/data-table";
+import {
+  FilterSelect,
+} from "@/components/patterns/filter-select";
+import {
+  SearchInput,
+} from "@/components/patterns/search-input";
+import {
+  StatusBadge,
+} from "@/components/patterns/status-badge";
 import {
   Button,
 } from "@/components/ui/button";
@@ -31,23 +41,8 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import {
-  Input,
-} from "@/components/ui/input";
-import {
-  NativeSelect,
-  NativeSelectOption,
-} from "@/components/ui/native-select";
-import {
   Spinner,
 } from "@/components/ui/spinner";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   getSkills,
 } from "@/lib/skills";
@@ -79,38 +74,6 @@ function formatUpdatedAt(
     new Date(
       value,
     ),
-  );
-}
-
-/**
- * Renders semantic enabled state using the existing status badge system.
- */
-function SkillStatusBadge({
-  skill,
-}: {
-  skill: Skill;
-}) {
-  return (
-    <Badge
-      variant={
-        skill.enabled
-          ? "success"
-          : "disabled"
-      }
-    >
-      <span
-        aria-hidden="true"
-        className={
-          skill.enabled
-            ? "size-1.5 rounded-full bg-status-success"
-            : "size-1.5 rounded-full bg-status-disabled"
-        }
-      />
-
-      {skill.enabled
-        ? "Enabled"
-        : "Disabled"}
-    </Badge>
   );
 }
 
@@ -282,6 +245,51 @@ export function SkillsManager() {
       ],
     );
 
+  const skillColumns: DataTableColumn<Skill>[] = [
+    {
+      key: "skill",
+      header: "Skill",
+      render: (skill) => (
+        <div className="flex items-center gap-3">
+          <SkillIcon />
+          <div className="min-w-0">
+            <div className="font-medium">{skill.name}</div>
+            <div className="font-mono text-xs text-text-muted">{skill.slug}</div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "description",
+      header: "Description",
+      render: (skill) => (
+        <p className="max-w-[34rem] truncate text-text-secondary">{skill.description || "No description"}</p>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (skill) => (
+        <StatusBadge variant={skill.enabled ? "success" : "disabled"} label={skill.enabled ? "Enabled" : "Disabled"} entityLabel="Skill" />
+      ),
+    },
+    {
+      key: "updated",
+      header: "Updated",
+      className: "text-xs text-text-muted",
+      render: (skill) => formatUpdatedAt(skill.updatedAt),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      render: (skill) => (
+        <Button type="button" variant="ghost" size="icon-sm" aria-label={`Edit ${skill.name}`} onClick={() => setEditor({ skill })}>
+          <PencilIcon />
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -319,53 +327,52 @@ export function SkillsManager() {
         className="min-w-0 overflow-hidden rounded-lg border border-border-default bg-surface-elevated"
       >
         <div className="flex flex-wrap gap-3 border-b border-divider p-3">
-          <Input
+          <SearchInput
             className="min-w-52 flex-1"
-            type="search"
             aria-label="Search Skills"
             placeholder="Search Skills..."
             value={
               query
             }
-            onChange={(
-              event,
-            ) =>
-              setQuery(
-                event
-                  .target
-                  .value,
-              )
+            onChange={
+              setQuery
             }
           />
 
-          <NativeSelect
+          <FilterSelect
             value={
               statusFilter
             }
             onChange={(
-              event,
+              value,
             ) =>
               setStatusFilter(
-                event
-                  .target
-                  .value as
+                value as
                   SkillStatusFilter,
               )
             }
             aria-label="Filter Skills by status"
-          >
-            <NativeSelectOption value="all">
-              All statuses
-            </NativeSelectOption>
-
-            <NativeSelectOption value="enabled">
-              Enabled
-            </NativeSelectOption>
-
-            <NativeSelectOption value="disabled">
-              Disabled
-            </NativeSelectOption>
-          </NativeSelect>
+            options={[
+              {
+                value:
+                  "all",
+                label:
+                  "All statuses",
+              },
+              {
+                value:
+                  "enabled",
+                label:
+                  "Enabled",
+              },
+              {
+                value:
+                  "disabled",
+                label:
+                  "Disabled",
+              },
+            ]}
+          />
 
           <Button
             variant="outline"
@@ -490,104 +497,20 @@ export function SkillsManager() {
           </Empty>
         ) : view ===
           "table" ? (
-          <Table className="min-w-[760px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>
-                  Skill
-                </TableHead>
-
-                <TableHead>
-                  Description
-                </TableHead>
-
-                <TableHead>
-                  Status
-                </TableHead>
-
-                <TableHead>
-                  Updated
-                </TableHead>
-
-                <TableHead>
-                  Actions
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-
-            <TableBody>
-              {visibleSkills.map(
-                (
-                  skill,
-                ) => (
-                  <TableRow
-                    key={
-                      skill.id
-                    }
-                  >
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <SkillIcon />
-
-                        <div className="min-w-0">
-                          <div className="font-medium">
-                            {
-                              skill.name
-                            }
-                          </div>
-
-                          <div className="font-mono text-xs text-text-muted">
-                            {
-                              skill.slug
-                            }
-                          </div>
-                        </div>
-                      </div>
-                    </TableCell>
-
-                    <TableCell>
-                      <p className="max-w-[34rem] truncate text-text-secondary">
-                        {skill.description ||
-                          "No description"}
-                      </p>
-                    </TableCell>
-
-                    <TableCell>
-                      <SkillStatusBadge
-                        skill={
-                          skill
-                        }
-                      />
-                    </TableCell>
-
-                    <TableCell className="text-xs text-text-muted">
-                      {formatUpdatedAt(
-                        skill.updatedAt,
-                      )}
-                    </TableCell>
-
-                    <TableCell>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Edit ${skill.name}`}
-                        onClick={() =>
-                          setEditor(
-                            {
-                              skill,
-                            },
-                          )
-                        }
-                      >
-                        <PencilIcon />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ),
-              )}
-            </TableBody>
-          </Table>
+          <DataTable
+            className="min-w-[760px]"
+            columns={
+              skillColumns
+            }
+            rows={
+              visibleSkills
+            }
+            getRowKey={(
+              skill,
+            ) =>
+              skill.id
+            }
+          />
         ) : (
           <div
             className={
@@ -632,10 +555,18 @@ export function SkillsManager() {
                     </div>
 
                     <div className="flex shrink-0 items-center gap-2">
-                      <SkillStatusBadge
-                        skill={
-                          skill
+                      <StatusBadge
+                        variant={
+                          skill.enabled
+                            ? "success"
+                            : "disabled"
                         }
+                        label={
+                          skill.enabled
+                            ? "Enabled"
+                            : "Disabled"
+                        }
+                        entityLabel="Skill"
                       />
 
                       <Button
