@@ -18,8 +18,8 @@ import type {
 } from "react";
 
 import {
-  Badge,
-} from "@/components/ui/badge";
+  StatusBadge,
+} from "@/components/patterns/status-badge";
 import {
   Button,
 } from "@/components/ui/button";
@@ -377,15 +377,16 @@ export function OrchestratorContextStrip({
 
           <ContextCell label="Status">
             {run ? (
-              <Badge
+              <StatusBadge
+                dot={false}
                 variant={getLifecycleBadgeVariant(
                   run.status,
                 )}
-              >
-                {formatStatusLabel(
+                label={formatStatusLabel(
                   run.status,
                 )}
-              </Badge>
+                entityLabel="Run"
+              />
             ) : (
               <span className="text-text-muted">
                 Idle

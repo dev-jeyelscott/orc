@@ -21,7 +21,7 @@ import {
   ExecutionTimelinePanel,
   RunOverviewPanel,
 } from "@/components/orchestrator-observability";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -548,15 +548,15 @@ export function OrchestratorInspector({
 
           <div className="flex min-w-0 flex-col items-end gap-1">
             {run ? (
-              <Badge
+              <StatusBadge
                 variant={getLifecycleBadgeVariant(
                   run.status,
                 )}
-              >
-                {formatStatusLabel(
+                label={formatStatusLabel(
                   run.status,
                 )}
-              </Badge>
+                entityLabel="Run"
+              />
             ) : null}
 
             <span

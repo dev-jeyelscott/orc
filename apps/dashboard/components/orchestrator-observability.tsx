@@ -19,6 +19,7 @@ import {
 } from "react";
 
 import { AgentExecutionTerminal } from "@/components/agent-execution-terminal";
+import { StatusBadge } from "@/components/patterns/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { getAgentExecutionMetrics } from "@/lib/agent-executions";
@@ -292,15 +293,15 @@ export function RunOverviewPanel({
         label="Status"
         className="bg-surface-interactive p-3"
       >
-        <Badge
+        <StatusBadge
           variant={getLifecycleBadgeVariant(
             detail.run.status,
           )}
-        >
-          {formatStatusLabel(
+          label={formatStatusLabel(
             detail.run.status,
           )}
-        </Badge>
+          entityLabel="Run"
+        />
       </Detail>
 
       <Detail
@@ -425,15 +426,17 @@ export function ExecutionTimelinePanel({
                   }
                 </span>
 
-                <Badge
+                <StatusBadge
+                  dot={false}
+                  className="text-[10px]"
                   variant={getLifecycleBadgeVariant(
                     execution.status,
                   )}
-                >
-                  {formatStatusLabel(
+                  label={formatStatusLabel(
                     execution.status,
                   )}
-                </Badge>
+                  entityLabel="Execution"
+                />
               </div>
 
               <p className="mt-1 truncate text-[10px] text-text-muted">
@@ -523,16 +526,16 @@ export function ActiveAgentPanel({
           </p>
         </div>
 
-        <Badge
+        <StatusBadge
           className="ms-auto"
           variant={getLifecycleBadgeVariant(
             execution.status,
           )}
-        >
-          {formatStatusLabel(
+          label={formatStatusLabel(
             execution.status,
           )}
-        </Badge>
+          entityLabel="Execution"
+        />
       </div>
 
       <dl className="grid gap-4 sm:grid-cols-2">
