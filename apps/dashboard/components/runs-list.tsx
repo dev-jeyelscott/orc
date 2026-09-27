@@ -63,6 +63,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   getRunMonitoringRuns,
+  runAutoModeNow,
 } from "@/lib/workflows";
 
 const POLL_INTERVAL_MS = 2_000;
@@ -277,6 +278,16 @@ export function RunsList() {
   ] = useState<number | null>(
     null,
   );
+  const [
+    runNowPending,
+    setRunNowPending,
+  ] = useState(false);
+  const [
+    runNowError,
+    setRunNowError,
+  ] = useState<string | null>(
+    null,
+  );
 
   const isBelowXl = useIsBelowXl();
 
@@ -363,6 +374,38 @@ export function RunsList() {
     },
     [],
   );
+
+  /**
+   * Requests an immediate Auto Mode cycle, then refreshes the list once the backend
+   * has had a moment to claim and start any newly eligible task.
+   */
+  const handleRunNow =
+    useCallback(async () => {
+      setRunNowPending(true);
+      setRunNowError(null);
+
+      try {
+        await runAutoModeNow();
+
+        await new Promise((resolve) => {
+          setTimeout(resolve, 2_000);
+        });
+
+        await loadRuns({
+          manual: true,
+        });
+      } catch (error) {
+        if (mountedRef.current) {
+          setRunNowError(
+            errorMessage(error),
+          );
+        }
+      } finally {
+        if (mountedRef.current) {
+          setRunNowPending(false);
+        }
+      }
+    }, [loadRuns]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -724,6 +767,25 @@ export function RunsList() {
             />
           </Button>
 
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              void handleRunNow()
+            }
+            disabled={
+              runNowPending ||
+              refreshing ||
+              initialLoading
+            }
+            aria-label="Run Auto Mode now"
+            title="Check for the next Ready task immediately instead of waiting for the next scheduled poll"
+          >
+            {runNowPending
+              ? "Running…"
+              : "Run Now"}
+          </Button>
+
           <ViewToggle
             className="w-full xl:ml-auto xl:w-auto"
             aria-label="Run view mode"
@@ -761,6 +823,29 @@ export function RunsList() {
               disabled={refreshing}
             >
               Retry
+            </Button>
+          </div>
+        ) : null}
+
+        {runNowError ? (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-divider bg-status-error/5 px-4 py-2 text-xs text-status-error"
+          >
+            <span>
+              Failed to request an Auto Mode run.{" "}
+              {runNowError}
+            </span>
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              onClick={() =>
+                setRunNowError(null)
+              }
+            >
+              Dismiss
             </Button>
           </div>
         ) : null}

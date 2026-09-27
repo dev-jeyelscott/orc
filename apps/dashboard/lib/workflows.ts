@@ -5,6 +5,7 @@ import {
   runMonitoringListResponseSchema,
   taskListResponseSchema,
   projectAutomationStatusResponseSchema,
+  autoModeRunNowResponseSchema,
   taskWithRunSchema,
   type CreateTask,
   type RetryRun,
@@ -15,6 +16,7 @@ import {
   type Task,
   type TaskWithRun,
   type ProjectAutomationStatus,
+  type AutoModeRunNowResponse,
 } from "@orc/shared";
 
 const SERVER_URL =
@@ -154,6 +156,25 @@ export function getProjectAutomationStatuses(): Promise<
       projectAutomationStatusResponseSchema.parse(
         value,
       ).projects,
+  );
+}
+
+/**
+ * Requests an immediate Auto Mode cycle instead of waiting for the next scheduled poll.
+ */
+export function runAutoModeNow(): Promise<
+  AutoModeRunNowResponse
+> {
+  return request(
+    "/api/auto-mode/run-now",
+    {
+      method:
+        "POST",
+    },
+    (value) =>
+      autoModeRunNowResponseSchema.parse(
+        value,
+      ),
   );
 }
 

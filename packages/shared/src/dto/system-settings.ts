@@ -37,6 +37,11 @@ export const projectAutomationStatusResponseSchema =
     projects: z.array(projectAutomationStatusSchema),
   });
 
+export const autoModeRunNowResponseSchema =
+  z.object({
+    requested: z.boolean(),
+  });
+
 export type TeamAutomationStatusState =
   z.infer<
     typeof teamAutomationStatusStateSchema
@@ -52,3 +57,6 @@ export type ProjectAutomationStatus =
 
 export type ProjectAutomationStatusResponse =
   z.infer<typeof projectAutomationStatusResponseSchema>;
+
+export type AutoModeRunNowResponse =
+  z.infer<typeof autoModeRunNowResponseSchema>;
