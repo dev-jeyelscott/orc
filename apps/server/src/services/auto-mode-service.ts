@@ -606,7 +606,11 @@ function notionStatusForLocalState(
 }
 
 /**
- * Updates one persisted Notion task to In Progress and starts it only while the durable gate still allows intake.
+ * Starts one persisted Notion task and only then reflects In Progress remotely, while the durable gate
+ * still allows intake. Starting before the Notion update is deliberate: `startExistingTask` can throw
+ * (for example a stale Published workflow after a Team's membership changed), and a Notion page that was
+ * already flipped to In Progress before that failure would never be returned as Ready again, orphaning
+ * the local task as pending forever with no further Auto Mode retry.
  */
 async function claimPersistedNotionTask(
   task:
@@ -632,19 +636,13 @@ async function claimPersistedNotionTask(
     return;
   }
 
+  await startExistingTask(
+    task.id,
+  );
+
   await adapter.updateStatus(
     task.externalId,
     "In Progress",
-  );
-
-  if (
-    !await canClaim()
-  ) {
-    return;
-  }
-
-  await startExistingTask(
-    task.id,
   );
 }
 

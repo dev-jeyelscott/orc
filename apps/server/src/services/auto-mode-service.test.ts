@@ -609,7 +609,7 @@ describe.sequential(
     );
 
     it(
-      "leaves the local task pending and unstarted when the remote claim update fails",
+      "still starts the local run when the remote claim update fails afterward",
       async () => {
         const candidate =
           createCandidate();
@@ -627,7 +627,30 @@ describe.sequential(
           );
 
         const startExistingTask =
-          vi.fn();
+          vi.fn()
+            .mockImplementation(
+              async (
+                id:
+                  string,
+              ) => {
+                await db
+                  .update(tasks)
+                  .set({
+                    status:
+                      "running",
+                    updatedAt:
+                      new Date(),
+                  })
+                  .where(
+                    eq(
+                      tasks.id,
+                      id,
+                    ),
+                  );
+
+                return {};
+              },
+            );
 
         await expect(
           runCycle(
@@ -647,19 +670,21 @@ describe.sequential(
           localTask,
         ).toMatchObject({
           status:
-            "pending",
+            "running",
           source:
             "notion",
         });
 
         expect(
           startExistingTask,
-        ).not.toHaveBeenCalled();
+        ).toHaveBeenCalledTimes(
+          1,
+        );
       },
     );
 
     it(
-      "resumes the same persisted task after a crash between Notion claim and local run start",
+      "resumes the same persisted task after a crash before local run start, never having told Notion In Progress",
       async () => {
         const candidate =
           createCandidate();
@@ -696,6 +721,14 @@ describe.sequential(
         ).toBe(
           "pending",
         );
+
+        // A start failure must never reach Notion: the page is left exactly
+        // as Ready as it was found, so the next cycle's real Notion query
+        // (which only returns pages whose Status is literally "Ready") can
+        // still find and reclaim it.
+        expect(
+          mocks.updateStatus,
+        ).not.toHaveBeenCalled();
 
         const secondStart =
           vi.fn()
@@ -737,7 +770,7 @@ describe.sequential(
         expect(
           mocks.updateStatus,
         ).toHaveBeenCalledTimes(
-          2,
+          1,
         );
 
         expect(

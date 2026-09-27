@@ -240,6 +240,69 @@ describe("harness adapters", () => {
     });
   });
 
+  it("does not mark a command detached from a literal '&' inside quoted text", () => {
+    expect(
+      codexHarness.extractWorkLifecycleEvent?.({
+        type: "item.started",
+        item: {
+          id: "command-2",
+          type: "command_execution",
+          command:
+            "/bin/bash -lc \"printf '%s\\n' '-- MOBILE ROUTES & REQUESTS --'\nrg -n 'addLine' routes/mobile.php\"",
+        },
+      }),
+    ).toEqual({
+      id: "command-2",
+      state: "started",
+    });
+
+    expect(
+      codexHarness.extractWorkLifecycleEvent?.({
+        type: "item.started",
+        item: {
+          id: "command-3",
+          type: "command_execution",
+          command: '/bin/bash -lc "echo \\"a & b\\""',
+        },
+      }),
+    ).toEqual({
+      id: "command-3",
+      state: "started",
+    });
+  });
+
+  it("still marks a real backgrounding operator detached inside a bash -lc wrapper", () => {
+    expect(
+      codexHarness.extractWorkLifecycleEvent?.({
+        type: "item.started",
+        item: {
+          id: "command-4",
+          type: "command_execution",
+          command: '/bin/bash -lc "long_running_task &"',
+        },
+      }),
+    ).toEqual({
+      id: "command-4",
+      state: "started",
+      detached: true,
+    });
+
+    expect(
+      codexHarness.extractWorkLifecycleEvent?.({
+        type: "item.started",
+        item: {
+          id: "command-5",
+          type: "command_execution",
+          command: '/bin/bash -lc "nohup server > log.txt"',
+        },
+      }),
+    ).toEqual({
+      id: "command-5",
+      state: "started",
+      detached: true,
+    });
+  });
+
   it("fails explicitly for unsupported Claude effort configuration", () => {
     expect(() => {
       claudeHarness.createInvocation(

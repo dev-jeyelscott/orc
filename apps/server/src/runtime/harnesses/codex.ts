@@ -148,10 +148,87 @@ function extractMessageText(
   return undefined;
 }
 
+/**
+ * Recovers the actual script bash executes from a reported `<shell> -lc "<script>"`
+ * (or `'<script>'`) invocation string. Codex reports `item.command` as a single
+ * display string with the script's own quoting already escaped into the outer
+ * wrapper quote, so scanning that display string directly conflates the wrapper's
+ * quoting with the script's real quoting one level down. Unwrapping first means
+ * `stripQuotedSegments` below sees the script's own quotes at the level bash will
+ * actually parse them.
+ */
+function unwrapShellDashC(command: string): string {
+  const match = command.match(
+    /^\s*(?:\/usr\/bin\/|\/bin\/)?(?:bash|sh|zsh|dash)\s+-l?c\s+(['"])([\s\S]*)\1\s*$/,
+  );
+
+  if (!match) {
+    return command;
+  }
+
+  const [, quote, body] = match;
+
+  return quote === '"'
+    ? body.replace(/\\([\\"$`])/g, "$1")
+    : body;
+}
+
+/**
+ * Blanks out single- and double-quoted substrings (replacing each with a single
+ * space so surrounding tokens never merge) so shell-detachment detection only
+ * ever sees unquoted, live shell syntax. Without this, a literal `&` inside a
+ * human-readable label -- e.g. `printf '-- ROUTES & REQUESTS --'` -- is
+ * indistinguishable from a real backgrounding operator.
+ */
+function stripQuotedSegments(script: string): string {
+  let result = "";
+  let quote: "'" | "\"" | null = null;
+
+  for (let i = 0; i < script.length; i += 1) {
+    const char = script[i];
+
+    if (quote === null) {
+      if (char === "\\" && i + 1 < script.length) {
+        result += " ";
+        i += 1;
+        continue;
+      }
+
+      if (char === "'" || char === "\"") {
+        quote = char;
+        result += " ";
+        continue;
+      }
+
+      result += char;
+      continue;
+    }
+
+    if (quote === "\"" && char === "\\" && i + 1 < script.length) {
+      result += " ";
+      i += 1;
+      continue;
+    }
+
+    if (char === quote) {
+      quote = null;
+      result += " ";
+      continue;
+    }
+
+    result += " ";
+  }
+
+  return result;
+}
+
 /** Identifies shell constructs that detach work from the worker's terminal lifecycle. */
 function isDetachedCommand(command: string): boolean {
+  const script = unwrapShellDashC(command);
+  const unquoted = stripQuotedSegments(script);
+
   return /\b(?:nohup|disown|setsid)\b|(?:^|[^&>])&(?![&>])/.test(
-    command,
+    unquoted,
   );
 }
 
