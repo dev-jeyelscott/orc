@@ -26,6 +26,7 @@ const runtimeState = vi.hoisted(
     startSnapshotAgentExecution:
       vi.fn(),
     cancelLiveExecution: vi.fn(),
+    requestAutoModeCycle: vi.fn(),
   }),
 );
 
@@ -36,6 +37,14 @@ vi.mock(
       runtimeState.startSnapshotAgentExecution,
     cancelLiveExecution:
       runtimeState.cancelLiveExecution,
+  }),
+);
+
+vi.mock(
+  "./auto-mode-signal.js",
+  () => ({
+    requestAutoModeCycle:
+      runtimeState.requestAutoModeCycle,
   }),
 );
 
@@ -55,6 +64,7 @@ import type {
 } from "./agent-execution-service.js";
 import {
   approveRun,
+  cancelRun,
   orderWorkflowAgents,
   recoverInterruptedWorkflows,
   retryLastExecution,
@@ -440,6 +450,9 @@ describe(
         .mockReset();
 
       runtimeState.cancelLiveExecution
+        .mockReset();
+
+      runtimeState.requestAutoModeCycle
         .mockReset();
 
       runtimeState
@@ -1368,6 +1381,47 @@ describe(
             type: "run.skipped",
           }),
         );
+      },
+    );
+
+    it(
+      "cancels an active run without immediately advancing Auto Mode intake",
+      async () => {
+        const projectPath =
+          `/tmp/orc-cancel-${crypto.randomUUID()}`;
+
+        const [task] =
+          await db
+            .insert(tasks)
+            .values({
+              projectPath,
+              title: "Cancel without advancing the queue",
+              instruction: "Stop this workflow.",
+              status: "running",
+            })
+            .returning();
+
+        createdTaskIds.add(task.id);
+
+        const [run] =
+          await db
+            .insert(runs)
+            .values({
+              taskId: task.id,
+              projectPath,
+              status: "running",
+            })
+            .returning();
+
+        createdRunIds.add(run.id);
+
+        const cancelled =
+          await cancelRun(run.id);
+
+        expect(cancelled?.status).toBe("cancelled");
+        expect(
+          runtimeState.requestAutoModeCycle,
+        ).not.toHaveBeenCalled();
       },
     );
 

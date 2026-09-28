@@ -1054,7 +1054,7 @@ function transitionEventData(
 }
 
 /**
- * Atomically moves an active run and its task to a terminal state, records the matching event, then signals Auto Mode.
+ * Atomically moves an active run and its task to a terminal state, records the matching event, and optionally signals Auto Mode.
  */
 async function updateTerminal(
   run:
@@ -1069,6 +1069,8 @@ async function updateTerminal(
     string | null,
   expectedAgentId?:
     string,
+  requestAutoMode:
+    boolean = true,
 ): Promise<boolean> {
   const now =
     new Date();
@@ -1170,7 +1172,8 @@ async function updateTerminal(
     );
 
   if (
-    transitioned
+    transitioned &&
+    requestAutoMode
   ) {
     requestAutoModeCycle();
   }
@@ -3059,6 +3062,7 @@ export async function cancelRun(
     "Cancelled by operator",
     run.currentAgentId ??
       undefined,
+    false,
   );
 
   const [updated] =
