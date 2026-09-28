@@ -84,6 +84,14 @@ describe("selectNextDevelopmentPhase", () => {
   it("uses priority, creation time, then id across eligible Features", () => {
     expect(selectNextDevelopmentPhase([page("z", "a", 1, "Ready", 5), page("a", "b", 1, "Ready", 5)])?.id).toBe("a");
   });
+
+  it("falls back to one unambiguous global sequence when every Feature has one phase", () => {
+    expect(selectNextDevelopmentPhase([
+      page("one", "vertical-spec-one", 1, "Done"),
+      page("two", "vertical-spec-two", 2, "Ready"),
+      page("three", "vertical-spec-three", 3, "Ready"),
+    ])?.id).toBe("two");
+  });
 });
 
 /**

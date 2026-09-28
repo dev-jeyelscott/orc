@@ -100,7 +100,14 @@ export type NotionTaskCandidate = {
 export type NotionWorkType = "Resolution" | "Development";
 export type NotionIntakeRequest = { projectName: string; workType: NotionWorkType };
 
-/** Selects the next Ready Development phase without mutating malformed pages. */
+/**
+ * Selects the next Ready Development phase without mutating malformed pages.
+ *
+ * Most Development sources organize multiple phases beneath one Feature. Some
+ * sources instead use globally numbered vertical specs, where each page has a
+ * distinct Feature. Support that unambiguous global sequence as a fallback so
+ * those sources do not strand every phase after the first completed one.
+ */
 export function selectNextDevelopmentPhase<T extends { id: string; feature: string; phase: number; status: string; priority: number; createdTime: string }>(pages: T[]): T | null {
   const byFeature = new Map<string, T[]>();
   for (const page of pages) {
@@ -117,7 +124,21 @@ export function selectNextDevelopmentPhase<T extends { id: string; feature: stri
     for (let phase = 1; phase < ready.phase; phase += 1) if (!phases.some((page) => page.phase === phase && page.status === "Done")) valid = false;
     if (valid) eligible.push(ready);
   }
-  return eligible.sort((a, b) => a.priority - b.priority || a.createdTime.localeCompare(b.createdTime) || a.id.localeCompare(b.id))[0] ?? null;
+  if (eligible.length) return eligible.sort((a, b) => a.priority - b.priority || a.createdTime.localeCompare(b.createdTime) || a.id.localeCompare(b.id))[0] ?? null;
+
+  // A source with one page per Feature cannot satisfy per-Feature predecessors.
+  // Treat distinct, globally numbered phases as one sequence only when there
+  // are no duplicate phase numbers to make the ordering ambiguous.
+  if ([...byFeature.values()].some((phases) => phases.length > 1)) return null;
+  const phases = [...byFeature.values()].flat();
+  const seen = new Set<number>();
+  if (phases.some((page) => seen.has(page.phase) || !seen.add(page.phase))) return null;
+  const ready = phases.filter((page) => page.status === "Ready").sort((a, b) => a.phase - b.phase)[0];
+  if (!ready) return null;
+  for (let phase = 1; phase < ready.phase; phase += 1) {
+    if (!phases.some((page) => page.phase === phase && page.status === "Done")) return null;
+  }
+  return ready;
 }
 
 type ProjectResolver = (
